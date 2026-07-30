@@ -161,6 +161,15 @@ def terminate_employee():
         conn.execute("UPDATE employees SET is_active = 0, "
                      "end_of_service_date = ? WHERE id = ?",
                      (termination_date, employee_id))
+        try:
+            from utils.payroll_engine import log_employee_event
+            log_employee_event(conn, int(employee_id), 'end_of_service_date',
+                               '', str(termination_date), 'status',
+                               user_id=session.get('user_id'),
+                               source='eos_settlement',
+                               note=gettext('x.' + reason) if reason else None)
+        except Exception as _e:
+            print(f'audit log failed on EOS: {_e}')
         conn.commit()
         pass # conn.close() removed to prevent leak in Flask g
         

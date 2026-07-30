@@ -4,6 +4,7 @@ import sqlite3
 import pandas as pd
 import io
 import openpyxl
+from datetime import datetime
 from utils.db import get_db_connection
 from utils.auth import login_required, get_allowed_department_name
 from utils.rbac import require_permission
@@ -401,6 +402,8 @@ def edit_employee(id):
             password = (request.form.get('password') or '').strip()
             group_id = (request.form.get('group_id') or '').strip()
             
+            _before = conn.execute('SELECT * FROM employees WHERE id = ?',
+                                   (id,)).fetchone()
             conn.execute('''
                 UPDATE employees SET 
                     name=?, department=?, position=?, hire_date=?, salary=?, cost_center=?, phone=?, email=?, address=?, arabic_name=?, 
@@ -423,6 +426,15 @@ def edit_employee(id):
                 bank_iban, bank_swift, social_security_number, tax_id, education_level, university, graduation_year,
                 id
             ))
+            try:
+                from utils.payroll_engine import log_employee_changes
+                _after = conn.execute('SELECT * FROM employees WHERE id = ?',
+                                      (id,)).fetchone()
+                log_employee_changes(conn, id, _before, _after,
+                                     user_id=session.get('user_id'),
+                                     source='edit')
+            except Exception as _e:
+                print(f'audit log failed for employee {id}: {_e}')
             conn.commit()
             
             # ADMS SYNC
@@ -880,6 +892,9 @@ def import_employees():
                             'SELECT id FROM employees WHERE employee_number = ?',
                             (emp_no,)).fetchone()
                         if existing:
+                            _before_row = conn.execute(
+                                'SELECT * FROM employees WHERE id = ?',
+                                (existing['id'],)).fetchone()
                             cols = base_cols + list(extra.keys())
                             vals = base_vals + list(extra.values())
                             sets = ', '.join(f'{c}=?' for c in cols)
@@ -887,6 +902,17 @@ def import_employees():
                                            vals + [existing['id']])
                             emp_id = existing['id']
                             updated_count += 1
+                            try:
+                                from utils.payroll_engine import log_employee_changes
+                                _after_row = conn.execute(
+                                    'SELECT * FROM employees WHERE id = ?',
+                                    (emp_id,)).fetchone()
+                                log_employee_changes(conn, emp_id, _before_row,
+                                                     _after_row,
+                                                     user_id=session.get('user_id'),
+                                                     source='import')
+                            except Exception as _e:
+                                print(f'audit log failed on import: {_e}')
                         else:
                             cols = ['employee_number'] + base_cols + list(extra.keys())
                             vals = [emp_no] + base_vals + list(extra.values())
@@ -1479,6 +1505,16 @@ def add_dependent():
         conn.commit()
         
         dep_id = cursor.lastrowid
+        try:
+            from utils.payroll_engine import log_employee_event
+            log_employee_event(conn, int(data['employee_id']),
+                               data.get('relation') or 'dependent', '',
+                               data.get('name') or '', 'family',
+                               user_id=session.get('user_id'),
+                               source='dependent_add')
+            conn.commit()
+        except Exception as _e:
+            print(f'audit log failed on dependent add: {_e}')
         new_dep = conn.execute('SELECT * FROM dependents WHERE id = ?', (dep_id,)).fetchone()
         pass # conn.close() removed to prevent leak in Flask g
         
@@ -1537,6 +1573,17 @@ def add_asset():
         conn.commit()
         
         asset_id = cursor.lastrowid
+        try:
+            from utils.payroll_engine import log_employee_event
+            log_employee_event(conn, int(data['employee_id']),
+                               data.get('asset_name') or 'asset', '',
+                               data.get('asset_code') or gettext('x.asset_held'),
+                               'custody', user_id=session.get('user_id'),
+                               source='asset_issue',
+                               note=data.get('issue_date'))
+            conn.commit()
+        except Exception as _e:
+            print(f'audit log failed on asset issue: {_e}')
         new_asset = conn.execute('SELECT * FROM assets WHERE id = ?', (asset_id,)).fetchone()
         pass # conn.close() removed to prevent leak in Flask g
         
@@ -1615,6 +1662,24 @@ def api_employee_profile():
     loans = fetch_employee_loans_detail(conn, id)
     fixed_earnings = fetch_fixed_earnings(conn, id, basic)
 
+    dependents = [dict(r) for r in conn.execute(
+        """SELECT id, name, relation, dob, gender FROM dependents
+           WHERE employee_id = ? ORDER BY id""", (id,)).fetchall()]
+    assets = [dict(r) for r in conn.execute(
+        """SELECT id, asset_name, asset_code, issue_date, return_date, status
+           FROM assets WHERE employee_id = ?
+           ORDER BY (status != 'active'), id""", (id,)).fetchall()]
+
+    # Field-level change history, newest first, with who made it.
+    audit = [dict(r) for r in conn.execute("""
+        SELECT a.field, a.old_value, a.new_value, a.category, a.source,
+               a.note, a.changed_at,
+               COALESCE(u.full_name, u.username, '-') AS changed_by_name
+        FROM employee_audit_log a
+        LEFT JOIN users u ON u.id = a.changed_by
+        WHERE a.employee_id = ?
+        ORDER BY a.id DESC LIMIT 200""", (id,)).fetchall()]
+
     import json as _j
     eos_row = conn.execute("""SELECT * FROM end_of_service_records
                               WHERE employee_id = ?
@@ -1650,6 +1715,9 @@ def api_employee_profile():
                     'leave_type_summary': type_summary,
                     'loans': loans,
                     'eos': eos,
+                    'dependents': dependents,
+                    'assets': assets,
+                    'audit': audit,
                     'attendance': attendance})
 
 
@@ -1779,10 +1847,20 @@ def rename_structure_item(kind, item_id):
     try:
         conn.execute(f'UPDATE {table} SET name = ? WHERE id = ?',
                      (new_name, item_id))
+        affected = [r['id'] for r in conn.execute(
+            f'SELECT id FROM employees WHERE {emp_col} = ?', (old_name,)).fetchall()]
         cur = conn.execute(
             f'UPDATE employees SET {emp_col} = ? WHERE {emp_col} = ?',
             (new_name, old_name))
         moved = cur.rowcount
+        try:
+            from utils.payroll_engine import log_employee_event
+            for _eid in affected:
+                log_employee_event(conn, _eid, emp_col, old_name, new_name,
+                                   'org', user_id=session.get('user_id'),
+                                   source='structure_rename')
+        except Exception as _e:
+            print(f'audit log failed on rename: {_e}')
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -1813,5 +1891,45 @@ def delete_structure_item(kind, item_id):
         return jsonify({'success': False, 'code': 'in_use', 'count': used,
                         'message': gettext('x.st_in_use') % {'p0': used}}), 409
     conn.execute(f'DELETE FROM {table} WHERE id = ?', (item_id,))
+    conn.commit()
+    return jsonify({'success': True})
+
+
+@employee_bp.route('/api/employees/assets/<int:id>/return', methods=['POST'])
+@login_required
+@require_permission('employee.edit')
+def return_asset(id):
+    """Mark custody as returned instead of deleting the row.
+
+    Deleting erases the fact that the employee ever held the item, which is
+    exactly what a custody record exists to prove. Returning keeps the
+    history and stops it counting against the employee at clearance.
+    """
+    conn = get_db_connection()
+    row = conn.execute('SELECT * FROM assets WHERE id = ?', (id,)).fetchone()
+    if not row:
+        return jsonify({'success': False, 'code': 'not_found'}), 404
+    if row['status'] == 'returned':
+        return jsonify({'success': False, 'code': 'already_returned'}), 400
+    data = request.get_json(silent=True) or {}
+    return_date = (data.get('return_date') or '').strip()
+    try:
+        datetime.strptime(return_date, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'success': False,
+                        'message': gettext('x.f_end_date_required')}), 400
+    if row['issue_date'] and return_date < str(row['issue_date'])[:10]:
+        return jsonify({'success': False,
+                        'message': gettext('x.f_end_before_start')}), 400
+    conn.execute("UPDATE assets SET status = 'returned', return_date = ? "
+                 "WHERE id = ?", (return_date, id))
+    try:
+        from utils.payroll_engine import log_employee_event
+        log_employee_event(conn, row['employee_id'], row['asset_name'],
+                           gettext('x.asset_held'), gettext('x.asset_returned'),
+                           'custody', user_id=session.get('user_id'),
+                           source='asset_return', note=return_date)
+    except Exception as e:
+        print(f'audit log failed on asset return: {e}')
     conn.commit()
     return jsonify({'success': True})

@@ -1300,6 +1300,73 @@ def unlock_run(conn, month, year, user_id, reason):
     return run['id']
 
 
+# Fields worth an audit trail, grouped so the employee file can show
+# "what changed about pay" separately from "what changed about their file".
+AUDIT_FIELDS = {
+    'salary': 'pay', 'department': 'org', 'position': 'org',
+    'manager_id': 'org', 'shift_type': 'work', 'employment_status': 'work',
+    'contract_type': 'work', 'contract_start_date': 'work',
+    'contract_end_date': 'work', 'grade_level': 'work',
+    'branch_location': 'work', 'is_active': 'status',
+    'end_of_service_date': 'status', 'hire_date': 'status',
+    'previous_leave_balance': 'leave', 'weekly_leave_selected_days': 'work',
+    'bank_iban': 'bank', 'bank_account_number': 'bank', 'bank_name': 'bank',
+    'name': 'identity', 'arabic_name': 'identity', 'employee_number': 'identity',
+    'national_id': 'identity', 'phone': 'contact', 'email': 'contact',
+}
+
+
+def log_employee_changes(conn, employee_id, before, after, user_id=None,
+                         source='edit', note=None):
+    """Record field-level changes for one employee.
+
+    `before` and `after` are dict-like snapshots. Only fields listed in
+    AUDIT_FIELDS are tracked, and only when the value actually changed —
+    an audit log full of no-op rows is worse than none, because it buries
+    the real events.
+    """
+    def norm(v):
+        if v is None:
+            return ''
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v).strip()
+
+    rows = []
+    for field, category in AUDIT_FIELDS.items():
+        try:
+            old_v = before[field] if field in before.keys() else None
+        except (TypeError, AttributeError):
+            old_v = (before or {}).get(field)
+        try:
+            new_v = after[field] if field in after.keys() else None
+        except (TypeError, AttributeError):
+            new_v = (after or {}).get(field)
+        if norm(old_v) == norm(new_v):
+            continue
+        rows.append((employee_id, field, norm(old_v), norm(new_v),
+                     category, source, note, user_id))
+    if rows:
+        conn.executemany(
+            """INSERT INTO employee_audit_log
+               (employee_id, field, old_value, new_value, category,
+                source, note, changed_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", rows)
+    return len(rows)
+
+
+def log_employee_event(conn, employee_id, field, old_value, new_value,
+                       category, user_id=None, source='system', note=None):
+    """Record a single non-column event (allowance added, loan issued, ...)."""
+    conn.execute(
+        """INSERT INTO employee_audit_log
+           (employee_id, field, old_value, new_value, category,
+            source, note, changed_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (employee_id, field, old_value, new_value, category, source,
+         note, user_id))
+
+
 def fetch_fixed_earnings(conn, employee_id, basic, as_of=None):
     """Fixed recurring earning items in effect for one employee AS OF a
     date (default: today). Single source reused by EOS wage calc (as of

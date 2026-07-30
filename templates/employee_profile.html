@@ -29,6 +29,27 @@
         leaveHistory: {{ _('x.ep_leave_history')|tojson }},
         openLoans: {{ _('x.ep_open_loans')|tojson }},
         monthlyTotal: {{ _('x.ep_monthly_total')|tojson }},
+        depsTitle: {{ _('x.dependents_family')|tojson }},
+        depsNone: {{ _('x.deps_none')|tojson }},
+        depName: {{ _('x.aud_name')|tojson }},
+        depRelation: {{ _('x.dep_relation')|tojson }},
+        depDob: {{ _('x.dep_dob')|tojson }},
+        assetsTitle: {{ _('x.custody_assets')|tojson }},
+        assetsNone: {{ _('x.assets_none')|tojson }},
+        assetName: {{ _('x.asset_name')|tojson }},
+        assetCode: {{ _('x.asset_code')|tojson }},
+        assetIssued: {{ _('x.asset_issued')|tojson }},
+        assetHeld: {{ _('x.asset_held')|tojson }},
+        assetReturned: {{ _('x.asset_returned')|tojson }},
+        colStatus: {{ _('x.eh_status')|tojson }},
+        auditTitle: {{ _('x.aud_title')|tojson }},
+        auditNone: {{ _('x.aud_none')|tojson }},
+        auditAll: {{ _('x.aud_all')|tojson }},
+        auditWhen: {{ _('x.aud_when')|tojson }},
+        auditWhat: {{ _('x.aud_what')|tojson }},
+        auditFrom: {{ _('x.aud_from_val')|tojson }},
+        auditTo: {{ _('x.aud_to_val')|tojson }},
+        auditWho: {{ _('x.aud_who')|tojson }},
         noLoans: {{ _('x.eh_no_loans')|tojson }},
         eosLink: {{ _('x.ep_eos_link')|tojson }},
         historyLink: {{ _('x.ep_history_link')|tojson }},
@@ -140,6 +161,96 @@
             });
     }
 
+    const AUDIT_LABELS = {
+        salary: {{ _('x.pm_basic')|tojson }},
+        department: {{ _('x.department')|tojson }},
+        position: {{ _('x.position')|tojson }},
+        manager_id: {{ _('x.aud_manager')|tojson }},
+        shift_type: {{ _('x.aud_shift')|tojson }},
+        is_active: {{ _('x.aud_status')|tojson }},
+        end_of_service_date: {{ _('x.aud_eos')|tojson }},
+        hire_date: {{ _('x.aud_hire')|tojson }},
+        previous_leave_balance: {{ _('x.opening_leave_balance')|tojson }},
+        employment_status: {{ _('x.aud_emp_status')|tojson }},
+        contract_type: {{ _('x.aud_contract')|tojson }},
+        bank_iban: {{ _('x.aud_iban')|tojson }},
+        name: {{ _('x.aud_name')|tojson }},
+        arabic_name: {{ _('x.aud_name_ar')|tojson }},
+        employee_number: {{ _('x.hp_employee_no')|tojson }},
+        national_id: {{ _('x.aud_civil')|tojson }},
+        phone: {{ _('x.aud_phone')|tojson }},
+        email: {{ _('x.aud_email')|tojson }}
+    };
+    const CAT_LABELS = {
+        pay: {{ _('x.aud_cat_pay')|tojson }},
+        org: {{ _('x.aud_cat_org')|tojson }},
+        work: {{ _('x.aud_cat_work')|tojson }},
+        status: {{ _('x.aud_cat_status')|tojson }},
+        leave: {{ _('x.aud_cat_leave')|tojson }},
+        bank: {{ _('x.aud_cat_bank')|tojson }},
+        identity: {{ _('x.aud_cat_identity')|tojson }},
+        contact: {{ _('x.aud_cat_contact')|tojson }},
+        family: {{ _('x.aud_cat_family')|tojson }},
+        custody: {{ _('x.aud_cat_custody')|tojson }}
+    };
+    let EP_AUDIT = [];
+
+    function renderDependents(list) {
+        list = list || [];
+        if (!list.length) return `<div class="text-muted small">${esc(EPT.depsNone)}</div>`;
+        return `<div class="table-responsive"><table class="table table-sm mb-0">
+            <thead><tr><th>${esc(EPT.depName)}</th><th>${esc(EPT.depRelation)}</th>
+            <th>${esc(EPT.depDob)}</th></tr></thead><tbody>` +
+            list.map(d => `<tr>
+                <td>${esc(d.name)}</td>
+                <td><span class="badge bg-light text-dark border">${esc(d.relation || '—')}</span></td>
+                <td class="small text-muted">${esc(d.dob || '—')}</td>
+            </tr>`).join('') + `</tbody></table></div>`;
+    }
+
+    function renderAssets(list) {
+        list = list || [];
+        if (!list.length) return `<div class="text-muted small">${esc(EPT.assetsNone)}</div>`;
+        return `<div class="table-responsive"><table class="table table-sm mb-0">
+            <thead><tr><th>${esc(EPT.assetName)}</th><th>${esc(EPT.assetCode)}</th>
+            <th>${esc(EPT.assetIssued)}</th><th>${esc(EPT.colStatus)}</th></tr></thead><tbody>` +
+            list.map(a => `<tr>
+                <td>${esc(a.asset_name)}</td>
+                <td class="small">${esc(a.asset_code || '—')}</td>
+                <td class="small text-muted">${esc(a.issue_date || '—')}</td>
+                <td>${a.status === 'returned'
+                    ? `<span class="badge bg-success">${esc(EPT.assetReturned)}</span>
+                       <div class="small text-muted">${esc(a.return_date || '')}</div>`
+                    : `<span class="badge bg-warning text-dark">${esc(EPT.assetHeld)}</span>`}</td>
+            </tr>`).join('') + `</tbody></table></div>`;
+    }
+
+    function renderAudit(cat) {
+        const box = document.getElementById('epAuditBox');
+        if (!box) return;
+        const items = cat ? EP_AUDIT.filter(a => a.category === cat) : EP_AUDIT;
+        if (!items.length) {
+            box.innerHTML = `<div class="text-muted small">${esc(EPT.auditNone)}</div>`;
+            return;
+        }
+        box.innerHTML = `<div class="table-responsive" style="max-height:44vh;overflow:auto">
+            <table class="table table-sm table-hover align-middle mb-0">
+            <thead><tr>
+                <th>${esc(EPT.auditWhen)}</th><th>${esc(EPT.auditWhat)}</th>
+                <th>${esc(EPT.auditFrom)}</th><th>${esc(EPT.auditTo)}</th>
+                <th>${esc(EPT.auditWho)}</th>
+            </tr></thead><tbody>` + items.map(a => `
+                <tr>
+                    <td class="small text-muted">${esc((a.changed_at || '').slice(0, 16))}</td>
+                    <td>${esc(AUDIT_LABELS[a.field] || a.field)}
+                        ${a.category ? `<span class="badge bg-light text-dark border ms-1">${esc(CAT_LABELS[a.category] || a.category)}</span>` : ''}
+                        ${a.note ? `<div class="small text-muted">${esc(a.note)}</div>` : ''}</td>
+                    <td class="small text-danger">${esc(a.old_value || '—')}</td>
+                    <td class="small text-success"><b>${esc(a.new_value || '—')}</b></td>
+                    <td class="small">${esc(a.changed_by_name)}</td>
+                </tr>`).join('') + `</tbody></table></div>`;
+    }
+
     function epLoad() {
         const id = document.getElementById('epEmp').value;
         const box = document.getElementById('epBody');
@@ -213,6 +324,25 @@
                             <b><i class="fas fa-list me-1"></i>${esc(EPT.leaveHistory)}</b>
                         </div><div class="card-body">${renderLeaves(res.leaves, res.leave_type_summary)}</div></div>
                     </div>
+                    <div class="col-lg-6">
+                        <div class="card h-100"><div class="card-header">
+                            <b><i class="fas fa-users me-1"></i>${esc(EPT.depsTitle)}</b>
+                            <span class="badge bg-secondary ms-1">${(res.dependents || []).length}</span>
+                        </div><div class="card-body">${renderDependents(res.dependents)}</div></div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card h-100"><div class="card-header">
+                            <b><i class="fas fa-box me-1"></i>${esc(EPT.assetsTitle)}</b>
+                            ${(() => { const held = (res.assets || []).filter(a => a.status === 'active').length;
+                                       return held ? `<span class="badge bg-warning text-dark ms-1">${held} ${esc(EPT.assetHeld)}</span>` : ''; })()}
+                        </div><div class="card-body">${renderAssets(res.assets)}</div></div>
+                    </div>
+                    <div class="col-12">
+                        <div class="card"><div class="card-header d-flex align-items-center gap-2">
+                            <b><i class="fas fa-history me-1"></i>${esc(EPT.auditTitle)}</b>
+                            <select class="form-select form-select-sm w-auto ms-auto" id="epAuditCat"></select>
+                        </div><div class="card-body" id="epAuditBox"></div></div>
+                    </div>
                 </div>`;
                 box.innerHTML = h;
 
@@ -225,6 +355,16 @@
                     EP_MONTH = parseInt(mSel.value); EP_YEAR = parseInt(ySel.value);
                     loadAttendance(id);
                 };
+                EP_AUDIT = res.audit || [];
+                const catSel = document.getElementById('epAuditCat');
+                if (catSel) {
+                    const cats = [...new Set(EP_AUDIT.map(a => a.category).filter(Boolean))];
+                    catSel.innerHTML = `<option value="">${esc(EPT.auditAll)}</option>` +
+                        cats.map(c => `<option value="${esc(c)}">${esc(CAT_LABELS[c] || c)}</option>`).join('');
+                    catSel.onchange = () => renderAudit(catSel.value);
+                }
+                renderAudit('');
+
                 if (res.attendance && res.attendance.days) {
                     document.getElementById('epAttBox').innerHTML =
                         renderAttendanceTable(res.attendance.days);

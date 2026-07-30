@@ -9110,6 +9110,156 @@ msgstr "Filter list..."
 msgid "x.filter_showing"
 msgstr "Showing %s"
 
+msgid "x.aud_title"
+msgstr "Change history"
+
+msgid "x.aud_none"
+msgstr "No recorded changes"
+
+msgid "x.aud_all"
+msgstr "All categories"
+
+msgid "x.aud_when"
+msgstr "When"
+
+msgid "x.aud_what"
+msgstr "What"
+
+msgid "x.aud_from_val"
+msgstr "From"
+
+msgid "x.aud_to_val"
+msgstr "To"
+
+msgid "x.aud_who"
+msgstr "By"
+
+msgid "x.aud_from"
+msgstr "effective"
+
+msgid "x.aud_manager"
+msgstr "Direct manager"
+
+msgid "x.aud_shift"
+msgstr "Shift"
+
+msgid "x.aud_status"
+msgstr "Active status"
+
+msgid "x.aud_eos"
+msgstr "End of service date"
+
+msgid "x.aud_hire"
+msgstr "Hire date"
+
+msgid "x.aud_emp_status"
+msgstr "Employment status"
+
+msgid "x.aud_contract"
+msgstr "Contract type"
+
+msgid "x.aud_iban"
+msgstr "IBAN"
+
+msgid "x.aud_name"
+msgstr "Name"
+
+msgid "x.aud_name_ar"
+msgstr "Arabic name"
+
+msgid "x.aud_civil"
+msgstr "Civil ID"
+
+msgid "x.aud_phone"
+msgstr "Phone"
+
+msgid "x.aud_email"
+msgstr "Email"
+
+msgid "x.aud_cat_pay"
+msgstr "Pay"
+
+msgid "x.aud_cat_org"
+msgstr "Org"
+
+msgid "x.aud_cat_work"
+msgstr "Work"
+
+msgid "x.aud_cat_status"
+msgstr "Status"
+
+msgid "x.aud_cat_leave"
+msgstr "Leave"
+
+msgid "x.aud_cat_bank"
+msgstr "Bank"
+
+msgid "x.aud_cat_identity"
+msgstr "Identity"
+
+msgid "x.aud_cat_contact"
+msgstr "Contact"
+
+msgid "x.deps_none"
+msgstr "No dependents on record"
+
+msgid "x.dep_relation"
+msgstr "Relation"
+
+msgid "x.dep_dob"
+msgstr "Date of birth"
+
+msgid "x.assets_none"
+msgstr "No custody items on record"
+
+msgid "x.asset_name"
+msgstr "Item"
+
+msgid "x.asset_code"
+msgstr "Code"
+
+msgid "x.asset_issued"
+msgstr "Issued"
+
+msgid "x.asset_held"
+msgstr "Held"
+
+msgid "x.asset_returned"
+msgstr "Returned"
+
+msgid "x.aud_cat_family"
+msgstr "Dependents"
+
+msgid "x.aud_cat_custody"
+msgstr "Custody"
+
+msgid "x.err_reason_required"
+msgstr "A reason is required (min 3 characters)"
+
+msgid "x.ds_leave_paid"
+msgstr "Paid leave"
+
+msgid "x.ds_leave_sick"
+msgstr "Sick leave"
+
+msgid "x.ds_leave_unpaid"
+msgstr "Unpaid leave"
+
+msgid "x.f_loan_amounts_invalid"
+msgstr "Invalid loan amounts"
+
+msgid "x.ha_actual_hours"
+msgstr "Actual hours"
+
+msgid "x.sal_legacy_moved"
+msgstr "This screen is retired — payroll is calculated from the Monthly Payroll screen"
+
+msgid "x.search"
+msgstr "Search"
+
+msgid "nav.menu"
+msgstr "Menu"
+
 #~ msgid "btn.back"
 #~ msgstr "Back"
 

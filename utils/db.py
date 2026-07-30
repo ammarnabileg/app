@@ -131,9 +131,28 @@ def set_setting(setting_key, setting_value):
         print(f"Error setting {setting_key}: {e}")
         return False
 
+# Bump this whenever a migration is added below. It is stamped into the
+# database on every init_db() run, which makes "which build wrote this file"
+# answerable after the fact — the single hardest question during a support
+# call on a client machine.
+SCHEMA_VERSION = 59
+
+
+def get_schema_version(conn):
+    """Version recorded in the file, or 0 for a pre-versioning database."""
+    try:
+        row = conn.execute(
+            "SELECT setting_value FROM app_settings WHERE setting_key = 'schema_version'"
+        ).fetchone()
+        return int(row[0]) if row and row[0] else 0
+    except Exception:
+        return 0
+
+
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
+    _version_before = get_schema_version(conn)
     
     # Employees table
     cursor.execute('''
@@ -1267,6 +1286,23 @@ def init_db():
             )
         """)
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS employee_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id INTEGER NOT NULL,
+                field TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                category TEXT,
+                source TEXT,
+                note TEXT,
+                changed_by INTEGER,
+                changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (employee_id) REFERENCES employees (id)
+            )
+        ''')
+        cursor.execute('''CREATE INDEX IF NOT EXISTS idx_emp_audit
+            ON employee_audit_log (employee_id, changed_at DESC)''')
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS payroll_ledger_postings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 month INTEGER NOT NULL,
@@ -1583,6 +1619,23 @@ def init_db():
             
     except Exception as e:
         print(f"RBAC Seeding Error: {e}")
+
+    # Stamp the schema version last: reaching this point means every
+    # migration above completed without raising.
+    try:
+        cursor.execute('''CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key TEXT PRIMARY KEY, setting_value TEXT)''')
+        cursor.execute(
+            "INSERT INTO app_settings (setting_key, setting_value) "
+            "VALUES ('schema_version', ?) "
+            "ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value",
+            (str(SCHEMA_VERSION),))
+        if _version_before and _version_before != SCHEMA_VERSION:
+            print(f'DB schema upgraded: v{_version_before} -> v{SCHEMA_VERSION}')
+        elif not _version_before:
+            print(f'DB schema stamped at v{SCHEMA_VERSION}')
+    except Exception as e:
+        print(f'schema version stamp failed: {e}')
 
     conn.commit()
     pass # conn.close() removed to prevent leak in Flask g

@@ -260,6 +260,17 @@ def add_salary_item():
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
                      (employee_id, item_type_id, calc_method, amount, percent,
                       start_date, end_date, _uid()))
+        try:
+            from utils.payroll_engine import log_employee_event
+            _it = conn.execute('SELECT name_ar, name_en FROM payroll_item_types '
+                               'WHERE id = ?', (item_type_id,)).fetchone()
+            _label = (_it['name_ar'] or _it['name_en']) if _it else str(item_type_id)
+            _val = (f'{percent}%' if calc_method == 'percent_of_basic' else str(amount))
+            log_employee_event(conn, employee_id, _label, '', _val, 'pay',
+                               user_id=_uid(), source='salary_item_add',
+                               note=gettext('x.aud_from') + ' ' + str(start_date))
+        except Exception as _e:
+            print(f'audit log failed on salary item add: {_e}')
         conn.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -303,6 +314,22 @@ def end_salary_item(id):
         return jsonify({'success': False, 'code': 'reason_required'}), 400
     conn.execute("UPDATE employee_salary_items SET end_date = ?, notes = ? WHERE id = ?",
                  (end_date, reason, id))
+    try:
+        from utils.payroll_engine import log_employee_event
+        _it = conn.execute('''SELECT it.name_ar, it.name_en, si.employee_id,
+                                     si.amount, si.percent_value, si.calc_method
+                              FROM employee_salary_items si
+                              JOIN payroll_item_types it ON it.id = si.item_type_id
+                              WHERE si.id = ?''', (id,)).fetchone()
+        if _it:
+            _label = _it['name_ar'] or _it['name_en']
+            _val = (f"{_it['percent_value']}%"
+                    if _it['calc_method'] == 'percent_of_basic' else str(_it['amount']))
+            log_employee_event(conn, _it['employee_id'], _label, _val, '', 'pay',
+                               user_id=_uid(), source='salary_item_end',
+                               note=f'{end_date} — {reason}')
+    except Exception as _e:
+        print(f'audit log failed on salary item end: {_e}')
     conn.commit()
     return jsonify({'success': True})
 

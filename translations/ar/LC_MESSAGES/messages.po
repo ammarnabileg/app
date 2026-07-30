@@ -9084,6 +9084,156 @@ msgstr "تصفية القائمة..."
 msgid "x.filter_showing"
 msgstr "عدد النتائج: %s"
 
+msgid "x.aud_title"
+msgstr "سجل التغييرات"
+
+msgid "x.aud_none"
+msgstr "لا توجد تغييرات مسجلة"
+
+msgid "x.aud_all"
+msgstr "كل الفئات"
+
+msgid "x.aud_when"
+msgstr "التاريخ"
+
+msgid "x.aud_what"
+msgstr "البند"
+
+msgid "x.aud_from_val"
+msgstr "من"
+
+msgid "x.aud_to_val"
+msgstr "إلى"
+
+msgid "x.aud_who"
+msgstr "بواسطة"
+
+msgid "x.aud_from"
+msgstr "اعتبارًا من"
+
+msgid "x.aud_manager"
+msgstr "المدير المباشر"
+
+msgid "x.aud_shift"
+msgstr "الوردية"
+
+msgid "x.aud_status"
+msgstr "حالة التفعيل"
+
+msgid "x.aud_eos"
+msgstr "تاريخ انتهاء الخدمة"
+
+msgid "x.aud_hire"
+msgstr "تاريخ التعيين"
+
+msgid "x.aud_emp_status"
+msgstr "حالة التوظيف"
+
+msgid "x.aud_contract"
+msgstr "نوع العقد"
+
+msgid "x.aud_iban"
+msgstr "الآيبان"
+
+msgid "x.aud_name"
+msgstr "الاسم"
+
+msgid "x.aud_name_ar"
+msgstr "الاسم بالعربي"
+
+msgid "x.aud_civil"
+msgstr "الرقم المدني"
+
+msgid "x.aud_phone"
+msgstr "الهاتف"
+
+msgid "x.aud_email"
+msgstr "البريد"
+
+msgid "x.aud_cat_pay"
+msgstr "الأجر"
+
+msgid "x.aud_cat_org"
+msgstr "التنظيم"
+
+msgid "x.aud_cat_work"
+msgstr "العمل"
+
+msgid "x.aud_cat_status"
+msgstr "الحالة"
+
+msgid "x.aud_cat_leave"
+msgstr "الإجازات"
+
+msgid "x.aud_cat_bank"
+msgstr "البنك"
+
+msgid "x.aud_cat_identity"
+msgstr "الهوية"
+
+msgid "x.aud_cat_contact"
+msgstr "التواصل"
+
+msgid "x.deps_none"
+msgstr "لا يوجد معالون مسجلون"
+
+msgid "x.dep_relation"
+msgstr "صلة القرابة"
+
+msgid "x.dep_dob"
+msgstr "تاريخ الميلاد"
+
+msgid "x.assets_none"
+msgstr "لا توجد عهد مسجلة"
+
+msgid "x.asset_name"
+msgstr "العهدة"
+
+msgid "x.asset_code"
+msgstr "الرقم/الكود"
+
+msgid "x.asset_issued"
+msgstr "تاريخ التسليم"
+
+msgid "x.asset_held"
+msgstr "في العهدة"
+
+msgid "x.asset_returned"
+msgstr "مُسترجعة"
+
+msgid "x.aud_cat_family"
+msgstr "المعالون"
+
+msgid "x.aud_cat_custody"
+msgstr "العهد"
+
+msgid "x.err_reason_required"
+msgstr "السبب مطلوب (٣ أحرف على الأقل)"
+
+msgid "x.ds_leave_paid"
+msgstr "إجازة مدفوعة"
+
+msgid "x.ds_leave_sick"
+msgstr "إجازة مرضية"
+
+msgid "x.ds_leave_unpaid"
+msgstr "إجازة بدون راتب"
+
+msgid "x.f_loan_amounts_invalid"
+msgstr "قيم السلفة غير صحيحة"
+
+msgid "x.ha_actual_hours"
+msgstr "الساعات الفعلية"
+
+msgid "x.sal_legacy_moved"
+msgstr "هذه الشاشة أُوقفت — الرواتب تُحتسب من شاشة الرواتب الشهرية"
+
+msgid "x.search"
+msgstr "بحث"
+
+msgid "nav.menu"
+msgstr "القائمة"
+
 #~ msgid "btn.back"
 #~ msgstr "عودة"
 

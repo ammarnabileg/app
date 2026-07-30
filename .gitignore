@@ -83,3 +83,9 @@ HRSystem.spec
 ystem.spec
 SingleFileBuild.bat
 start_server.bat
+
+# Runtime logs — contain licence keys and device traffic; never commit
+logs/
+*.txt.log
+sync_log_universal.txt
+sync_agent.log

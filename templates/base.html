@@ -398,6 +398,107 @@
             margin-right: auto !important;
             margin-left: 0 !important;
         }
+
+        /* ============ الموبايل ============
+           القاعدة الحاكمة: لا تجاوز أفقي على مستوى الصفحة إطلاقًا. الجداول
+           الواسعة تُمرَّر داخل صندوقها فقط، فيبقى التنقّل والأزرار في مكانها
+           بدل أن تنزلق الصفحة كلها وتضيع منها الحواف. */
+        .sidebar-toggle {
+            border: 1px solid var(--line, #DAD7CB);
+            background: #fff;
+            color: var(--ledger-dark, #163F32);
+            width: 38px; height: 38px; line-height: 1;
+        }
+
+        @media (min-width: 992px) {
+            /* d-lg-block يجعل العنصر block فيفقد أساس العمود المرن فيتمدد
+               بعرض الشاشة. تُستعاد هندسة العمود دون !important حتى لا تُبطل
+               أدوات Bootstrap الأخرى مثل d-lg-none على زر القائمة. */
+            nav.sidebar.d-lg-block {
+                flex: 0 0 auto;
+                width: 16.66666667%;
+                max-width: 16.66666667%;
+            }
+            .sidebar-toggle { display: none; }
+
+            /* الجداول العريضة تُمرَّر داخل صندوقها على الديسكتوب أيضًا، وإلا
+               انزلقت الصفحة كلها وضاع عمود التنقّل من الشاشة. */
+            .main-content { min-width: 0; }
+            .main-content .table-responsive { max-width: 100%; overflow-x: auto; }
+        }
+
+        @media (max-width: 991.98px) {
+            html, body { max-width: 100%; overflow-x: hidden; }
+
+            /* القائمة تنزل كطبقة فوق المحتوى ولا تدفعه */
+            .sidebar.collapse:not(.show) { display: none; }
+            .sidebar.show {
+                display: block;
+                position: fixed;
+                inset-block: 62px 0;
+                inset-inline-start: 0;
+                width: min(84vw, 320px);
+                z-index: 1045;
+                overflow-y: auto;
+                background: var(--surface, #FAFAF7);
+                box-shadow: 0 12px 40px -8px rgba(22, 63, 50, .35);
+                padding-bottom: 2rem;
+            }
+            .sidebar.show > .position-sticky { position: static; }
+            .main-content { width: 100%; max-width: 100%; padding-inline: .75rem; }
+
+            /* كل جدول يُمرَّر داخل صندوقه، لا الصفحة */
+            .table-responsive, .oc-tree, .day-scroll, .ha-scroll {
+                max-width: 100%;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            table { font-size: .82rem; }
+            th, td { padding: .35rem .4rem !important; white-space: nowrap; }
+
+            /* أهداف اللمس: 44px هو الحد الأدنى المتعارف عليه للإصبع */
+            .btn, .form-control, .form-select { min-height: 44px; }
+            .btn-sm { min-height: 38px; padding-inline: .6rem; }
+            .btn-group-sm > .btn { min-height: 38px; }
+            /* الأزرار داخل صفوف الجدول: الخلية تضغط الارتفاع، فيُفرض على
+               الزر نفسه بـ inline-flex ليحترم الحد الأدنى للمس */
+            .table .btn, .table .btn-sm {
+                min-height: 34px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .table td .btn-group { flex-wrap: nowrap; }
+
+            /* شرائط الأدوات تلتف بدل أن تخرج من الشاشة */
+            .d-flex.gap-2, .d-flex.gap-3, .btn-group { flex-wrap: wrap; }
+            .container-fluid { padding-inline: .5rem; }
+            h1, .h1 { font-size: 1.35rem; }
+            h2, .h2 { font-size: 1.2rem; }
+            h4, .h4 { font-size: 1.05rem; }
+            .card-body { padding: .85rem; }
+
+            /* المُدخلات: 16px تمنع تكبير iOS التلقائي عند التركيز */
+            input, select, textarea { font-size: 16px !important; }
+
+            /* الطباعة والنوافذ */
+            .modal-dialog { margin: .5rem; }
+            .swal2-popup { width: 92vw !important; font-size: .95rem; }
+        }
+
+        @media (max-width: 575.98px) {
+            .main-content { padding-inline: .5rem; }
+            table { font-size: .76rem; }
+            .badge { font-size: .68rem; }
+            /* البطاقات المتجاورة تصبح عمودًا واحدًا */
+            .row > [class*="col-"] { margin-bottom: .25rem; }
+        }
+
+        /* إخفاء طبقة القائمة عند الطباعة */
+        @media print {
+            .sidebar, .app-topbar, .sidebar-toggle { display: none !important; }
+            .main-content { width: 100% !important; max-width: 100% !important; }
+        }
     </style>
 </head>
 
@@ -405,6 +506,11 @@
     <!-- شريط التنقل -->
     <nav class="navbar navbar-expand-lg app-topbar">
         <div class="container-fluid">
+            <button class="btn btn-sm sidebar-toggle d-lg-none me-2" type="button"
+                    data-bs-toggle="collapse" data-bs-target=".sidebar"
+                    aria-label="{{ _('nav.menu') }}">
+                <i class="fas fa-bars"></i>
+            </button>
             <a class="navbar-brand" href="{{ url_for('main.index') }}">
                 <i class="fas fa-users-cog me-2"></i>
                 {% if session.username %}
@@ -497,7 +603,7 @@
     <div class="container-fluid">
         <div class="row">
             <!-- الشريط الجانبي -->
-            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+            <nav class="col-lg-2 d-lg-block sidebar collapse">
                 <div class="position-sticky pt-3">
                     <ul class="nav flex-column">
                         <li class="nav-item">
@@ -871,7 +977,7 @@
             </nav>
 
             <!-- المحتوى الرئيسي -->
-            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
+            <main class="col-lg-10 ms-lg-auto px-md-4 main-content">
                 <!-- SweetAlert2 CSS -->
                 <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
                 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -1009,6 +1115,43 @@
         <div class="spinner-border text-success" style="width:3rem;height:3rem;"></div>
         <div class="fw-bold" style="color: var(--ledger-dark);">{{ _('x.restarting') }}</div>
     </div>
+<script>
+    // Close the mobile drawer on navigation and on tapping outside it — a
+    // drawer that stays open after a tap hides the page the user just asked
+    // for, which reads as the app being broken.
+    (function () {
+        var side = document.querySelector('nav.sidebar');
+        var btn = document.querySelector('.sidebar-toggle');
+        if (!side) return;
+
+        // The drawer is driven directly instead of relying on Bootstrap's
+        // collapse: Bootstrap is loaded from a CDN, and on an offline or
+        // firewalled server the navigation would otherwise be permanently
+        // unreachable on mobile — the whole app becomes unusable.
+        function open_() { side.classList.add('show'); }
+        function close() { side.classList.remove('show'); }
+        function toggle(e) {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            if (side.classList.contains('show')) { close(); } else { open_(); }
+        }
+        if (btn) {
+            btn.removeAttribute('data-bs-toggle');
+            btn.removeAttribute('data-bs-target');
+            btn.addEventListener('click', toggle);
+        }
+        side.addEventListener('click', function (e) {
+            if (e.target.closest('a.nav-link[href]')) { close(); }
+        });
+        document.addEventListener('click', function (e) {
+            if (!side.classList.contains('show')) return;
+            if (side.contains(e.target) || e.target.closest('.sidebar-toggle')) return;
+            close();
+        });
+        window.addEventListener('resize', function () {
+            if (window.innerWidth >= 992) { close(); }
+        });
+    })();
+</script>
 </body>
 
 </html>
