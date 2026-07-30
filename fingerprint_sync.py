@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple
 from dataclasses import dataclass
 from utils.db import DB_PATH, DATA_DIR
-from utils.license import get_secure_max_devices
+from utils.license import get_effective_max_devices
 
 try:
     from zk import ZK
@@ -172,7 +172,7 @@ class FingerprintSyncManager:
         conn = self.get_db_connection()
         try:
             # Retrieve max_devices limit
-            max_devices = get_secure_max_devices()
+            max_devices = get_effective_max_devices()
             
             devices = conn.execute('''
                 SELECT * FROM fingerprint_devices 

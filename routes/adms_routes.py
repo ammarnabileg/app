@@ -41,6 +41,69 @@ if not adms_protocol_logger.handlers:
 adms_bp = Blueprint('adms_mgr', __name__)
 
 import re
+def device_gate(conn, sn):
+    """بوّابة قبول الجهاز: مسجَّل؟ وضمن حدّ الرخصة؟
+
+    كان هذا المسار يقبل أي جهاز يرسل، بلا تحقق من تسجيله ولا من حدّ
+    الرخصة — بينما `fingerprint_sync` وحده يحترم الحدّ. أي أن المسار الذي
+    تصل منه البصمات فعلًا كان بلا فرض.
+
+    والفرض هنا بالرفض الصريح لا بالتجاهل الصامت: كان `LIMIT n` يتجاهل
+    الأجهزة الزائدة، فتبدو للعميل عاملةً وبصماتها تضيع بلا رسالة — وهو
+    أسوأ من المنع لأنه يظهر كعطل لا كحدّ ترخيص.
+
+    يُرجع (مسموح، سبب_الرفض، صف_الجهاز).
+    """
+    if not sn:
+        return False, 'no_serial', None
+
+    row = conn.execute(
+        'SELECT * FROM fingerprint_devices WHERE device_name = ?',
+        (sn,)).fetchone()
+
+    if not row:
+        # غير مسجَّل: يُرفض ويُسجَّل. الرقم التسلسلي مطبوع على الجهاز
+        # وقابل للتخمين، فقبول أي رقم يعني قبول بصمات ملفّقة.
+        try:
+            conn.execute(
+                "INSERT INTO adms_rejected_devices (serial, remote_ip, reason) "
+                "VALUES (?, ?, 'unregistered')",
+                (sn, request.remote_addr))
+            conn.commit()
+        except Exception:
+            pass
+        return False, 'unregistered', None
+
+    if not row['is_active']:
+        return False, 'inactive', row
+
+    # حدّ الرخصة: يُحتسب بترتيب التسجيل، فالأجهزة القائمة لا تُقطع
+    # بأثر رجعي عند تقليص الحدّ — قطع بصمات موظفين عاملين يعني رواتب
+    # خاطئة، وهو أسوأ من فقد رسوم اشتراك.
+    try:
+        from utils.license import get_effective_max_devices
+        limit = get_effective_max_devices()
+    except Exception:
+        limit = 0
+
+    if limit > 0:
+        allowed = [r['id'] for r in conn.execute(
+            "SELECT id FROM fingerprint_devices WHERE is_active = 1 "
+            "ORDER BY created_at ASC LIMIT ?", (limit,)).fetchall()]
+        if row['id'] not in allowed:
+            try:
+                conn.execute(
+                    "INSERT INTO adms_rejected_devices (serial, remote_ip, reason) "
+                    "VALUES (?, ?, 'over_license_limit')",
+                    (sn, request.remote_addr))
+                conn.commit()
+            except Exception:
+                pass
+            return False, 'over_license_limit', row
+
+    return True, None, row
+
+
 def parse_zk_kv(text):
     """Robust ZK Key=Value parser using regex."""
     matches = re.findall(r'(\w+)=((?:(?!\s+\w+=).)*)', text)
@@ -62,6 +125,18 @@ def cdata():
         adms_protocol_logger.info(f"Table: {table} | SN: {sn} | IP: {request.remote_addr}\n{raw_data}")
         # Print to console for real-time debugging as requested
         print(f"\n[ADMS DATA] Received from {sn} (Table: {table}, IP: {request.remote_addr}):\n{raw_data[:200]}...\n")
+
+    # بوّابة القبول قبل أي معالجة أو كتابة
+    try:
+        _gconn = get_db_connection()
+        _ok, _why, _dev = device_gate(_gconn, sn)
+        if not _ok:
+            logger.warning(f"ADMS rejected | SN={sn} | reason={_why} | ip={request.remote_addr}")
+            # يُرد OK حتى لا يعيد الجهاز الإرسال في حلقة لا تنتهي؛ البيانات
+            # لا تُكتب، والرفض مسجَّل ليظهر في اللوحة.
+            return "OK"
+    except Exception as _ge:
+        logger.error(f"device_gate error: {_ge}")
 
     # DEBUG LOGGING (existing, now using the already fetched raw_data)
     logger.info(f"CDATA Received | SN: {sn} | Table: {table}")

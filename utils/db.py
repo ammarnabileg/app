@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 59
+SCHEMA_VERSION = 60
 
 
 def get_schema_version(conn):
@@ -1285,6 +1285,17 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS adms_rejected_devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                serial TEXT NOT NULL,
+                remote_ip TEXT,
+                reason TEXT NOT NULL,
+                seen_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''CREATE INDEX IF NOT EXISTS idx_adms_rejected
+            ON adms_rejected_devices (seen_at DESC)''')
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS employee_audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

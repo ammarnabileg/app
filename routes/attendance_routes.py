@@ -8,7 +8,7 @@ from utils.auth import login_required
 from utils.rbac import require_permission
 from utils.fingerprint_utils import test_fingerprint_device, test_duplicate_prevention, get_sync_logs, upload_user_to_device, clear_fingerprint_device_users, get_device_user_count, reboot_fingerprint_device, factory_reset_fingerprint_device
 from fingerprint_sync import sync_all_fingerprint_devices, sync_users_to_employees
-from utils.license import get_secure_max_devices
+from utils.license import get_effective_max_devices
 from utils.oracle_db import get_sync_queue_stats
 
 try:
@@ -65,7 +65,7 @@ def devices():
     pass # conn.close() removed to prevent leak in Flask g
     
     try:
-        max_devices = get_secure_max_devices()
+        max_devices = get_effective_max_devices()
     except:
         max_devices = 3
         
@@ -79,7 +79,7 @@ def add_device():
     
     # Enforce device limit on active devices
     try:
-        max_devices = get_secure_max_devices()
+        max_devices = get_effective_max_devices()
         current_active = conn.execute('SELECT COUNT(*) FROM fingerprint_devices WHERE is_active = 1').fetchone()[0]
         
         if current_active >= max_devices:
@@ -133,7 +133,7 @@ def edit_device(id):
         if is_active == 1:
             try:
                 from utils.db import get_setting
-                max_devices = get_secure_max_devices()
+                max_devices = get_effective_max_devices()
                 current_active = conn.execute('SELECT COUNT(*) FROM fingerprint_devices WHERE is_active = 1 AND id != ?', (id,)).fetchone()[0]
                 if current_active >= max_devices:
                     is_active = 0
@@ -174,7 +174,7 @@ def toggle_device(id):
     if device and not device['is_active']:
         try:
             from utils.db import get_setting
-            max_devices = get_secure_max_devices()
+            max_devices = get_effective_max_devices()
             current_active = conn.execute('SELECT COUNT(*) FROM fingerprint_devices WHERE is_active = 1').fetchone()[0]
             if current_active >= max_devices:
                 pass # conn.close() removed to prevent leak in Flask g
@@ -574,7 +574,7 @@ def add_devices_bulk():
     
     # Check limit before starting
     try:
-        max_limit = get_secure_max_devices()
+        max_limit = get_effective_max_devices()
         current_active = conn.execute('SELECT COUNT(*) FROM fingerprint_devices WHERE is_active = 1').fetchone()[0]
         
         if current_active >= max_limit:
@@ -647,7 +647,7 @@ def manage_device_limit():
     active_devices = conn.execute('SELECT COUNT(*) FROM fingerprint_devices WHERE is_active = 1').fetchone()[0]
     pass # conn.close() removed to prevent leak in Flask g
     
-    max_devices = get_secure_max_devices()
+    max_devices = get_effective_max_devices()
     
     return jsonify({
         'success': True,

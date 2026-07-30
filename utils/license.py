@@ -40,6 +40,63 @@ def save_secure_max_devices(count):
             pass
     set_setting('max_devices', str(count))
 
+def get_effective_max_devices():
+    """حدّ الأجهزة المعتمد — من الرخصة الموقّعة أولًا.
+
+    الترتيب مقصود: الرخصة الموقّعة لا يمكن تعديلها عند العميل، أما القيمة
+    المحلية فكانت تُغيَّر بصفٍّ واحد في قاعدة البيانات. فالمحلية لا تُستخدم
+    إلا في غياب رخصة موقّعة — أي أثناء الترحيل من الصيغة القديمة.
+    """
+    try:
+        from utils.db import get_setting
+        from utils.license_verify import verify_license_token
+        token = get_setting('license_token')
+        if token:
+            hwid = None
+            try:
+                from utils.system_id import get_system_hwid
+                hwid = get_system_hwid()
+            except Exception:
+                pass
+            r = verify_license_token(token, current_hwid=hwid)
+            if r['ok']:
+                return int(r['max_devices'])
+            # رخصة موجودة لكنها فشلت: لا يُرقَّى إلى المسار القديم، وإلا صار
+            # إتلاف الرخصة وسيلةً لتجاوز الحدّ.
+            return 0
+    except Exception:
+        pass
+    # لا رخصة موقّعة بعد — مسار الترحيل من النسخ السابقة
+    return get_secure_max_devices()
+
+
+def get_license_state():
+    """حالة الرخصة للعرض والتشخيص. لا يرفع استثناءً."""
+    out = {'mode': 'legacy', 'ok': False, 'reason': None,
+           'days_left': None, 'max_devices': 0}
+    try:
+        from utils.db import get_setting
+        from utils.license_verify import verify_license_token
+        token = get_setting('license_token')
+        if not token:
+            out['max_devices'] = get_secure_max_devices()
+            out['reason'] = 'no_signed_license'
+            return out
+        hwid = None
+        try:
+            from utils.system_id import get_system_hwid
+            hwid = get_system_hwid()
+        except Exception:
+            pass
+        r = verify_license_token(token, current_hwid=hwid)
+        out.update({'mode': 'signed', 'ok': r['ok'], 'reason': r['reason'],
+                    'days_left': r['days_left'],
+                    'max_devices': r['max_devices']})
+    except Exception as e:
+        out['reason'] = 'state_error:' + type(e).__name__
+    return out
+
+
 def get_secure_max_devices():
     from utils.db import get_setting
     secure_val = get_setting('max_devices_secure')
