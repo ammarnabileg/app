@@ -350,3 +350,60 @@ def api_dashboard_analytics():
         'charts': {'by_department': by_dept, 'by_nationality': by_nat,
                    'tenure': tenure, 'payroll_trend': trend},
     })
+
+
+@main_bp.route('/api/license/unbind', methods=['POST'])
+@login_required
+def unbind_license_hwid():
+    """فكّ ارتباط التركيب بالجهاز.
+
+    يلزم عند نقل النظام إلى خادم جديد: الرخصة مربوطة بمعرّف التركيب، وبعد
+    النقل يبقى المعرّف القديم في رخصة لا تطابق التركيب الجديد فيتوقّف عميل
+    شرعيّ وهو دافع. الفكّ يولّد معرّفًا جديدًا ليُصدَر عليه ترخيص جديد.
+
+    العملية مسجَّلة لأنها قد تُستعمل للالتفاف على الربط: من يفكّ ثم يفعّل
+    على خادم آخر ينتج تركيبين. الكشف على الخادم لا هنا — لكن لا بدّ من
+    أثر.
+    """
+    from utils.system_id import reset_system_hwid, get_system_hwid
+    old = None
+    try:
+        old = get_system_hwid()
+    except Exception:
+        pass
+    ok = reset_system_hwid()
+    new = None
+    try:
+        new = get_system_hwid()
+    except Exception:
+        pass
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            "INSERT INTO employee_audit_log "
+            "(employee_id, field, old_value, new_value, category, source, "
+            " note, changed_by) VALUES (0, 'license_hwid', ?, ?, 'status', "
+            "'license_unbind', ?, ?)",
+            ((old or '')[:16], (new or '')[:16],
+             'فكّ ارتباط الترخيص بالجهاز', session.get('user_id')))
+        conn.commit()
+    except Exception as e:
+        print(f'unbind audit failed: {e}')
+    return jsonify({'success': bool(ok), 'new_hwid': new})
+
+
+@main_bp.route('/api/license/state')
+@login_required
+def license_state_api():
+    """حالة الرخصة ومعرّف التركيب — للعرض والدعم الفني."""
+    from utils.license import get_license_state
+    from utils.system_id import get_system_hwid, get_hardware_fingerprint
+    st = get_license_state()
+    try:
+        st['hwid'] = get_system_hwid()
+        # بصمة العتاد تُعرض للتشخيص فقط: تتغيّر مع إعادة بناء الحاوية،
+        # ولذلك لم تعد أساس الربط.
+        st['hardware_fingerprint'] = get_hardware_fingerprint()
+    except Exception:
+        pass
+    return jsonify(st)
