@@ -1,47 +1,69 @@
-version: '3.8'
+# نشر متعدّد العملاء على مضيف واحد.
+#
+# كل عميل = ملف .env خاص به + `docker compose -p <اسم> up -d`.
+# لا يُعدَّل هذا الملف لكل عميل؛ تُغيَّر المتغيّرات وحدها.
+#
+# ما يجب أن يكون فريدًا لكل عميل:
+#   COMPANY      اسم المشروع، ومنه تُشتقّ أسماء الحاويات والتخزين
+#   WEB_PORT     منفذ الويب على المضيف
+#   ADMS_PORT    منفذ خادم البصمة على المضيف
+#
+# المنافذ الداخلية تبقى ثابتة (5000 و8081): الشبكة معزولة لكل مشروع،
+# فلا تتصادم. المتصادم هو منفذ المضيف وحده.
 
 services:
   hr_web:
     build: .
     pull_policy: build
-    container_name: hr_web_app
+    container_name: ${COMPANY}_web
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      # المنفذ الداخلي ثابت؛ الخارجي وحده يتغيّر لكل عميل
+      - "${WEB_PORT:-5000}:5000"
     volumes:
       - hr_data:/app/data
     environment:
       - FLASK_ENV=production
       - HR_DATA_DIR=/app/data
-      - TZ=Asia/Riyadh
+      - APP_PORT=5000
+      - TZ=${TZ:-Asia/Kuwait}
+      - COMPANY_NAME=${COMPANY}
     command: python app.py
 
   hr_sync:
     build: .
     pull_policy: build
-    container_name: hr_sync_agent
+    container_name: ${COMPANY}_sync
     restart: unless-stopped
     volumes:
       - hr_data:/app/data
     environment:
       - HR_DATA_DIR=/app/data
-      - TZ=Asia/Riyadh
+      - TZ=${TZ:-Asia/Kuwait}
+      - COMPANY_NAME=${COMPANY}
     command: python fingerprint_sync.py
 
   hr_adms:
     build: .
     pull_policy: build
-    container_name: hr_adms_server
+    container_name: ${COMPANY}_adms
     restart: unless-stopped
     ports:
-      - "8081:8081"
+      # يُنشر على كل الواجهات عمدًا: في بروتوكول PUSH يبتدئ جهاز البصمة
+      # الاتصال، فلا بدّ أن يكون الخادم مسموعًا على الشبكة المحلية.
+      - "${ADMS_PORT:-8081}:8081"
     volumes:
       - hr_data:/app/data
     environment:
       - HR_DATA_DIR=/app/data
       - ADMS_PORT=8081
-      - TZ=Asia/Riyadh
+      - TZ=${TZ:-Asia/Kuwait}
+      - COMPANY_NAME=${COMPANY}
     command: python adms_server.py
 
 volumes:
+  # التخزين يُسمّى تلقائيًّا <اسم_المشروع>_hr_data، أي أن `-p` يعزل
+  # بيانات كل عميل عن الآخر بلا إعداد إضافي. وهذا مهم بعد تثبيت معرّف
+  # التركيب: المعرّف محفوظ داخل هذا التخزين، فبقاؤه يعني بقاء الترخيص
+  # صالحًا عبر إعادة البناء.
   hr_data:
