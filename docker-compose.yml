@@ -29,6 +29,12 @@ services:
       - TZ=${TZ:-Asia/Kuwait}
       - COMPANY_NAME=${COMPANY}
     command: python app.py
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/login"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
 
   hr_sync:
     build: .
@@ -42,6 +48,9 @@ services:
       - TZ=${TZ:-Asia/Kuwait}
       - COMPANY_NAME=${COMPANY}
     command: python fingerprint_sync.py
+    depends_on:
+      hr_web:
+        condition: service_healthy
 
   hr_adms:
     build: .
@@ -60,6 +69,9 @@ services:
       - TZ=${TZ:-Asia/Kuwait}
       - COMPANY_NAME=${COMPANY}
     command: python adms_server.py
+    depends_on:
+      hr_web:
+        condition: service_healthy
 
 volumes:
   # التخزين يُسمّى تلقائيًّا <اسم_المشروع>_hr_data، أي أن `-p` يعزل
