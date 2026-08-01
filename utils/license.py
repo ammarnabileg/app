@@ -336,6 +336,31 @@ def verify_license_key(key: str):
             date_part, sig = decode_license_payload(payload)
             if not date_part or not sig:
                 return False, 'تنسيق السيريال المشفّر غير صحيح'
+        elif key.startswith('ONZ1.'):
+            # رمز موقَّع: يُتحقق منه بالمفتاح العام لا بالسرّ المشترك.
+            # وُضع هنا لأن الخادم صار يُصدر هذه الصيغة، وكان المُحقِّق
+            # القديم يرفضها بـ«توقيع/كلمة المفتاح غير معتمدة» فيمنع
+            # التفعيل تمامًا بدل أن يقبلها.
+            try:
+                from utils.license_verify import verify_license_token
+                hwid = None
+                try:
+                    from utils.system_id import get_system_hwid
+                    hwid = get_system_hwid()
+                except Exception:
+                    pass
+                r = verify_license_token(key, current_hwid=hwid)
+                if r['ok']:
+                    return True, None
+                reasons = {
+                    'expired': 'انتهت مدة الترخيص',
+                    'hwid_mismatch': 'الترخيص مرتبط بجهاز آخر',
+                    'bad_signature': 'توقيع الترخيص غير صالح — تأكّد من تطابق مفتاح الخادم',
+                }
+                return False, reasons.get(r['reason'],
+                                          f"ترخيص غير صالح ({r['reason']})")
+            except Exception as e:
+                return False, f'تعذّر التحقق من الترخيص الموقّع: {e}'
         elif key.startswith('LE2-') and len(key) > 4:
             payload = key[4:]
             date_part, sig = decode_license_payload_fernet(payload)
