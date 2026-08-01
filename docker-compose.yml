@@ -55,6 +55,10 @@ services:
       - TZ=${TZ:-Asia/Kuwait}
       - COMPANY_NAME=${COMPANY}
     command: python fingerprint_sync.py
+    # لا فحص صحة لهذه الخدمة: لا تفتح منفذًا، وكل فحص يبحث عن اسمها في
+    # /proc يطابق سطرَ أمر الفحص نفسه فينجح دائمًا — وفحصٌ ينجح دائمًا
+    # أسوأ من غيابه لأنه يوحي بمراقبة غير قائمة. مراقبتها الحقيقية عبر
+    # بطاقة «متأخرات المزامنة» في اللانشر، وهي تقيس أثر عملها لا وجودها.
     depends_on:
       hr_web:
         condition: service_healthy
@@ -80,6 +84,14 @@ services:
       - TZ=${TZ:-Asia/Kuwait}
       - COMPANY_NAME=${COMPANY}
     command: python adms_server.py
+    healthcheck:
+      # يُفحص مسار من مسارات ADMS نفسها لا /login الخاص بالويب.
+      # الرد المتوقّع نصّي بسيط؛ أي رد HTTP يعني أن الخادم يستجيب.
+      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:8081/iclock/cdata?SN=healthcheck' -o /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
     depends_on:
       hr_web:
         condition: service_healthy
