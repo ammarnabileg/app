@@ -14,8 +14,12 @@
 services:
   hr_web:
     build: .
+    # الصورة موسومة باسم العميل: الخدمات الثلاث من Dockerfile واحد فتُبنى
+    # مرة واحدة، والوسم الخاص يمنع أن تغيّر إعادةُ بناء عميلٍ نسخةَ عميل
+    # آخر — وهو ما يحدث لو تشاركت الـstacks وسمًا واحدًا.
+    image: hr_system_${COMPANY}:latest
     pull_policy: build
-    container_name: ${COMPANY}_web
+    container_name: ${COMPANY:?اضبط COMPANY في متغيّرات البيئة}_web
     restart: unless-stopped
     ports:
       # المنفذ الداخلي ثابت؛ الخارجي وحده يتغيّر لكل عميل
@@ -37,7 +41,7 @@ services:
       retries: 3
 
   hr_sync:
-    build: .
+    image: hr_system_${COMPANY}:latest
     pull_policy: build
     container_name: ${COMPANY}_sync
     restart: unless-stopped
@@ -53,7 +57,7 @@ services:
         condition: service_healthy
 
   hr_adms:
-    build: .
+    image: hr_system_${COMPANY}:latest
     pull_policy: build
     container_name: ${COMPANY}_adms
     restart: unless-stopped
