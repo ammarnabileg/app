@@ -53,6 +53,17 @@ def shift_types():
     conn = get_db_connection()
     shift_types_rows = conn.execute('SELECT * FROM shift_types').fetchall()
     shift_types = [dict(row) for row in shift_types_rows]
+    # فترات كل شفت مقسّم: تُعرض في الجدول وتُحمَّل في نموذج التعديل، وإلا
+    # صار الشفت المقسّم غير مرئيّ بعد إنشائه وغير قابل للتعديل.
+    for sh in shift_types:
+        sh['periods'] = []
+        if sh.get('is_split'):
+            try:
+                sh['periods'] = [dict(p) for p in conn.execute(
+                    'SELECT seq, start_time, end_time FROM shift_periods '
+                    'WHERE shift_type_id = ? ORDER BY seq', (sh['id'],)).fetchall()]
+            except Exception:
+                pass
     pass # conn.close() removed to prevent leak in Flask g
     return render_template('shift_types.html', shift_types=shift_types)
 
@@ -185,6 +196,33 @@ def edit_shift_type():
             SET name=?, start_time=?, end_time=?, hours_per_day=?, description=?
             WHERE id=?
         ''', (name, start_time, end_time, hours_per_day, description, shift_id))
+        # الشفت المقسّم: الحفظ يعكس النموذج بالضبط. وشفتٌ يُوسم مقسّمًا
+        # بأقلّ من فترتين يُلغى تقسيمه، لأنه يجعل المحرّك يطالب ببصمات لا
+        # مقابل لها.
+        is_split = 1 if request.form.get('is_split') else 0
+        conn.execute('UPDATE shift_types SET is_split = ? WHERE id = ?',
+                     (is_split, shift_id))
+        if is_split:
+            n = _save_shift_periods(conn, shift_id, request.form)
+            if n < 2:
+                conn.execute('UPDATE shift_types SET is_split = 0 WHERE id = ?',
+                             (shift_id,))
+            else:
+                total = 0
+                for p in conn.execute(
+                        'SELECT start_time, end_time FROM shift_periods '
+                        'WHERE shift_type_id = ?', (shift_id,)).fetchall():
+                    sh_, sm_ = map(int, p['start_time'].split(':')[:2])
+                    eh_, em_ = map(int, p['end_time'].split(':')[:2])
+                    diff = (eh_ * 60 + em_) - (sh_ * 60 + sm_)
+                    if diff < 0:
+                        diff += 24 * 60
+                    total += diff
+                conn.execute('UPDATE shift_types SET hours_per_day = ? WHERE id = ?',
+                             (round(total / 60.0, 2), shift_id))
+        else:
+            conn.execute('DELETE FROM shift_periods WHERE shift_type_id = ?',
+                         (shift_id,))
         conn.commit()
         pass # conn.close() removed to prevent leak in Flask g
         flash(gettext('x.f_shift_updated'), 'success')

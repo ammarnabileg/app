@@ -29,6 +29,7 @@
                                     <th>{{ _('tbl.header.start_time') }}</th>
                                     <th>{{ _('tbl.header.end_time') }}</th>
                                     <th>{{ _('tbl.header.daily_hours') }}</th>
+                                    <th>{{ _('x.shift_periods_col') }}</th>
                                     <th>{{ _('tbl.header.description') }}</th>
                                     <th>{{ _('tbl.header.status') }}</th>
                                     <th>{{ _('tbl.header.created_at') }}</th>
@@ -50,6 +51,16 @@
                                     <td>
                                         <span class="badge bg-info">{{ shift.hours_per_day }} {{ _('unit.hour')
                                             }}</span>
+                                    </td>
+                                    <td>
+                                        {% if shift.is_split and shift.periods %}
+                                            <span class="badge bg-warning text-dark mb-1">{{ _('x.shift_split_badge') }}</span><br>
+                                            {% for p in shift.periods %}
+                                            <span class="badge bg-light text-dark border">{{ p.start_time }} - {{ p.end_time }}</span>
+                                            {% endfor %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
                                     </td>
                                     <td>
                                         <small class="text-muted">{{ shift.description or _('msg.no_description')
@@ -124,6 +135,27 @@
                     <input type="number" step="0.01" class="form-control" name="hours_per_day" id="edit_hours_per_day">
                 </div>
 
+                <div class="mb-3 p-3 border rounded">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="edit_is_split"
+                               name="is_split" onchange="toggleEditSplit()">
+                        <label class="form-check-label fw-bold" for="edit_is_split">
+                            {{ _('x.shift_is_split') }}
+                        </label>
+                        <div class="form-text">{{ _('x.shift_split_hint') }}</div>
+                    </div>
+                    <div id="editSplitPeriods" class="mt-3 d-none">
+                        <div id="editPeriodRows"></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                onclick="addEditPeriodRow()">
+                            <i class="fas fa-plus me-1"></i>{{ _('x.shift_add_period') }}
+                        </button>
+                        <div class="alert alert-warning mt-2 mb-0 py-2 small">
+                            {{ _('x.shift_split_warning') }}
+                        </div>
+                    </div>
+                </div>
+
                 <div class="mb-3">
                     <label class="form-label">{{ _('label.notes') }}</label>
                     <textarea class="form-control" name="description" id="edit_description"></textarea>
@@ -145,6 +177,9 @@
         document.getElementById('edit_end_time').value = shift.end_time;
         document.getElementById('edit_hours_per_day').value = shift.hours_per_day;
         document.getElementById('edit_description').value = shift.description || '';
+        // الفترات المحفوظة تُحمَّل قبل العرض: بناؤها من الصفر يعني فقدانها
+        // عند أول حفظ لأن النموذج يعكس ما فيه لا ما في قاعدة البيانات.
+        loadEditPeriods(shift.is_split, shift.periods);
 
         new bootstrap.Modal(document.getElementById('editShiftModal')).show();
     }
@@ -311,6 +346,54 @@
             addPeriodRow('10:00', '14:00');
             addPeriodRow('17:00', '22:00');
         }
+    }
+
+    // نموذج التعديل: صفوف الفترات تُبنى بالدالة نفسها لكن في حاويته هو
+    function addEditPeriodRow(a, b) {
+        const box = document.getElementById('editPeriodRows');
+        const i = box.children.length + 1;
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 align-items-end';
+        row.innerHTML = `
+            <div class="col-auto pt-2"><span class="badge bg-secondary">${i}</span></div>
+            <div class="col">
+                <label class="form-label small mb-1">{{ _('label.start_time') }}</label>
+                <input type="time" class="form-control form-control-sm" name="period_start[]" value="${a || ''}">
+            </div>
+            <div class="col">
+                <label class="form-label small mb-1">{{ _('label.end_time') }}</label>
+                <input type="time" class="form-control form-control-sm" name="period_end[]" value="${b || ''}">
+            </div>
+            <div class="col-auto">
+                <button type="button" class="btn btn-sm btn-outline-danger"
+                        onclick="this.closest('.row').remove(); renumberEdit();">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>`;
+        box.appendChild(row);
+    }
+
+    function renumberEdit() {
+        document.querySelectorAll('#editPeriodRows .badge').forEach((b, i) => b.textContent = i + 1);
+    }
+
+    function toggleEditSplit() {
+        const on = document.getElementById('edit_is_split').checked;
+        document.getElementById('editSplitPeriods').classList.toggle('d-none', !on);
+        if (on && document.getElementById('editPeriodRows').children.length === 0) {
+            addEditPeriodRow('10:00', '14:00');
+            addEditPeriodRow('17:00', '22:00');
+        }
+    }
+
+    // تُستدعى من زرّ التعديل: تملأ الفترات المحفوظة بدل بنائها من الصفر،
+    // وإلا فُقدت فترات الشفت عند أول حفظ.
+    function loadEditPeriods(isSplit, periods) {
+        const box = document.getElementById('editPeriodRows');
+        box.innerHTML = '';
+        document.getElementById('edit_is_split').checked = !!isSplit;
+        document.getElementById('editSplitPeriods').classList.toggle('d-none', !isSplit);
+        (periods || []).forEach(p => addEditPeriodRow(p.start_time, p.end_time));
     }
 </script>
 {% endblock %}
