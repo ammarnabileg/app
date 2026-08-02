@@ -9260,6 +9260,24 @@ msgstr "Search"
 msgid "nav.menu"
 msgstr "Menu"
 
+msgid "x.shift_is_split"
+msgstr "Split shift (two or more periods)"
+
+msgid "x.shift_split_hint"
+msgstr "Example: 10 to 2, break, then 5 to 10"
+
+msgid "x.shift_add_period"
+msgstr "Add period"
+
+msgid "x.shift_split_warning"
+msgstr "The employee must punch twice per period (4 punches for two periods). Missing punches are treated as a partial day under the missing-punch policy."
+
+msgid "x.shift_periods_col"
+msgstr "Periods"
+
+msgid "x.shift_split_badge"
+msgstr "Split"
+
 #~ msgid "btn.back"
 #~ msgstr "Back"
 

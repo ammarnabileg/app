@@ -9234,6 +9234,24 @@ msgstr "بحث"
 msgid "nav.menu"
 msgstr "القائمة"
 
+msgid "x.shift_is_split"
+msgstr "شفت مقسّم (فترتان أو أكثر)"
+
+msgid "x.shift_split_hint"
+msgstr "مثال: من 10 إلى 2 ظهرًا، ثم راحة، ثم من 5 إلى 10 مساءً"
+
+msgid "x.shift_add_period"
+msgstr "إضافة فترة"
+
+msgid "x.shift_split_warning"
+msgstr "يجب أن يبصم الموظف مرتين لكل فترة (٤ بصمات لفترتين). البصمات الناقصة تُعامل كيوم جزئي وتسري عليها سياسة البصمة الناقصة."
+
+msgid "x.shift_periods_col"
+msgstr "الفترات"
+
+msgid "x.shift_split_badge"
+msgstr "مقسّم"
+
 #~ msgid "btn.back"
 #~ msgstr "عودة"
 

@@ -186,7 +186,29 @@
                             min="1" max="24" value="8.0">
                     </div>
 
-                    <div class="mb-3">
+                                        <!-- الشفت المقسّم: فترتان أو أكثر بينهما راحة -->
+                    <div class="mb-3 p-3 border rounded">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_split"
+                                   name="is_split" onchange="toggleSplit()">
+                            <label class="form-check-label fw-bold" for="is_split">
+                                {{ _('x.shift_is_split') }}
+                            </label>
+                            <div class="form-text">{{ _('x.shift_split_hint') }}</div>
+                        </div>
+                        <div id="splitPeriods" class="mt-3 d-none">
+                            <div id="periodRows"></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    onclick="addPeriodRow()">
+                                <i class="fas fa-plus me-1"></i>{{ _('x.shift_add_period') }}
+                            </button>
+                            <div class="alert alert-warning mt-2 mb-0 py-2 small">
+                                {{ _('x.shift_split_warning') }}
+                            </div>
+                        </div>
+                    </div>
+
+<div class="mb-3">
                         <label for="description" class="form-label">{{ _('label.description') }}</label>
                         <textarea class="form-control" id="description" name="description" rows="3"
                             placeholder="{{ _('placeholder.shift_desc') }}"></textarea>
@@ -250,5 +272,45 @@
 
     document.getElementById('start_time').addEventListener('change', updateHours);
     document.getElementById('end_time').addEventListener('change', updateHours);
+</script>
+<script>
+    // الشفت المقسّم: صفّان افتراضيًّا لأن أقلّ شفت مقسّم فترتان
+    function addPeriodRow(a, b) {
+        const box = document.getElementById('periodRows');
+        const i = box.children.length + 1;
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 align-items-end';
+        row.innerHTML = `
+            <div class="col-auto pt-2"><span class="badge bg-secondary">${i}</span></div>
+            <div class="col">
+                <label class="form-label small mb-1">{{ _('label.start_time') }}</label>
+                <input type="time" class="form-control form-control-sm" name="period_start[]" value="${a || ''}">
+            </div>
+            <div class="col">
+                <label class="form-label small mb-1">{{ _('label.end_time') }}</label>
+                <input type="time" class="form-control form-control-sm" name="period_end[]" value="${b || ''}">
+            </div>
+            <div class="col-auto">
+                <button type="button" class="btn btn-sm btn-outline-danger"
+                        onclick="this.closest('.row').remove(); renumberPeriods();">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>`;
+        box.appendChild(row);
+    }
+
+    function renumberPeriods() {
+        document.querySelectorAll('#periodRows .badge').forEach((b, i) => b.textContent = i + 1);
+    }
+
+    function toggleSplit() {
+        const on = document.getElementById('is_split').checked;
+        const box = document.getElementById('splitPeriods');
+        box.classList.toggle('d-none', !on);
+        if (on && document.getElementById('periodRows').children.length === 0) {
+            addPeriodRow('10:00', '14:00');
+            addPeriodRow('17:00', '22:00');
+        }
+    }
 </script>
 {% endblock %}

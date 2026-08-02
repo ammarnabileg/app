@@ -56,6 +56,31 @@ def shift_types():
     pass # conn.close() removed to prevent leak in Flask g
     return render_template('shift_types.html', shift_types=shift_types)
 
+def _save_shift_periods(conn, shift_id, form):
+    """حفظ فترات الشفت المقسّم من حقول النموذج.
+
+    الحقول تصل كمصفوفتين متوازيتين period_start[] وperiod_end[]، وتُخزَّن
+    فترةً فترة بترتيبها. وتُحذف الفترات القديمة أولًا ليعكس الحفظُ ما في
+    النموذج بالضبط لا تراكمًا عليه.
+
+    ويُعاد عددها: الشفت المقسّم يوجب بصمتين لكل فترة، وهذا العدد هو ما
+    يقيس عليه المحرّك اكتمال بصمات اليوم.
+    """
+    conn.execute('DELETE FROM shift_periods WHERE shift_type_id = ?', (shift_id,))
+    starts = form.getlist('period_start[]')
+    ends = form.getlist('period_end[]')
+    seq = 0
+    for a, b in zip(starts, ends):
+        a, b = (a or '').strip(), (b or '').strip()
+        if not a or not b or a == b:
+            continue
+        seq += 1
+        conn.execute(
+            'INSERT INTO shift_periods (shift_type_id, seq, start_time, end_time) '
+            'VALUES (?, ?, ?, ?)', (shift_id, seq, a, b))
+    return seq
+
+
 @salary_bp.route('/shift_types/add', methods=['POST'])
 @login_required
 @require_permission('salary.settings')
@@ -88,11 +113,34 @@ def add_shift_type():
             
         description = request.form.get('description', '')
         
+        is_split = 1 if request.form.get('is_split') else 0
+
         conn = get_db_connection()
-        conn.execute('''
-            INSERT INTO shift_types (name, start_time, end_time, hours_per_day, description)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (name, start_time, end_time, hours_per_day, description))
+        cur = conn.execute('''
+            INSERT INTO shift_types (name, start_time, end_time, hours_per_day, description, is_split)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (name, start_time, end_time, hours_per_day, description, is_split))
+        if is_split:
+            n = _save_shift_periods(conn, cur.lastrowid, request.form)
+            if n < 2:
+                # شفت موسوم مقسّمًا بفترة واحدة أو بلا فترات لا معنى له،
+                # ويجعل المحرّك يطالب ببصمات لا مقابل لها.
+                conn.execute('UPDATE shift_types SET is_split = 0 WHERE id = ?',
+                             (cur.lastrowid,))
+            else:
+                # ساعات اليوم مجموع الفترات لا المدى بينها
+                total = 0
+                for p in conn.execute(
+                        'SELECT start_time, end_time FROM shift_periods '
+                        'WHERE shift_type_id = ?', (cur.lastrowid,)).fetchall():
+                    sh, sm = map(int, p['start_time'].split(':')[:2])
+                    eh, em = map(int, p['end_time'].split(':')[:2])
+                    diff = (eh * 60 + em) - (sh * 60 + sm)
+                    if diff < 0:
+                        diff += 24 * 60
+                    total += diff
+                conn.execute('UPDATE shift_types SET hours_per_day = ? WHERE id = ?',
+                             (round(total / 60.0, 2), cur.lastrowid))
         conn.commit()
         pass # conn.close() removed to prevent leak in Flask g
         

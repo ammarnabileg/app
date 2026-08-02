@@ -175,6 +175,7 @@ PAYROLL_EMP_COLUMNS = """e.id, e.employee_number, e.name, e.arabic_name,
        st.start_time AS shift_start, st.end_time AS shift_end,
        st.presence_start_time, st.presence_end_time,
        st.flex_mode, st.name AS shift_name, st.description AS shift_notes,
+       COALESCE(st.is_split, 0) AS is_split,
        e.shift_type"""
 
 
@@ -1367,6 +1368,48 @@ def log_employee_event(conn, employee_id, field, old_value, new_value,
          note, user_id))
 
 
+def fetch_shift_periods(conn, shift_type_id):
+    """فترات الشفت المقسّم مرتّبةً. قائمة فارغة للشفت العادي."""
+    if not shift_type_id:
+        return []
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT seq, start_time, end_time FROM shift_periods "
+            "WHERE shift_type_id = ? ORDER BY seq", (shift_type_id,)).fetchall()]
+    except Exception:
+        return []
+
+
+def compute_split_day(times, periods):
+    """ساعات يومٍ في شفت مقسّم، ومدى اكتمال بصماته.
+
+    الشفت المقسّم يوجب بصمتين لكل فترة. وحساب المدى من أول بصمة إلى آخرها
+    — وهو ما يفعله الشفت العادي — يحتسب فترة الراحة عملًا: موظف يداوم
+    10-14 ثم 17-22 مداه 12 ساعة بينما عمله 9، فتُدفع ثلاث ساعات لم تُعمل،
+    وتدخل احتساب العمل الإضافي.
+
+    فتُطابَق البصمات أزواجًا بالترتيب: كل زوج فترة، وتُجمع الفروق.
+
+    يُرجع (الساعات، عدد الأزواج الكاملة، عدد الفترات المطلوبة).
+    """
+    need = len(periods) if periods else 1
+    if not times:
+        return 0.0, 0, need
+
+    def m(t):
+        h, mi = t.split(':')[:2]
+        return int(h) * 60 + int(mi)
+
+    total = 0
+    pairs = 0
+    for i in range(0, len(times) - 1, 2):
+        a, b = m(times[i]), m(times[i + 1])
+        if b > a:
+            total += b - a
+            pairs += 1
+    return round(total / 60.0, 2), pairs, need
+
+
 def fetch_fixed_earnings(conn, employee_id, basic, as_of=None):
     """Fixed recurring earning items in effect for one employee AS OF a
     date (default: today). Single source reused by EOS wage calc (as of
@@ -1436,6 +1479,19 @@ def compute_employee_days(conn, employee_id, month, year):
     pres_pe = emp['presence_end_time']
     pres_on = bool(pres_ps and pres_pe)
     flex = _emp_flex_mode(emp)
+    _ek = emp.keys() if hasattr(emp, 'keys') else []
+    is_split = bool(emp['is_split']) if 'is_split' in _ek else False
+    shift_periods = []
+    if is_split:
+        _stid = conn.execute(
+            'SELECT id FROM shift_types WHERE name = ?',
+            (emp['shift_type'],)).fetchone()
+        if _stid:
+            shift_periods = fetch_shift_periods(conn, _stid['id'])
+        # شفت موسوم مقسّمًا بلا فترات معرّفة يُعامل معاملة العادي: تعطيل
+        # الحساب هنا يعني رفض يوم عمل صحيح بسبب إعداد ناقص.
+        if not shift_periods:
+            is_split = False
 
     p_start, p_end = resolve_period(conn, month, year)
     start_iso, end_iso = p_start.isoformat(), p_end.isoformat()
@@ -1500,7 +1556,14 @@ def compute_employee_days(conn, employee_id, month, year):
         first_t = times[0] if times else None
         last_t = times[-1] if len(times) >= 2 else None
         span_h = 0.0
-        if first_t and last_t and last_t > first_t:
+        split_incomplete = False
+        if is_split and shift_periods:
+            # الشفت المقسّم: تُجمع الفترات ولا يُطرح آخر وقت من أوله،
+            # وإلا احتُسبت الراحة عملًا.
+            span_h, _pairs, _need = compute_split_day(times, shift_periods)
+            if times and _pairs < _need:
+                split_incomplete = True
+        elif first_t and last_t and last_t > first_t:
             fh, fm = map(int, first_t.split(':'))
             lh, lm = map(int, last_t.split(':'))
             span_h = round(((lh * 60 + lm) - (fh * 60 + fm)) / 60.0, 2)
@@ -1550,6 +1613,10 @@ def compute_employee_days(conn, employee_id, month, year):
             status = 'excused'
         elif not recs:
             status = 'absent'
+        elif split_incomplete:
+            # بصمات ناقصة في شفت مقسّم: يوم جزئي تسري عليه سياسة البصمة
+            # الناقصة المتدرّجة نفسها، لا يوم حضور كامل.
+            status = 'partial'
         elif span_h > 0:
             status = 'present'
         else:

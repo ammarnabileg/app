@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 60
+SCHEMA_VERSION = 61
 
 
 def get_schema_version(conn):
@@ -1148,6 +1148,7 @@ def init_db():
         ('shift_types', 'presence_start_time', 'TEXT'),
         ('shift_types', 'presence_end_time', 'TEXT'),
         ('shift_types', 'flex_mode', "TEXT DEFAULT 'none'"),
+        ('shift_types', 'is_split', 'INTEGER DEFAULT 0'),
         # --- Payroll integrity: documented instruments + attested metrics ---
         ('attendance_excuses', 'created_by', 'INTEGER'),
         ('leave_requests', 'created_by', 'INTEGER'),
@@ -1285,6 +1286,17 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS shift_periods (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shift_type_id INTEGER NOT NULL,
+                seq INTEGER NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                UNIQUE (shift_type_id, seq),
+                FOREIGN KEY (shift_type_id) REFERENCES shift_types (id)
+            )
+        ''')
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS adms_rejected_devices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
