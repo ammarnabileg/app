@@ -296,11 +296,20 @@ def queue_adms_user_update(employee_data):
         count = 0
         for device in devices:
             device_id = device['id']
-            # Queue User Info
-            cursor.execute('''
-                INSERT INTO adms_commands (device_id, command_type, payload, status)
-                VALUES (?, ?, ?, 'PENDING')
-            ''', (device_id, 'DATA UPDATE USERINFO', user_json))
+            # Queue User Info — بلا تكرار.
+            # كان كل حفظٍ للموظف يضيف أمرًا جديدًا ولو كان أمرٌ بالمحتوى
+            # نفسه ما زال معلّقًا، فيتراكم الطابور ويُرسَل الأمر مرارًا.
+            # وبروتوكول ZKTeco يخصّص للأمر المكرّر رمز خطأ (-7).
+            dup = cursor.execute('''
+                SELECT id FROM adms_commands
+                WHERE device_id = ? AND command_type = ?
+                  AND payload = ? AND status = 'PENDING'
+            ''', (device_id, 'DATA UPDATE USERINFO', user_json)).fetchone()
+            if not dup:
+                cursor.execute('''
+                    INSERT INTO adms_commands (device_id, command_type, payload, status)
+                    VALUES (?, ?, ?, 'PENDING')
+                ''', (device_id, 'DATA UPDATE USERINFO', user_json))
             count += 1
             
             # Queue Fingerprints

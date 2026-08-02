@@ -610,8 +610,15 @@ def get_request():
                  cmd_str = f"C:{cmd_id}:DATA DELETE USERINFO PIN={payload.get('PIN')}"
             
             elif cmd_type == 'SET TIME':
-                 # Payload is just the time string
-                 cmd_str = f"C:{cmd_id}:SET OPTION Time={payload}"
+                 # الوقت يُحسب لحظة الإرسال لا لحظة إضافة الأمر للطابور.
+                 #
+                 # كان يُخزَّن في الحمولة عند الإدراج، والأمر ينتظر حتى
+                 # يسأل عنه الجهاز — وقد يتأخّر دقائق أو ساعات إن كان
+                 # مفصولًا. فتصل الساعةُ قديمةً ويضبط الجهاز نفسه عليها،
+                 # وساعته هي مصدر طوابع الحضور: انحرافها يزيح الأجر
+                 # تأخيرًا وهميًّا أو عملًا إضافيًّا وهميًّا.
+                 now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                 cmd_str = f"C:{cmd_id}:SET OPTION Time={now_str}"
             
             elif cmd_type.startswith('DATA QUERY'):
                 # Many DATA QUERY commands (USERINFO, FINGERTMP) can take PIN=... or other params
