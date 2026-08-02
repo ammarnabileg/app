@@ -11,6 +11,53 @@ shift_bp = Blueprint('shift', __name__)
 def index():
     return render_template('manage_shifts.html')
 
+def _save_periods(conn, shift_id, periods):
+    """حفظ فترات الشفت المقسّم واحتساب ساعاته من مجموعها.
+
+    ساعات اليوم مجموع الفترات لا المدى بينها: شفت 10-14 ثم 17-22 عمله تسع
+    ساعات لا اثنتا عشرة، وحسابه بالمدى يحتسب الراحة عملًا فتدخل الأجر
+    والعمل الإضافي.
+
+    يُرجع (عدد الفترات المحفوظة، مجموع الساعات).
+    """
+    conn.execute('DELETE FROM shift_periods WHERE shift_type_id = ?', (shift_id,))
+    seq = 0
+    total = 0
+    for p in (periods or []):
+        a = (p.get('start') or '').strip()
+        b = (p.get('end') or '').strip()
+        if not a or not b or a == b:
+            continue
+        seq += 1
+        conn.execute(
+            'INSERT INTO shift_periods (shift_type_id, seq, start_time, end_time) '
+            'VALUES (?, ?, ?, ?)', (shift_id, seq, a, b))
+        sh, sm = map(int, a.split(':')[:2])
+        eh, em = map(int, b.split(':')[:2])
+        diff = (eh * 60 + em) - (sh * 60 + sm)
+        if diff < 0:
+            diff += 24 * 60
+        total += diff
+    return seq, round(total / 60.0, 2)
+
+
+def _apply_split(conn, shift_id, is_split, periods):
+    """تطبيق حالة التقسيم على شفت. شفتٌ بأقلّ من فترتين يُلغى تقسيمه:
+    تركه يجعل المحرّك يطالب ببصمات لا مقابل لها."""
+    if not is_split:
+        conn.execute('DELETE FROM shift_periods WHERE shift_type_id = ?', (shift_id,))
+        conn.execute('UPDATE shift_types SET is_split = 0 WHERE id = ?', (shift_id,))
+        return False
+    n, hours = _save_periods(conn, shift_id, periods)
+    if n < 2:
+        conn.execute('DELETE FROM shift_periods WHERE shift_type_id = ?', (shift_id,))
+        conn.execute('UPDATE shift_types SET is_split = 0 WHERE id = ?', (shift_id,))
+        return False
+    conn.execute('UPDATE shift_types SET is_split = 1, hours_per_day = ? WHERE id = ?',
+                 (hours, shift_id))
+    return True
+
+
 @shift_bp.route('/api/shifts')
 @login_required
 @require_permission('admin.settings')
@@ -21,6 +68,17 @@ def get_shifts_api():
         pass # conn.close() removed to prevent leak in Flask g
         
         shifts_list = [dict(row) for row in shifts]
+        # فترات كل شفت مقسّم: تُعرض في الجدول وتُحمَّل في نموذج التعديل،
+        # وإلا صار الشفت المقسّم غير مرئيّ وغير قابل للتعديل بعد إنشائه.
+        for sh in shifts_list:
+            sh['periods'] = []
+            if sh.get('is_split'):
+                try:
+                    sh['periods'] = [dict(p) for p in conn.execute(
+                        'SELECT seq, start_time, end_time FROM shift_periods '
+                        'WHERE shift_type_id = ? ORDER BY seq', (sh['id'],)).fetchall()]
+                except Exception:
+                    pass
         return jsonify({'success': True, 'shifts': shifts_list})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -52,10 +110,12 @@ def add_shift_api():
             
         conn = get_db_connection()
         try:
-            conn.execute('''
+            cur = conn.execute('''
                 INSERT INTO shift_types (name, start_time, end_time, hours_per_day, presence_start_time, presence_end_time, flex_mode, is_active)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 1)
             ''', (name, start_time, end_time, hours_per_day, presence_start, presence_end, flex_mode))
+            _apply_split(conn, cur.lastrowid,
+                         bool(data.get('is_split')), data.get('periods'))
             conn.commit()
             return jsonify({'success': True, 'message': 'تم إضافة الشفت بنجاح'})
         except Exception as e:
@@ -97,6 +157,8 @@ def update_shift_api():
                 SET name=?, start_time=?, end_time=?, hours_per_day=?, presence_start_time=?, presence_end_time=?, flex_mode=?
                 WHERE id=?
             ''', (name, start_time, end_time, hours_per_day, presence_start, presence_end, flex_mode, shift_id))
+            _apply_split(conn, shift_id,
+                         bool(data.get('is_split')), data.get('periods'))
             conn.commit()
             return jsonify({'success': True, 'message': 'تم تحديث الشفت بنجاح'})
         except Exception as e:

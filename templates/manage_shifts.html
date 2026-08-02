@@ -20,6 +20,7 @@
                         <th>{{ _('x.time_start') }}</th>
                         <th>{{ _('x.time_end') }}</th>
                         <th>{{ _('x.the_hours') }}</th>
+                        <th>{{ _('x.shift_periods_col') }}</th>
                         <th>{{ _('x.sh_flex_mode') }}</th>
                         <th>{{ _('x.presence_punch') }}</th>
                         <th>{{ _('x.actions') }}</th>
@@ -27,7 +28,7 @@
                 </thead>
                 <tbody id="shiftsTableBody">
                     <tr>
-                        <td colspan="6" class="text-center">{{ _('x.loading') }}</td>
+                        <td colspan="8" class="text-center">{{ _('x.loading') }}</td>
                     </tr>
                 </tbody>
             </table>
@@ -80,6 +81,28 @@
                             <input type="time" class="form-control" id="presenceEnd">
                         </div>
                         <div class="col-12">
+                            <div class="p-3 border rounded mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           id="isSplit" onchange="toggleSplit()">
+                                    <label class="form-check-label fw-bold" for="isSplit">
+                                        {{ _('x.shift_is_split') }}
+                                    </label>
+                                    <div class="form-text">{{ _('x.shift_split_hint') }}</div>
+                                </div>
+                                <div id="splitBox" class="mt-3 d-none">
+                                    <div id="periodRows"></div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            onclick="addPeriodRow()">
+                                        <i class="fas fa-plus me-1"></i>{{ _('x.shift_add_period') }}
+                                    </button>
+                                    <div class="alert alert-warning mt-2 mb-0 py-2 small">
+                                        {{ _('x.shift_split_warning') }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12">
                             <label class="form-label">{{ _('x.sh_flex_mode') }}</label>
                             <select class="form-select" id="flexMode">
                                 <option value="none">{{ _('x.fm_none') }}</option>
@@ -127,12 +150,20 @@
                             ? `<span class="badge bg-info text-dark">${shift.presence_start_time} - ${shift.presence_end_time}</span>`
                             : '<span class="text-muted">-</span>';
 
+                        const splitText = (shift.is_split && (shift.periods || []).length)
+                            ? `<span class="badge bg-warning text-dark">{{ _('x.shift_split_badge') }}</span> `
+                              + shift.periods.map(p =>
+                                  `<span class="badge bg-light text-dark border">${p.start_time} - ${p.end_time}</span>`
+                                ).join(' ')
+                            : '<span class="text-muted">-</span>';
+
                         tbody.innerHTML += `
                             <tr>
                                 <td>${shift.name}</td>
                                 <td>${shift.start_time}</td>
                                 <td>${shift.end_time}</td>
                                 <td>${shift.hours_per_day}</td>
+                                <td>${splitText}</td>
                                 <td>${flexText}</td>
                                 <td>${presenceText}</td>
                                 <td>
@@ -153,9 +184,62 @@
             .catch(err => console.error(err));
     }
 
+    // ===== الشفت المقسّم =====
+    function addPeriodRow(a, b) {
+        const box = document.getElementById('periodRows');
+        const i = box.children.length + 1;
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 align-items-end';
+        row.innerHTML = `
+            <div class="col-auto pt-2"><span class="badge bg-secondary">${i}</span></div>
+            <div class="col">
+                <label class="form-label small mb-1">{{ _('x.time_start') }}</label>
+                <input type="time" class="form-control form-control-sm period-start" value="${a || ''}">
+            </div>
+            <div class="col">
+                <label class="form-label small mb-1">{{ _('x.time_end') }}</label>
+                <input type="time" class="form-control form-control-sm period-end" value="${b || ''}">
+            </div>
+            <div class="col-auto">
+                <button type="button" class="btn btn-sm btn-outline-danger"
+                        onclick="this.closest('.row').remove(); renumber();">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>`;
+        box.appendChild(row);
+    }
+
+    function renumber() {
+        document.querySelectorAll('#periodRows .badge').forEach((b, i) => b.textContent = i + 1);
+    }
+
+    function collectPeriods() {
+        const starts = [...document.querySelectorAll('#periodRows .period-start')];
+        const ends = [...document.querySelectorAll('#periodRows .period-end')];
+        return starts.map((s, i) => ({ start: s.value, end: (ends[i] || {}).value }))
+                     .filter(p => p.start && p.end);
+    }
+
+    function toggleSplit() {
+        const on = document.getElementById('isSplit').checked;
+        document.getElementById('splitBox').classList.toggle('d-none', !on);
+        if (on && document.getElementById('periodRows').children.length === 0) {
+            addPeriodRow('10:00', '14:00');
+            addPeriodRow('17:00', '22:00');
+        }
+    }
+
+    function setSplit(on, periods) {
+        document.getElementById('periodRows').innerHTML = '';
+        document.getElementById('isSplit').checked = !!on;
+        document.getElementById('splitBox').classList.toggle('d-none', !on);
+        (periods || []).forEach(p => addPeriodRow(p.start_time, p.end_time));
+    }
+
     function openAddModal() {
         document.getElementById('shiftForm').reset();
         document.getElementById('shiftId').value = '';
+        setSplit(false, []);
         document.getElementById('modalTitle').innerText = {{ _('x.add_shift')|tojson }};
         shiftModal.show();
     }
@@ -169,6 +253,9 @@
         document.getElementById('presenceStart').value = shift.presence_start_time || '';
         document.getElementById('presenceEnd').value = shift.presence_end_time || '';
         document.getElementById('flexMode').value = shift.flex_mode || 'none';
+        // الفترات المحفوظة تُحمَّل قبل العرض: بناؤها من الصفر يفقدها عند
+        // أول حفظ، لأن الحفظ يعكس ما في النموذج لا ما في قاعدة البيانات.
+        setSplit(!!shift.is_split, shift.periods || []);
 
         document.getElementById('modalTitle').innerText = {{ _('x.edit_shift')|tojson }};
         shiftModal.show();
@@ -184,7 +271,9 @@
             hours_per_day: document.getElementById('hoursPerDay').value,
             presence_start_time: document.getElementById('presenceStart').value,
             presence_end_time: document.getElementById('presenceEnd').value,
-            flex_mode: document.getElementById('flexMode').value
+            flex_mode: document.getElementById('flexMode').value,
+            is_split: document.getElementById('isSplit').checked,
+            periods: collectPeriods()
         };
 
         const url = id ? '/api/shifts/update' : '/api/shifts/add';
