@@ -8,11 +8,19 @@ from utils.version_info import CURRENT_VERSION
 UPDATE_API_URL = "https://onz.one/PHP/version_api.php"
 
 def parse_version(v):
-    # Normalize "1.2" -> [1, 2, 0]
-    parts = [int(x) for x in v.split('.') if x.isdigit()]
-    while len(parts) < 3:
+    """تحويل الإصدار إلى صفٍّ للمقارنة.
+
+    يُكمَّل إلى أربعة أجزاء لا ثلاثة: صيغة الإصدار صارت
+    MAJOR.MINOR.PATCH.BUILD، وقصّها عند ثلاثة يجعل 2.6.0.1 و2.6.0.9
+    متساويين — فلا يُرى إصلاح عاجل تحديثًا.
+
+    والمقارنة على صفٍّ لا قائمة: القائمة تُقارن عنصرًا عنصرًا كذلك، لكن
+    الصفّ يمنع تعديلها سهوًا.
+    """
+    parts = [int(x) for x in str(v).split('.') if x.isdigit()]
+    while len(parts) < 4:
         parts.append(0)
-    return parts
+    return tuple(parts[:4])
 
 def check_for_updates():
     """

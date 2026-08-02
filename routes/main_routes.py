@@ -415,3 +415,11 @@ def license_state_api():
     except Exception:
         pass
     return jsonify(st)
+
+
+@main_bp.route('/api/version')
+@login_required
+def version_api():
+    """معلومات الإصدار — للدعم الفني ولفحص التحديث."""
+    from utils.version_info import version_info
+    return jsonify(version_info())

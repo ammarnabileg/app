@@ -1027,6 +1027,15 @@
                                 {{ _('footer.developed_by') }}: (<span dir="ltr">+965 98953511</span>) | {{
                                 _('footer.company') }}: ONZ.one
                             </small>
+                            <br>
+                            <small class="text-muted">
+                                {# الإصدار يظهر دائمًا: أول ما يُسأل عنه في
+                                   الدعم الفني هو ما الذي يشغّله العميل. #}
+                                <span dir="ltr">v{{ app_version }}</span>
+                                {% if app_release_name %}
+                                <span class="d-none d-md-inline">· {{ app_release_name }}</span>
+                                {% endif %}
+                            </small>
                         </div>
                     </div>
                 </footer>

@@ -155,6 +155,22 @@ def inject_i18n():
     )
 
 
+@app.context_processor
+def inject_version():
+    """الإصدار متاح لكل قالب.
+
+    يُعرض في التذييل لأن أول سؤال في أي مكالمة دعم فني هو: ما النسخة التي
+    تشغّلها؟ وإخفاؤه يجعل الإجابة تخمينًا.
+    """
+    try:
+        from utils.version_info import CURRENT_VERSION, RELEASE_NAME, BUILD_DATE
+        return dict(app_version=CURRENT_VERSION,
+                    app_release_name=RELEASE_NAME,
+                    app_build_date=BUILD_DATE)
+    except Exception:
+        return dict(app_version='', app_release_name='', app_build_date='')
+
+
 
 
 from flask import request, redirect, url_for, flash, render_template
