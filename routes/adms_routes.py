@@ -57,9 +57,31 @@ def device_gate(conn, sn):
     if not sn:
         return False, 'no_serial', None
 
+    # المطابقة بالرقم التسلسلي أولًا ثم بعنوان IP: الأجهزة القائمة قد
+    # تكون مسجَّلة باسم وصفي أو بعنوانها لا برقمها التسلسلي، لأن المسار
+    # قبل هذه البوّابة كان يقبل `device_ip = ? OR device_name = ?`.
+    # الاقتصار على الاسم يرفض أجهزةً عاملة عند كل عميل قائم — وهو ما وقع
+    # فعلًا بعد التحديث.
     row = conn.execute(
         'SELECT * FROM fingerprint_devices WHERE device_name = ?',
         (sn,)).fetchone()
+
+    if not row and request.remote_addr:
+        row = conn.execute(
+            'SELECT * FROM fingerprint_devices WHERE device_ip = ?',
+            (request.remote_addr,)).fetchone()
+        if row:
+            # يُثبَّت الرقم التسلسلي على الجهاز المعروف: المطابقة بعنوان IP
+            # هشّة — العنوان يتغيّر بإعادة تشغيل الشبكة، وقد يتشارك عملاء
+            # خلف NAT عنوانًا واحدًا. فتُحفظ الهوية الصحيحة أول مرة.
+            try:
+                if not row['device_name'] or row['device_name'] != sn:
+                    conn.execute(
+                        'UPDATE fingerprint_devices SET device_name = ? WHERE id = ?',
+                        (sn, row['id']))
+                    conn.commit()
+            except Exception:
+                pass
 
     if not row:
         # غير مسجَّل: يُرفض ويُسجَّل. الرقم التسلسلي مطبوع على الجهاز
