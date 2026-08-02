@@ -300,6 +300,20 @@ def get_saved_license_details():
         if conn:
             pass # conn.close() removed to prevent leak in Flask g
 
+def invalidate_license_cache():
+    """إبطال الكاش في الذاكرة فورًا.
+
+    كاش قاعدة البيانات (last_check) لا يكفي: نتيجة التحقق مخزَّنة أيضًا في
+    متغيّر داخل العملية لمدة دقيقة. فبعد تفعيل ناجح كان الحارس في
+    before_request يقرأ النتيجة القديمة {'ok': False} فيعيد التوجيه إلى
+    صفحة الترخيص — أي أن التفعيل ينجح والمستخدم يبقى محبوسًا في الصفحة
+    نفسها حتى تنقضي المدة.
+    """
+    global _LICENSE_CACHE, _LICENSE_CACHE_TIME
+    _LICENSE_CACHE = None
+    _LICENSE_CACHE_TIME = 0
+
+
 def save_license_key(key: str, username: str = None, api_key: str = None):
     conn = get_db_connection()
     try:
@@ -313,6 +327,7 @@ def save_license_key(key: str, username: str = None, api_key: str = None):
         else:
              conn.execute('UPDATE license_settings SET license_key=?, last_check=NULL, last_status_ok=0 WHERE id=1', (enc,))
         conn.commit()
+        invalidate_license_cache()
     finally:
         pass # conn.close() removed to prevent leak in Flask g
 
@@ -322,6 +337,7 @@ def logout_license():
         init_license_table(conn)
         conn.execute('UPDATE license_settings SET license_key=NULL, client_username=NULL WHERE id=1')
         conn.commit()
+        invalidate_license_cache()
     finally:
         pass # conn.close() removed to prevent leak in Flask g
 

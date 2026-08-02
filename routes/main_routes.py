@@ -149,6 +149,14 @@ def license_page():
             
             if ok:
                 save_license_key(key)
+                # إبطال صريح قبل التوجيه: الحارس في before_request يقرأ
+                # الكاش، فبدونه يرى النتيجة السابقة ويعيد التوجيه إلى هذه
+                # الصفحة نفسها.
+                try:
+                    from utils.license import invalidate_license_cache
+                    invalidate_license_cache()
+                except Exception:
+                    pass
                 flash(_('msg.license_activated'), 'success')
                 return redirect(url_for('main.index'))
             else:
