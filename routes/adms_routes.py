@@ -154,15 +154,24 @@ def cdata():
         # Print to console for real-time debugging as requested
         print(f"\n[ADMS DATA] Received from {sn} (Table: {table}, IP: {request.remote_addr}):\n{raw_data[:200]}...\n")
 
-    # بوّابة القبول قبل أي معالجة أو كتابة
+    # بوّابة القبول — بعد تسجيل الاكتشاف لا قبله.
+    #
+    # الجهاز المجهول يجب أن يظهر في قائمة الاكتشاف (pending_adms_devices)
+    # ليعتمده المستخدم من شاشة ADMS. البوّابة كانت ترجع قبل الوصول إلى
+    # ذلك السطر، فاختفى الجهاز من القائمة تمامًا ولم يعد ممكنًا إضافته
+    # إطلاقًا — أي أن الحماية عطّلت الوظيفة التي تجعلها قابلة للاستخدام.
+    #
+    # فالمنع الآن مقصور على كتابة بيانات الحضور والمستخدمين، والاكتشاف
+    # يمضي: يُرى الجهاز، ويُعتمد بقرار، ثم تُقبل بياناته.
+    _gate_ok = True
+    _gate_reason = None
     try:
         _gconn = get_db_connection()
-        _ok, _why, _dev = device_gate(_gconn, sn)
-        if not _ok:
-            logger.warning(f"ADMS rejected | SN={sn} | reason={_why} | ip={request.remote_addr}")
-            # يُرد OK حتى لا يعيد الجهاز الإرسال في حلقة لا تنتهي؛ البيانات
-            # لا تُكتب، والرفض مسجَّل ليظهر في اللوحة.
-            return "OK"
+        _gate_ok, _gate_reason, _gate_dev = device_gate(_gconn, sn)
+        if not _gate_ok and _gate_reason != 'healthcheck':
+            logger.warning(
+                f"ADMS pending | SN={sn} | reason={_gate_reason} | "
+                f"ip={request.remote_addr} — الجهاز في قائمة الاكتشاف بانتظار الاعتماد")
     except Exception as _ge:
         logger.error(f"device_gate error: {_ge}")
 
@@ -173,7 +182,9 @@ def cdata():
     try:
         
         # 1. Update/Add Device to Pending List (Discovery)
-        if sn:
+        # فحص الصحة ليس جهازًا فلا يدخل قائمة الاكتشاف: ظهوره فيها كل
+        # ثلاثين ثانية يوهم المستخدم بجهاز ينتظر الاعتماد.
+        if sn and sn != 'healthcheck':
             conn = get_db_connection()
             # Update last activity
             conn.execute('''
@@ -183,6 +194,14 @@ def cdata():
                 ip_address = excluded.ip_address,
                 last_activity = CURRENT_TIMESTAMP
             ''', (sn, request.remote_addr))
+
+            # الاكتشاف تمّ: الجهاز صار مرئيًّا في شاشة ADMS ليُعتمد.
+            # وبياناته لا تُكتب قبل الاعتماد، فلا تدخل بصمات ملفّقة بمجرّد
+            # معرفة رقم تسلسلي مطبوع على الجهاز.
+            if not _gate_ok:
+                conn.commit()
+                return "OK"
+
             
             # Also update fingerprint_devices if exists (Heartbeat)
             conn.execute('''
