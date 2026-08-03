@@ -33,13 +33,13 @@
 
 VERSION_MAJOR = 2
 VERSION_MINOR = 7
-VERSION_PATCH = 4
+VERSION_PATCH = 5
 VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
 
 # تاريخ البناء — يُحدَّث مع BUILD
-BUILD_DATE = "2026-08-02"
+BUILD_DATE = "2026-08-03"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
 RELEASE_NAME = "الشفت المقسّم والترخيص الموقّع"

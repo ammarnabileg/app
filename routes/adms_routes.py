@@ -212,6 +212,18 @@ def cdata():
                 WHERE device_ip = ? OR device_name = ?
             ''', (request.remote_addr, sn))
             
+            # جهازٌ يتصل عبر بروتوكول ADMS هو جهاز ADMS بحكم اتصاله، فتُضبط
+            # الراية تلقائيًّا. كانت تُضبط من خانة اختيار في نموذج الإضافة
+            # وحدها، فأي جهاز يُعتمد بدونها يبقى is_adms = 0 — ودالة إرسال
+            # المستخدمين تشترطها، فتجد صفر أجهزة وترجع صامتةً بلا أمر
+            # واحد. أي أن الإضافة تنجح والإرسال لا يعمل بلا رسالة خطأ.
+            try:
+                conn.execute(
+                    'UPDATE fingerprint_devices SET is_adms = 1 '
+                    'WHERE device_name = ? AND COALESCE(is_adms, 0) = 0', (sn,))
+            except Exception:
+                pass
+
             # 1a. Automatic Time Sync (Maintenance)
             device_row = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ? OR device_name = ?', (request.remote_addr, sn)).fetchone()
             device_id = device_row['id'] if device_row else None
