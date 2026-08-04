@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 61
+SCHEMA_VERSION = 62
 
 
 def get_schema_version(conn):
@@ -1298,6 +1298,25 @@ def init_db():
             )
         ''')
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS manpower_contracts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_name TEXT NOT NULL,
+                ministry_line1 TEXT,
+                station_name TEXT,
+                contract_no TEXT,
+                work_description TEXT,
+                payment_ref TEXT,
+                company_logo TEXT,
+                ot_normal REAL DEFAULT 1.25,
+                ot_friday REAL DEFAULT 1.5,
+                ot_holiday REAL DEFAULT 2.0,
+                days_basis INTEGER DEFAULT 26,
+                hours_per_day INTEGER DEFAULT 8,
+                is_active INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS adms_rejected_devices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 serial TEXT NOT NULL,
@@ -1576,6 +1595,11 @@ def init_db():
             # Dashboard
             
             # Employees
+            # كشف قوى عاملة المقاولات — صلاحية مستقلّة عن تقارير الرواتب
+            # لأنه يُتاح لعدد محدود من الشركات ولمستخدمين بعينهم، فربطه
+            # بصلاحية عامة يكشفه لمن لا يعنيه.
+            ('report.manpower', 'Manpower Contract Report',
+             'Reports', 'View and export the ministry manpower payroll sheet'),
             ('employee.view', 'View Employees', 'Employees', 'View employee list and details'),
             ('employee.create', 'Create Employee', 'Employees', 'Add new employees'),
             ('employee.edit', 'Edit Employee', 'Employees', 'Edit employee details'),

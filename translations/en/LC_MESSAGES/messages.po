@@ -9278,6 +9278,81 @@ msgstr "Periods"
 msgid "x.shift_split_badge"
 msgstr "Split"
 
+msgid "x.mp_title"
+msgstr "Manpower Contract Report"
+
+msgid "x.mp_contracts"
+msgstr "Manage Contracts"
+
+msgid "x.mp_contract"
+msgstr "Contract"
+
+msgid "x.mp_company"
+msgstr "Company Name"
+
+msgid "x.mp_station"
+msgstr "Station"
+
+msgid "x.mp_ministry"
+msgstr "Ministry Line"
+
+msgid "x.mp_contract_no"
+msgstr "Contract No."
+
+msgid "x.mp_payref"
+msgstr "Payment Ref."
+
+msgid "x.mp_work"
+msgstr "Work Description"
+
+msgid "x.mp_ot_normal"
+msgstr "Normal OT"
+
+msgid "x.mp_ot_friday"
+msgstr "Friday OT"
+
+msgid "x.mp_ot_holiday"
+msgstr "Holiday OT"
+
+msgid "x.mp_days_basis"
+msgstr "Days Basis"
+
+msgid "x.mp_hours"
+msgstr "Hours/Day"
+
+msgid "x.mp_logo"
+msgstr "Company Logo"
+
+msgid "x.mp_logo_hint"
+msgstr "Ministry logo is fixed. This is the contractor logo."
+
+msgid "x.mp_staff"
+msgstr "Staff Count"
+
+msgid "x.mp_basic"
+msgstr "Basic"
+
+msgid "x.mp_ot"
+msgstr "Overtime"
+
+msgid "x.mp_grand"
+msgstr "Grand Total"
+
+msgid "x.mp_sl"
+msgstr "SL No."
+
+msgid "x.mp_designation"
+msgstr "Designation"
+
+msgid "x.mp_choose"
+msgstr "Choose contract and month, then Show"
+
+msgid "x.inactive"
+msgstr "inactive"
+
+msgid "btn.show"
+msgstr "Show"
+
 #~ msgid "btn.back"
 #~ msgstr "Back"
 

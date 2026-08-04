@@ -9252,6 +9252,81 @@ msgstr "الفترات"
 msgid "x.shift_split_badge"
 msgstr "مقسّم"
 
+msgid "x.mp_title"
+msgstr "كشف قوى عاملة المقاولات"
+
+msgid "x.mp_contracts"
+msgstr "إدارة العقود"
+
+msgid "x.mp_contract"
+msgstr "العقد"
+
+msgid "x.mp_company"
+msgstr "اسم الشركة"
+
+msgid "x.mp_station"
+msgstr "المحطة"
+
+msgid "x.mp_ministry"
+msgstr "سطر الوزارة"
+
+msgid "x.mp_contract_no"
+msgstr "رقم العقد"
+
+msgid "x.mp_payref"
+msgstr "مرجع الدفع"
+
+msgid "x.mp_work"
+msgstr "وصف العمل"
+
+msgid "x.mp_ot_normal"
+msgstr "إضافي عادي"
+
+msgid "x.mp_ot_friday"
+msgstr "إضافي جمعة"
+
+msgid "x.mp_ot_holiday"
+msgstr "إضافي عطلة"
+
+msgid "x.mp_days_basis"
+msgstr "أساس الأيام"
+
+msgid "x.mp_hours"
+msgstr "ساعات اليوم"
+
+msgid "x.mp_logo"
+msgstr "شعار الشركة"
+
+msgid "x.mp_logo_hint"
+msgstr "شعار الوزارة ثابت. هذا شعار الشركة المقاولة."
+
+msgid "x.mp_staff"
+msgstr "عدد العمالة"
+
+msgid "x.mp_basic"
+msgstr "الأساسي"
+
+msgid "x.mp_ot"
+msgstr "الإضافي"
+
+msgid "x.mp_grand"
+msgstr "الإجمالي الكلي"
+
+msgid "x.mp_sl"
+msgstr "الرقم"
+
+msgid "x.mp_designation"
+msgstr "المسمى"
+
+msgid "x.mp_choose"
+msgstr "اختر العقد والشهر ثم اضغط عرض"
+
+msgid "x.inactive"
+msgstr "غير مفعّل"
+
+msgid "btn.show"
+msgstr "عرض"
+
 #~ msgid "btn.back"
 #~ msgstr "عودة"
 

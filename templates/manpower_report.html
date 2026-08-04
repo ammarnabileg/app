@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">{{ _('x.mp_title') }}</h1>
+    <button class="btn btn-outline-secondary btn-sm" onclick="openContract()">
+        <i class="fas fa-cog me-1"></i>{{ _('x.mp_contracts') }}
+    </button>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">{{ _('x.mp_contract') }}</label>
+                <select class="form-select" id="contractSel">
+                    {% for c in contracts %}
+                    <option value="{{ c.id }}">{{ c.company_name }}{% if not c.is_active %} ({{ _('x.inactive') }}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">{{ _('label.month') }}</label>
+                <select class="form-select" id="monthSel">
+                    {% for m in range(1,13) %}
+                    <option value="{{ m }}" {% if m == cur_month %}selected{% endif %}>{{ '%02d'|format(m) }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">{{ _('label.year') }}</label>
+                <input type="number" class="form-control" id="yearInp" value="{{ cur_year }}">
+            </div>
+            <div class="col-md-4 d-flex gap-2">
+                <button class="btn btn-primary flex-fill" onclick="loadReport()">
+                    <i class="fas fa-search me-1"></i>{{ _('btn.show') }}
+                </button>
+                <button class="btn btn-outline-dark" onclick="doPrint()" title="{{ _('btn.print') }}">🖨</button>
+                <button class="btn btn-outline-success" onclick="doExport()" title="Excel">
+                    <i class="fas fa-file-excel"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="summary" class="row g-2 mb-3 d-none">
+    <div class="col-md-3"><div class="card"><div class="card-body py-2">
+        <div class="small text-muted">{{ _('x.mp_staff') }}</div>
+        <div class="h5 mb-0" id="sCount">-</div></div></div></div>
+    <div class="col-md-3"><div class="card"><div class="card-body py-2">
+        <div class="small text-muted">{{ _('x.mp_basic') }}</div>
+        <div class="h5 mb-0" id="sBasic">-</div></div></div></div>
+    <div class="col-md-3"><div class="card"><div class="card-body py-2">
+        <div class="small text-muted">{{ _('x.mp_ot') }}</div>
+        <div class="h5 mb-0" id="sOt">-</div></div></div></div>
+    <div class="col-md-3"><div class="card border-success"><div class="card-body py-2">
+        <div class="small text-muted">{{ _('x.mp_grand') }}</div>
+        <div class="h5 mb-0 text-success" id="sGrand">-</div></div></div></div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0" style="font-size:.8rem">
+                <thead class="table-dark">
+                    <tr>
+                        <th rowspan="2">#</th><th rowspan="2">{{ _('x.mp_sl') }}</th>
+                        <th rowspan="2">{{ _('label.name') }}</th><th rowspan="2">{{ _('x.mp_designation') }}</th>
+                        <th colspan="4">ATTENDANCE</th>
+                        <th colspan="2">NORMAL O.T.</th>
+                        <th colspan="2">FRIDAY O.T.</th>
+                        <th colspan="2">HOLIDAY O.T.</th>
+                        <th rowspan="2">GRAND TOTAL</th>
+                    </tr>
+                    <tr>
+                        <th>Month</th><th>Day</th><th>Days</th><th>Total</th>
+                        <th>HR</th><th>Total</th>
+                        <th>HR</th><th>Total</th>
+                        <th>HR</th><th>Total</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody">
+                    <tr><td colspan="15" class="text-center text-muted py-4">{{ _('x.mp_choose') }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- إدارة العقود -->
+<div class="modal fade" id="contractModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _('x.mp_contracts') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label">{{ _('x.mp_company') }} *</label>
+            <input class="form-control" id="cName">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">{{ _('x.mp_station') }}</label>
+            <input class="form-control" id="cStation" placeholder="SABIYA POWER STATION">
+          </div>
+          <div class="col-12">
+            <label class="form-label">{{ _('x.mp_ministry') }}</label>
+            <input class="form-control" id="cMinistry"
+                   placeholder="MINISTRY OF ELECTRICITY & WATER & RENEWABLE ENERGY">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">{{ _('x.mp_contract_no') }}</label>
+            <input class="form-control" id="cNo" placeholder="MEW/MC/5790-2022/2023">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">{{ _('x.mp_payref') }}</label>
+            <input class="form-control" id="cRef" placeholder="2070/ABJ/MEW/PT/45MP - 2026">
+          </div>
+          <div class="col-12">
+            <label class="form-label">{{ _('x.mp_work') }}</label>
+            <input class="form-control" id="cWork">
+          </div>
+          <div class="col-12"><hr class="my-2"></div>
+          <div class="col-md-2">
+            <label class="form-label small">{{ _('x.mp_ot_normal') }}</label>
+            <input type="number" step="0.05" class="form-control" id="cOtN" value="1.25">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">{{ _('x.mp_ot_friday') }}</label>
+            <input type="number" step="0.05" class="form-control" id="cOtF" value="1.5">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">{{ _('x.mp_ot_holiday') }}</label>
+            <input type="number" step="0.05" class="form-control" id="cOtH" value="2.0">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">{{ _('x.mp_days_basis') }}</label>
+            <input type="number" class="form-control" id="cBasis" value="26">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">{{ _('x.mp_hours') }}</label>
+            <input type="number" class="form-control" id="cHours" value="8">
+          </div>
+          <div class="col-12"><hr class="my-2"></div>
+          <div class="col-md-8">
+            <label class="form-label">{{ _('x.mp_logo') }}</label>
+            <input type="file" class="form-control" id="cLogo"
+                   accept=".png,.jpg,.jpeg,.svg,.webp">
+            <div class="form-text">{{ _('x.mp_logo_hint') }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveContract()">{{ _('btn.save') }}</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">{{ _('btn.cancel') }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let contracts = [];
+const n3 = v => (v ?? 0).toLocaleString(undefined, {minimumFractionDigits:3, maximumFractionDigits:3});
+const n1 = v => (v ?? 0).toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:1});
+
+function params() {
+    return `contract_id=${document.getElementById('contractSel').value}` +
+           `&month=${document.getElementById('monthSel').value}` +
+           `&year=${document.getElementById('yearInp').value}`;
+}
+
+async function loadReport() {
+    const tb = document.getElementById('tbody');
+    tb.innerHTML = '<tr><td colspan="15" class="text-center py-4">...</td></tr>';
+    const res = await fetch('/api/manpower/report?' + params());
+    const j = await res.json();
+    if (!j.success) { tb.innerHTML = `<tr><td colspan="15" class="text-danger text-center py-3">${j.message}</td></tr>`; return; }
+    const d = j.data;
+    tb.innerHTML = '';
+    d.rows.forEach(r => {
+        tb.innerHTML += `<tr>
+            <td>${r.item}</td><td>${r.sl_no ?? ''}</td>
+            <td>${r.name ?? ''}</td><td class="small">${r.designation ?? ''}</td>
+            <td class="text-end">${n3(r.monthly_salary)}</td>
+            <td class="text-end">${n3(r.daily_salary)}</td>
+            <td class="text-center">${r.days_present}</td>
+            <td class="text-end">${n3(r.basic_total)}</td>
+            <td class="text-center">${n1(r.ot_normal_hours)}</td>
+            <td class="text-end">${n3(r.ot_normal_total)}</td>
+            <td class="text-center">${n1(r.ot_friday_hours)}</td>
+            <td class="text-end">${n3(r.ot_friday_total)}</td>
+            <td class="text-center">${n1(r.ot_holiday_hours)}</td>
+            <td class="text-end">${n3(r.ot_holiday_total)}</td>
+            <td class="text-end fw-bold">${n3(r.grand_total)}</td></tr>`;
+    });
+    document.getElementById('summary').classList.remove('d-none');
+    document.getElementById('sCount').textContent = d.totals.count;
+    document.getElementById('sBasic').textContent = n3(d.totals.basic);
+    document.getElementById('sOt').textContent = n3(d.totals.ot_total);
+    document.getElementById('sGrand').textContent = n3(d.totals.grand_total);
+}
+
+const doPrint  = () => window.open('/reports/manpower/print?' + params(), '_blank');
+const doExport = () => window.location = '/reports/manpower/export?' + params();
+
+async function openContract() {
+    const res = await fetch('/api/manpower/contracts');
+    const j = await res.json();
+    contracts = j.contracts || [];
+    const id = document.getElementById('contractSel').value;
+    const c = contracts.find(x => String(x.id) === String(id)) || {};
+    document.getElementById('cName').value = c.company_name || '';
+    document.getElementById('cStation').value = c.station_name || '';
+    document.getElementById('cMinistry').value = c.ministry_line1 || '';
+    document.getElementById('cNo').value = c.contract_no || '';
+    document.getElementById('cRef').value = c.payment_ref || '';
+    document.getElementById('cWork').value = c.work_description || '';
+    document.getElementById('cOtN').value = c.ot_normal ?? 1.25;
+    document.getElementById('cOtF').value = c.ot_friday ?? 1.5;
+    document.getElementById('cOtH').value = c.ot_holiday ?? 2.0;
+    document.getElementById('cBasis').value = c.days_basis ?? 26;
+    document.getElementById('cHours').value = c.hours_per_day ?? 8;
+    new bootstrap.Modal(document.getElementById('contractModal')).show();
+}
+
+async function saveContract() {
+    const id = document.getElementById('contractSel').value;
+    const body = {
+        id: id || null,
+        company_name: document.getElementById('cName').value,
+        station_name: document.getElementById('cStation').value,
+        ministry_line1: document.getElementById('cMinistry').value,
+        contract_no: document.getElementById('cNo').value,
+        payment_ref: document.getElementById('cRef').value,
+        work_description: document.getElementById('cWork').value,
+        ot_normal: document.getElementById('cOtN').value,
+        ot_friday: document.getElementById('cOtF').value,
+        ot_holiday: document.getElementById('cOtH').value,
+        days_basis: document.getElementById('cBasis').value,
+        hours_per_day: document.getElementById('cHours').value,
+    };
+    const r = await fetch('/api/manpower/contracts/save', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)});
+    const j = await r.json();
+    if (!j.success) { alert(j.message); return; }
+
+    const f = document.getElementById('cLogo').files[0];
+    if (f && id) {
+        const fd = new FormData(); fd.append('logo', f);
+        const lr = await fetch(`/api/manpower/contracts/${id}/logo`, {method:'POST', body: fd});
+        const lj = await lr.json();
+        if (!lj.success) alert(lj.message);
+    }
+    location.reload();
+}
+</script>
+{% endblock %}

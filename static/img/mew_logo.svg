@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- شعار وزارة الكهرباء والماء والطاقة المتجددة — الكويت.
+       رُسم متجهًا لا صورة نقطية: الكشف يُطبع ويُرسل للوزارة، والمتجه
+       يبقى حادًّا بأي مقاس ولا يحتاج ملفًا خارجيًّا قد يُفقد عند النقل. -->
+  <circle cx="100" cy="100" r="96" fill="none" stroke="#1F5C4A" stroke-width="3"/>
+  <circle cx="100" cy="100" r="88" fill="none" stroke="#1F5C4A" stroke-width="1.5"/>
+  <!-- قطرة الماء -->
+  <path d="M72 118 C72 100 88 84 88 68 C88 84 104 100 104 118 C104 130 96 138 88 138 C80 138 72 130 72 118 Z"
+        fill="#1F5C4A" opacity="0.9"/>
+  <!-- صاعقة الكهرباء -->
+  <path d="M116 62 L104 100 L118 100 L108 142 L134 96 L119 96 L130 62 Z"
+        fill="#C9A227"/>
+  <!-- شمس الطاقة المتجددة -->
+  <circle cx="100" cy="40" r="9" fill="#C9A227"/>
+  <g stroke="#C9A227" stroke-width="2.5" stroke-linecap="round">
+    <line x1="100" y1="22" x2="100" y2="27"/>
+    <line x1="86"  y1="27" x2="89"  y2="31"/>
+    <line x1="114" y1="27" x2="111" y2="31"/>
+    <line x1="80"  y1="40" x2="85"  y2="40"/>
+    <line x1="120" y1="40" x2="115" y2="40"/>
+  </g>
+  <text x="100" y="168" text-anchor="middle" font-family="Arial, sans-serif"
+        font-size="11" font-weight="bold" fill="#1F5C4A">وزارة الكهرباء والماء</text>
+  <text x="100" y="182" text-anchor="middle" font-family="Arial, sans-serif"
+        font-size="8" fill="#5F6B62">والطاقة المتجددة</text>
+</svg>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>Manpower Supply — {{ rep.month_en }} {{ rep.year }}</title>
+<style>
+    /* الكشف يُقدَّم إلى الوزارة مطبوعًا، فالتخطيط مضبوط على A4 عرضيًّا
+       بمقاسات ثابتة لا نسبية: العرض على الشاشة لا يعني الطباعة الصحيحة. */
+    @page { size: A4 landscape; margin: 8mm; }
+    body { font-family: Arial, sans-serif; font-size: 8.5px; color: #000; margin: 0; }
+    .head { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+    .head .logo { width: 74px; height: 74px; flex: 0 0 74px; }
+    .head .logo img, .head .logo svg { width: 100%; height: 100%; object-fit: contain; }
+    .head .mid { flex: 1; text-align: center; line-height: 1.5; }
+    .head .mid .l1 { font-size: 12px; font-weight: bold; }
+    .head .mid .l2 { font-size: 11px; font-weight: bold; }
+    .head .mid .sm { font-size: 9px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #666; padding: 2px 3px; }
+    thead th { background: #1F5C4A; color: #fff; text-align: center;
+               font-size: 8px; font-weight: bold; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.c { text-align: center; }
+    tbody tr:nth-child(even) { background: #f6f6f4; }
+    tfoot td { font-weight: bold; background: #E7F1EC; }
+    .sign { margin-top: 20px; display: flex; justify-content: space-around;
+            font-size: 9px; }
+    .sign div { text-align: center; width: 27%; }
+    .sign .line { border-top: 1px solid #000; margin-top: 34px; padding-top: 3px; }
+    @media print { .noprint { display: none !important; } }
+    .noprint { margin: 8px 0; }
+    .btn { padding: 6px 16px; border: 1px solid #1F5C4A; background: #1F5C4A;
+           color: #fff; border-radius: 5px; cursor: pointer; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="noprint">
+    <button class="btn" onclick="window.print()">🖨 Print</button>
+</div>
+
+<div class="head">
+    <div class="logo">
+        <img src="{{ url_for('static', filename='img/mew_logo.svg') }}" alt="MEW">
+    </div>
+    <div class="mid">
+        <div class="l1">{{ rep.contract.ministry_line1 or 'MINISTRY OF ELECTRICITY & WATER & RENEWABLE ENERGY' }}</div>
+        <div class="l2">{{ rep.contract.station_name or '' }}</div>
+        <div class="sm">Contract No.: {{ rep.contract.contract_no or '' }}</div>
+        <div class="sm">{{ rep.contract.work_description or '' }}</div>
+        <div class="sm">Payment Ref.: {{ rep.contract.payment_ref or '' }}</div>
+        <div class="l2">MANPOWER SUPPLY FOR {{ rep.month_en }} {{ rep.year }}</div>
+    </div>
+    <div class="logo">
+        {% if rep.contract.company_logo %}
+        <img src="{{ url_for('static', filename='img/logos/' ~ rep.contract.company_logo) }}"
+             alt="{{ rep.contract.company_name }}">
+        {% endif %}
+    </div>
+</div>
+
+<table>
+<thead>
+    <tr>
+        <th rowspan="2">Item</th>
+        <th rowspan="2">SI. No.</th>
+        <th rowspan="2">Name</th>
+        <th rowspan="2">Designation</th>
+        <th colspan="4">ATTENDANCE</th>
+        <th colspan="4">NORMAL O.T.</th>
+        <th colspan="4">FRIDAY O.T.</th>
+        <th colspan="4">HOLIDAY O.T.</th>
+        <th rowspan="2">TOTAL</th>
+        <th rowspan="2">GRAND<br>TOTAL</th>
+    </tr>
+    <tr>
+        <th>Per month<br>Salary</th><th>Per Day<br>Salary</th>
+        <th>Days<br>Present</th><th>Total</th>
+        <th>HR.</th><th>Salary<br>/HR</th><th>%</th><th>TOTAL</th>
+        <th>HR.</th><th>Salary<br>/HR</th><th>%</th><th>TOTAL</th>
+        <th>HR.</th><th>Salary<br>/HR</th><th>%</th><th>TOTAL</th>
+    </tr>
+</thead>
+<tbody>
+{% for r in rep.rows %}
+    <tr>
+        <td class="c">{{ r.item }}</td>
+        <td class="c">{{ r.sl_no or '' }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.designation or '' }}</td>
+        <td class="num">{{ '%.0f'|format(r.monthly_salary) }}</td>
+        <td class="num">{{ '%.3f'|format(r.daily_salary) }}</td>
+        <td class="c">{{ '%.0f'|format(r.days_present) }}</td>
+        <td class="num">{{ '%.3f'|format(r.basic_total) }}</td>
+        <td class="c">{{ '%.1f'|format(r.ot_normal_hours) }}</td>
+        <td class="num">{{ '%.3f'|format(r.ot_normal_rate) }}</td>
+        <td class="c">{{ r.ot_normal_pct }}</td>
+        <td class="num">{{ '%.3f'|format(r.ot_normal_total) }}</td>
+        <td class="c">{{ '%.1f'|format(r.ot_friday_hours) }}</td>
+        <td class="num">{{ '%.3f'|format(r.ot_friday_rate) }}</td>
+        <td class="c">{{ r.ot_friday_pct }}</td>
+        <td class="num">{{ '%.3f'|format(r.ot_friday_total) }}</td>
+        <td class="c">{{ '%.1f'|format(r.ot_holiday_hours) }}</td>
+        <td class="num">{{ '%.3f'|format(r.ot_holiday_rate) }}</td>
+        <td class="c">{{ r.ot_holiday_pct }}</td>
+        <td class="num">{{ '%.3f'|format(r.ot_holiday_total) }}</td>
+        <td class="num">{{ '%.3f'|format(r.ot_total) }}</td>
+        <td class="num">{{ '%.3f'|format(r.grand_total) }}</td>
+    </tr>
+{% endfor %}
+</tbody>
+<tfoot>
+    <tr>
+        <td colspan="7" class="c">TOTAL — {{ rep.totals.count }} Staff</td>
+        <td class="num">{{ '%.3f'|format(rep.totals.basic) }}</td>
+        <td colspan="3"></td><td class="num">{{ '%.3f'|format(rep.totals.ot_normal) }}</td>
+        <td colspan="3"></td><td class="num">{{ '%.3f'|format(rep.totals.ot_friday) }}</td>
+        <td colspan="3"></td><td class="num">{{ '%.3f'|format(rep.totals.ot_holiday) }}</td>
+        <td class="num">{{ '%.3f'|format(rep.totals.ot_total) }}</td>
+        <td class="num">{{ '%.3f'|format(rep.totals.grand_total) }}</td>
+    </tr>
+</tfoot>
+</table>
+
+<div class="sign">
+    <div><div class="line">Prepared By</div></div>
+    <div><div class="line">Checked By</div></div>
+    <div><div class="line">Approved By</div></div>
+</div>
+
+</body>
+</html>
