@@ -9327,6 +9327,18 @@ msgstr "غير مفعّل"
 msgid "btn.show"
 msgstr "عرض"
 
+msgid "x.mp_source"
+msgstr "مصدر بيانات الحضور"
+
+msgid "x.mp_source_raw"
+msgstr "البصمات الخام"
+
+msgid "x.mp_source_approved"
+msgstr "الساعات المعتمدة"
+
+msgid "x.mp_source_hint"
+msgstr "الخام: يحسب من البصمات مباشرةً ويصلح قبل الاعتماد وأثناء الشهر. المعتمد: يطابق كشف الرواتب لكنه يبقى صفرًا حتى تُعتمد ساعات الشهر."
+
 #~ msgid "btn.back"
 #~ msgstr "عودة"
 

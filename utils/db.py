@@ -1142,6 +1142,7 @@ def init_db():
         ('leave_types', 'requires_approval', 'BOOLEAN DEFAULT 1'),
         ('leave_types', 'service_months_required', 'INTEGER DEFAULT 0'),
         ('fingerprint_devices', 'is_adms', 'BOOLEAN DEFAULT 0'),
+        ('manpower_contracts', 'data_source', "TEXT DEFAULT 'raw'"),
         ('fingerprint_devices', 'serial_number', 'TEXT'),
         ('fingerprint_devices', 'last_activity', 'DATETIME'),
         ('system_settings', 'payroll_period_start_day', 'INTEGER DEFAULT 1'),

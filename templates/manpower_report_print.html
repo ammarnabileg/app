@@ -122,6 +122,13 @@
 </tfoot>
 </table>
 
+{% if rep.data_source != 'approved' %}
+<div style="margin-top:6px;font-size:8px;color:#A8402F;font-weight:bold">
+    * Figures based on raw attendance records — pending hours approval.
+    &nbsp;|&nbsp; الأرقام من البصمات الخام قبل اعتماد الساعات.
+</div>
+{% endif %}
+
 <div class="sign">
     <div><div class="line">Prepared By</div></div>
     <div><div class="line">Checked By</div></div>

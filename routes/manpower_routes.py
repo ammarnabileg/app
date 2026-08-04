@@ -218,9 +218,12 @@ def save_contract():
         except (TypeError, ValueError):
             return default
 
+    src = (data.get('data_source') or 'raw').lower()
+    if src not in ('raw', 'approved'):
+        src = 'raw'
     extra = [num('ot_normal', 1.25), num('ot_friday', 1.5),
              num('ot_holiday', 2.0), int(num('days_basis', 26)),
-             int(num('hours_per_day', 8))]
+             int(num('hours_per_day', 8)), src]
 
     conn = get_db_connection()
     if cid:
@@ -228,14 +231,14 @@ def save_contract():
             """UPDATE manpower_contracts SET company_name=?, ministry_line1=?,
                station_name=?, contract_no=?, work_description=?, payment_ref=?,
                ot_normal=?, ot_friday=?, ot_holiday=?, days_basis=?,
-               hours_per_day=? WHERE id=?""", vals + extra + [cid])
+               hours_per_day=?, data_source=? WHERE id=?""", vals + extra + [cid])
     else:
         conn.execute(
             """INSERT INTO manpower_contracts
                (company_name, ministry_line1, station_name, contract_no,
                 work_description, payment_ref, ot_normal, ot_friday,
-                ot_holiday, days_basis, hours_per_day)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""", vals + extra)
+                ot_holiday, days_basis, hours_per_day, data_source)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", vals + extra)
     conn.commit()
     return jsonify({'success': True})
 

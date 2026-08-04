@@ -66,19 +66,28 @@ def build_report(conn, contract_id, month, year, department=None):
     p_friday = _f(contract.get('ot_friday'), 1.5)
     p_holiday = _f(contract.get('ot_holiday'), 2.0)
 
-    # الحضور والعمل الإضافي من جدول اعتماد الساعات: هو المصدر الذي
-    # يعتمده كشف الرواتب نفسه، فلا يختلف الكشفان في يوم أو ساعة. وقراءة
-    # الأرقام من مكان آخر تعني كشفين متعارضين عن الشهر ذاته.
+    # مصدر الحضور: خام أو معتمد — قرارٌ لكل عقد.
+    #
+    #   approved  يقرأ من جدول اعتماد الساعات، وهو ما يعتمده كشف الرواتب.
+    #             فلا يختلف الكشفان في يوم أو ساعة، لكن الكشف يبقى صفرًا
+    #             حتى تُعتمد ساعات الشهر.
+    #   raw       يحسب من البصمات مباشرةً، فيصلح قبل الاعتماد وأثناء
+    #             الشهر الجاري.
+    #
+    # والفارق ليس تفصيلة عرض: الكشف مطالبةٌ مالية تُقدَّم للوزارة، ومَن
+    # يقرؤه يجب أن يعرف أهو على أرقام معتمدة أم خام.
+    source = (contract.get('data_source') or 'raw').lower()
     by_emp = {}
-    try:
-        for r in conn.execute(
-                '''SELECT employee_id, actual_days, ot_weekday_mins,
-                          ot_weekend_mins, ot_holiday_mins
-                   FROM payroll_hours_approvals
-                   WHERE month = ? AND year = ?''', (month, year)).fetchall():
-            by_emp[r['employee_id']] = dict(r)
-    except Exception:
-        pass
+    if source == 'approved':
+        try:
+            for r in conn.execute(
+                    '''SELECT employee_id, actual_days, ot_weekday_mins,
+                              ot_weekend_mins, ot_holiday_mins
+                       FROM payroll_hours_approvals
+                       WHERE month = ? AND year = ?''', (month, year)).fetchall():
+                by_emp[r['employee_id']] = dict(r)
+        except Exception:
+            pass
 
     q = """SELECT id, employee_number, name, arabic_name, position,
                   department, salary
@@ -90,10 +99,47 @@ def build_report(conn, contract_id, month, year, department=None):
         params.append(department)
     q += ' ORDER BY CAST(employee_number AS INTEGER)'
 
+    def _raw_metrics(employee_id):
+        """حساب الأيام والإضافي من البصمات مباشرةً.
+
+        يستعمل الدالة نفسها التي تبني شاشة اعتماد الساعات، فالخام والمعتمد
+        محسوبان بالمنطق ذاته ولا يختلفان إلا بوجود الاعتماد.
+        """
+        out = {'actual_days': 0.0, 'ot_weekday_mins': 0,
+               'ot_weekend_mins': 0, 'ot_holiday_mins': 0}
+        try:
+            from utils.payroll_engine import compute_employee_days
+            d = compute_employee_days(conn, employee_id, month, year)
+        except Exception:
+            return out
+        if not d:
+            return out
+        for day in d.get('days', []):
+            st = day.get('status')
+            if st == 'present':
+                out['actual_days'] += 1
+            elif st == 'partial':
+                # اليوم الجزئي يُحتسب نصف يوم في الخام: عدّه يومًا كاملًا
+                # يضخّم المطالبة، وإهماله يُسقط عملًا أُدّي فعلًا.
+                out['actual_days'] += 0.5
+            mins = day.get('ot_mins') or 0
+            if not mins:
+                continue
+            kind = (day.get('ot_kind') or 'weekday').lower()
+            if kind in ('holiday', 'official'):
+                out['ot_holiday_mins'] += mins
+            elif kind in ('weekend', 'friday', 'rest'):
+                out['ot_weekend_mins'] += mins
+            else:
+                out['ot_weekday_mins'] += mins
+        return out
+
     rows = []
     for i, e in enumerate(conn.execute(q, params).fetchall(), start=1):
         emp = dict(e)
-        pr = by_emp.get(emp['id'], {})
+        pr = by_emp.get(emp['id']) if source == 'approved' else None
+        if pr is None:
+            pr = _raw_metrics(emp['id']) if source == 'raw' else {}
 
         monthly = _f(emp.get('salary'))
         daily = round(monthly / basis, 6) if basis else 0.0
@@ -158,4 +204,5 @@ def build_report(conn, contract_id, month, year, department=None):
         'month_en': MONTHS_EN[month] if 1 <= month <= 12 else '',
         'month_ar': MONTHS_AR[month] if 1 <= month <= 12 else '',
         'generated_at': date.today().isoformat(),
+        'data_source': source,
     }

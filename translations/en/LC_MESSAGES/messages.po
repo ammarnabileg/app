@@ -9353,6 +9353,18 @@ msgstr "inactive"
 msgid "btn.show"
 msgstr "Show"
 
+msgid "x.mp_source"
+msgstr "Attendance Data Source"
+
+msgid "x.mp_source_raw"
+msgstr "Raw Punches"
+
+msgid "x.mp_source_approved"
+msgstr "Approved Hours"
+
+msgid "x.mp_source_hint"
+msgstr "Raw: computed directly from punches, works before approval and mid-month. Approved: matches the payroll sheet but stays zero until the month is approved."
+
 #~ msgid "btn.back"
 #~ msgstr "Back"
 

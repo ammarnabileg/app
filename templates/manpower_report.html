@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">{{ _('x.mp_title') }}</h1>
+    <h1 class="h3 mb-0">{{ _('x.mp_title') }}
+        <span id="srcBadge" class="badge bg-secondary align-middle" style="font-size:.5em">-</span></h1>
     <button class="btn btn-outline-secondary btn-sm" onclick="openContract()">
         <i class="fas fa-cog me-1"></i>{{ _('x.mp_contracts') }}
     </button>
@@ -143,6 +144,14 @@
             <label class="form-label small">{{ _('x.mp_hours') }}</label>
             <input type="number" class="form-control" id="cHours" value="8">
           </div>
+          <div class="col-12">
+            <label class="form-label">{{ _('x.mp_source') }}</label>
+            <select class="form-select" id="cSource">
+              <option value="raw">{{ _('x.mp_source_raw') }}</option>
+              <option value="approved">{{ _('x.mp_source_approved') }}</option>
+            </select>
+            <div class="form-text">{{ _('x.mp_source_hint') }}</div>
+          </div>
           <div class="col-12"><hr class="my-2"></div>
           <div class="col-md-8">
             <label class="form-label">{{ _('x.mp_logo') }}</label>
@@ -200,6 +209,10 @@ async function loadReport() {
     document.getElementById('sBasic').textContent = n3(d.totals.basic);
     document.getElementById('sOt').textContent = n3(d.totals.ot_total);
     document.getElementById('sGrand').textContent = n3(d.totals.grand_total);
+    const badge = document.getElementById('srcBadge');
+    badge.className = 'badge ' + (d.data_source === 'approved' ? 'bg-success' : 'bg-warning text-dark');
+    badge.textContent = d.data_source === 'approved'
+        ? {{ _('x.mp_source_approved')|tojson }} : {{ _('x.mp_source_raw')|tojson }};
 }
 
 const doPrint  = () => window.open('/reports/manpower/print?' + params(), '_blank');
@@ -222,6 +235,7 @@ async function openContract() {
     document.getElementById('cOtH').value = c.ot_holiday ?? 2.0;
     document.getElementById('cBasis').value = c.days_basis ?? 26;
     document.getElementById('cHours').value = c.hours_per_day ?? 8;
+    document.getElementById('cSource').value = c.data_source || 'raw';
     new bootstrap.Modal(document.getElementById('contractModal')).show();
 }
 
@@ -240,6 +254,7 @@ async function saveContract() {
         ot_holiday: document.getElementById('cOtH').value,
         days_basis: document.getElementById('cBasis').value,
         hours_per_day: document.getElementById('cHours').value,
+        data_source: document.getElementById('cSource').value,
     };
     const r = await fetch('/api/manpower/contracts/save', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
