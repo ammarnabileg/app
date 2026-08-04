@@ -9365,6 +9365,69 @@ msgstr "Approved Hours"
 msgid "x.mp_source_hint"
 msgstr "Raw: computed directly from punches, works before approval and mid-month. Approved: matches the payroll sheet but stays zero until the month is approved."
 
+msgid "x.fl_title"
+msgstr "First & Last Punch Report"
+
+msgid "x.fl_from"
+msgstr "From"
+
+msgid "x.fl_to"
+msgstr "To"
+
+msgid "x.fl_all_depts"
+msgstr "All departments"
+
+msgid "x.fl_show_absent"
+msgstr "Show absent days"
+
+msgid "x.fl_employees"
+msgstr "Employees"
+
+msgid "x.fl_select_all"
+msgstr "Select all"
+
+msgid "x.fl_clear"
+msgstr "Clear"
+
+msgid "x.fl_hint"
+msgstr "Leave unselected to print all employees at once"
+
+msgid "x.fl_emp_count"
+msgstr "Employees"
+
+msgid "x.fl_present"
+msgstr "Present days"
+
+msgid "x.fl_missing_out"
+msgstr "Missing check-out"
+
+msgid "x.fl_total_time"
+msgstr "Total time"
+
+msgid "x.fl_date"
+msgstr "Date"
+
+msgid "x.fl_day"
+msgstr "Day"
+
+msgid "x.fl_first_in"
+msgstr "First check-in"
+
+msgid "x.fl_last_out"
+msgstr "Last check-out"
+
+msgid "x.fl_total"
+msgstr "Total"
+
+msgid "x.fl_punches"
+msgstr "Punches"
+
+msgid "x.fl_device"
+msgstr "Device serial"
+
+msgid "x.fl_none"
+msgstr "No data in the selected range"
+
 #~ msgid "btn.back"
 #~ msgstr "Back"
 

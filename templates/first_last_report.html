@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h3 mb-3">{{ _('x.fl_title') }}</h1>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label">{{ _('x.fl_from') }}</label>
+                <input type="date" class="form-control" id="fStart" value="{{ default_start }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">{{ _('x.fl_to') }}</label>
+                <input type="date" class="form-control" id="fEnd" value="{{ default_end }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">{{ _('x.department') }}</label>
+                <select class="form-select" id="fDept">
+                    <option value="">{{ _('x.fl_all_depts') }}</option>
+                    {% for d in departments %}<option>{{ d }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <div class="form-check mt-4">
+                    <input class="form-check-input" type="checkbox" id="fAbsent" checked>
+                    <label class="form-check-label small" for="fAbsent">{{ _('x.fl_show_absent') }}</label>
+                </div>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button class="btn btn-primary flex-fill" onclick="load()">
+                    <i class="fas fa-search me-1"></i>{{ _('btn.show') }}
+                </button>
+                <button class="btn btn-outline-dark" onclick="go('print')" title="{{ _('btn.print') }}">🖨</button>
+                <button class="btn btn-outline-success" onclick="go('export')" title="Excel">
+                    <i class="fas fa-file-excel"></i>
+                </button>
+            </div>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <label class="form-label mb-0 fw-bold">{{ _('x.fl_employees') }}</label>
+            <div>
+                <button class="btn btn-sm btn-outline-primary" onclick="selAll(true)">{{ _('x.fl_select_all') }}</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="selAll(false)">{{ _('x.fl_clear') }}</button>
+            </div>
+        </div>
+        <div class="form-text mb-2">{{ _('x.fl_hint') }}</div>
+        <input class="form-control form-control-sm mb-2" id="fSearch"
+               placeholder="{{ _('x.search') }}" oninput="filterList()">
+        <div style="max-height:220px;overflow:auto;border:1px solid #E3E0D3;border-radius:8px;padding:8px">
+            <div class="row g-1" id="empList">
+            {% for e in employees %}
+                <div class="col-md-4 emp-item" data-txt="{{ (e.employee_number ~ ' ' ~ (e.arabic_name or '') ~ ' ' ~ (e.name or ''))|lower }}">
+                    <div class="form-check">
+                        <input class="form-check-input emp-cb" type="checkbox" value="{{ e.id }}" id="e{{ e.id }}">
+                        <label class="form-check-label small" for="e{{ e.id }}">
+                            <span class="text-muted">{{ e.employee_number }}</span>
+                            {{ e.arabic_name or e.name }}
+                        </label>
+                    </div>
+                </div>
+            {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="summary" class="row g-2 mb-3 d-none">
+    <div class="col-md-3"><div class="card"><div class="card-body py-2">
+        <div class="small text-muted">{{ _('x.fl_emp_count') }}</div>
+        <div class="h5 mb-0" id="sEmp">-</div></div></div></div>
+    <div class="col-md-3"><div class="card"><div class="card-body py-2">
+        <div class="small text-muted">{{ _('x.fl_present') }}</div>
+        <div class="h5 mb-0" id="sDays">-</div></div></div></div>
+    <div class="col-md-3"><div class="card border-warning"><div class="card-body py-2">
+        <div class="small text-muted">{{ _('x.fl_missing_out') }}</div>
+        <div class="h5 mb-0 text-warning" id="sMiss">-</div></div></div></div>
+    <div class="col-md-3"><div class="card border-success"><div class="card-body py-2">
+        <div class="small text-muted">{{ _('x.fl_total_time') }}</div>
+        <div class="h5 mb-0 text-success" id="sTotal">-</div></div></div></div>
+</div>
+
+<div id="result"></div>
+
+<style>
+    tr.fl-single { background: #F5E6E2; }
+    tr.fl-multi  { background: #FFF3CD; }
+    tr.fl-absent { background: #EFEFEF; color: #777; }
+</style>
+
+<script>
+function selAll(on) {
+    document.querySelectorAll('.emp-item:not([style*="none"]) .emp-cb')
+            .forEach(c => c.checked = on);
+}
+function filterList() {
+    const q = document.getElementById('fSearch').value.toLowerCase().trim();
+    document.querySelectorAll('.emp-item').forEach(el => {
+        el.style.display = (!q || el.dataset.txt.includes(q)) ? '' : 'none';
+    });
+}
+function params() {
+    const ids = [...document.querySelectorAll('.emp-cb:checked')].map(c => c.value);
+    let p = `start=${document.getElementById('fStart').value}` +
+            `&end=${document.getElementById('fEnd').value}` +
+            `&department=${encodeURIComponent(document.getElementById('fDept').value)}` +
+            `&include_absent=${document.getElementById('fAbsent').checked ? 1 : 0}`;
+    // بلا تحديد يعني الجميع: الطباعة الجماعية هي الحالة الشائعة، فلا
+    // تُلزم المستخدم بتحديد الكل يدويًّا في كل مرة.
+    ids.forEach(i => p += `&employee_ids=${i}`);
+    return p;
+}
+const go = kind => {
+    const u = `/reports/first-last/${kind}?` + params();
+    if (kind === 'print') window.open(u, '_blank'); else window.location = u;
+};
+
+async function load() {
+    const box = document.getElementById('result');
+    box.innerHTML = '<div class="text-center py-4 text-muted">...</div>';
+    const r = await fetch('/api/reports/first-last?' + params());
+    const j = await r.json();
+    if (!j.success) { box.innerHTML = `<div class="alert alert-danger">${j.message}</div>`; return; }
+    const d = j.data;
+    document.getElementById('summary').classList.remove('d-none');
+    document.getElementById('sEmp').textContent = d.grand.employee_count;
+    document.getElementById('sDays').textContent = d.grand.present_days;
+    document.getElementById('sMiss').textContent = d.grand.missing_out_days;
+    document.getElementById('sTotal').textContent = d.grand.total;
+
+    if (!d.employees.length) {
+        box.innerHTML = '<div class="alert alert-info">{{ _("x.fl_none") }}</div>';
+        return;
+    }
+    let html = '';
+    d.employees.forEach(b => {
+        const e = b.employee, s = b.summary;
+        html += `<div class="card mb-3"><div class="card-header d-flex justify-content-between py-2">
+            <strong>${e.employee_number} — ${e.arabic_name || e.name}</strong>
+            <span class="text-muted small">${e.department || ''}</span></div>
+            <div class="table-responsive"><table class="table table-sm mb-0" style="font-size:.85rem">
+            <thead class="table-light"><tr>
+                <th>{{ _('x.fl_date') }}</th><th>{{ _('x.fl_day') }}</th>
+                <th>{{ _('x.fl_first_in') }}</th><th>{{ _('x.fl_last_out') }}</th>
+                <th>{{ _('x.fl_total') }}</th><th>{{ _('x.fl_punches') }}</th>
+                <th>{{ _('x.fl_device') }}</th></tr></thead><tbody>`;
+        b.days.forEach(x => {
+            const cls = x.flag === 'single' ? 'fl-single'
+                      : x.flag === 'multi_device' ? 'fl-multi'
+                      : x.flag === 'absent' ? 'fl-absent' : '';
+            html += `<tr class="${cls}"><td>${x.date}</td><td>${x.day_ar}</td>
+                <td>${x.first_in || '—'}</td><td>${x.last_out || '—'}</td>
+                <td>${x.total}</td><td>${x.punch_count || '—'}</td>
+                <td class="small">${x.device || '—'}</td></tr>`;
+        });
+        html += `</tbody><tfoot class="table-light"><tr><td colspan="4">
+            {{ _('x.fl_present') }}: ${s.present_days}
+            ${s.missing_out_days ? ' | {{ _("x.fl_missing_out") }}: ' + s.missing_out_days : ''}
+            </td><td colspan="3"><strong>${s.total}</strong></td></tr></tfoot>
+            </table></div></div>`;
+    });
+    box.innerHTML = html;
+}
+</script>
+{% endblock %}

@@ -122,6 +122,8 @@ app.register_blueprint(leave_settings_bp)
 app.register_blueprint(attendance_excuses_bp)
 app.register_blueprint(translation_bp)
 app.register_blueprint(shift_bp)
+from routes.first_last_routes import fl_bp
+app.register_blueprint(fl_bp)
 from routes.manpower_routes import manpower_bp
 app.register_blueprint(manpower_bp)
 app.register_blueprint(adms_bp)

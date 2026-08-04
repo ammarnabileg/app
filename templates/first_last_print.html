@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>تقرير الأول والأخير</title>
+<style>
+    @page { size: A4 portrait; margin: 10mm; }
+    body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 10px;
+           color: #000; margin: 0; }
+    .doc-header { text-align: center; font-size: 10px; line-height: 1.7;
+                  margin-bottom: 6px; padding-bottom: 6px;
+                  border-bottom: 2px solid #1F5C4A; }
+    h1 { font-size: 15px; text-align: center; margin: 8px 0 4px; }
+    .range { text-align: center; font-size: 10px; margin-bottom: 10px; color: #444; }
+    .emp-head { background: #E7F1EC; border: 1px solid #1F5C4A; padding: 4px 8px;
+                margin-top: 10px; font-weight: bold; font-size: 11px;
+                display: flex; justify-content: space-between; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+    th, td { border: 1px solid #999; padding: 3px 5px; text-align: center; }
+    thead th { background: #1F5C4A; color: #fff; font-size: 9px; }
+    /* الألوان دلالة لا زينة: تُقرأ من مفتاح أسفل الصفحة، وتبقى مفهومة
+       بعد الطباعة بالأبيض والأسود عبر عمود «عدد البصمات». */
+    tr.single  { background: #F5E6E2; }
+    tr.multi   { background: #FFF3CD; }
+    tr.absent  { background: #EFEFEF; color: #777; }
+    tfoot td { background: #E7F1EC; font-weight: bold; }
+    .legend { margin-top: 10px; font-size: 8.5px; color: #444;
+              border-top: 1px dashed #999; padding-top: 5px; }
+    .legend span { display: inline-block; margin-inline-end: 14px; }
+    .sw { display: inline-block; width: 11px; height: 11px; vertical-align: -2px;
+          border: 1px solid #999; margin-inline-end: 3px; }
+    .grand { margin-top: 12px; border: 2px solid #1F5C4A; padding: 6px 10px;
+             background: #E7F1EC; font-weight: bold; font-size: 11px;
+             display: flex; justify-content: space-between; }
+    .emp-block { page-break-inside: avoid; }
+    @media print { .noprint { display: none !important; } }
+    .btn { padding: 6px 16px; border: 0; background: #1F5C4A; color: #fff;
+           border-radius: 5px; cursor: pointer; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="noprint" style="margin-bottom:10px">
+    <button class="btn" onclick="window.print()">🖨 طباعة</button>
+</div>
+
+{% if header %}<div class="doc-header">{{ header }}</div>{% endif %}
+
+<h1>الأول والأخير</h1>
+<div class="range">تاريخ البداية {{ rep.start }} &nbsp;&nbsp; تاريخ النهاية {{ rep.end }}</div>
+
+{% for blk in rep.employees %}
+<div class="emp-block">
+    <div class="emp-head">
+        <span>{{ blk.employee.employee_number }} —
+              {{ blk.employee.arabic_name or blk.employee.name }}</span>
+        <span>{{ blk.employee.department or '' }}
+              {% if blk.employee.position %}· {{ blk.employee.position }}{% endif %}</span>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th style="width:12%">التاريخ</th>
+                <th style="width:9%">اليوم</th>
+                <th style="width:13%">أول تسجيل دخول</th>
+                <th style="width:13%">آخر تسجيل خروج</th>
+                <th style="width:11%">الوقت الإجمالي</th>
+                <th style="width:8%">البصمات</th>
+                <th>سريال الجهاز</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for d in blk.days %}
+            <tr class="{% if d.flag == 'single' %}single{% elif d.flag == 'multi_device' %}multi{% elif d.flag == 'absent' %}absent{% endif %}">
+                <td>{{ d.date }}</td>
+                <td>{{ d.day_ar }}</td>
+                <td>{{ d.first_in or '—' }}</td>
+                <td>{{ d.last_out or '—' }}</td>
+                <td>{{ d.total }}</td>
+                <td>{{ d.punch_count or '—' }}</td>
+                <td>{{ d.device or '—' }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="4">الإجمالي — عدد أيام الحضور: {{ blk.summary.present_days }}
+                    {% if blk.summary.missing_out_days %}
+                    | أيام ناقصة انصراف: {{ blk.summary.missing_out_days }}{% endif %}
+                    {% if blk.summary.multi_device_days %}
+                    | أيام بأجهزة متعددة: {{ blk.summary.multi_device_days }}{% endif %}
+                </td>
+                <td colspan="3">{{ blk.summary.total }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{% endfor %}
+
+{% if rep.employees|length > 1 %}
+<div class="grand">
+    <span>الإجمالي العام — {{ rep.grand.employee_count }} موظف
+          | أيام حضور: {{ rep.grand.present_days }}
+          {% if rep.grand.missing_out_days %}| ناقص انصراف: {{ rep.grand.missing_out_days }}{% endif %}</span>
+    <span>{{ rep.grand.total }}</span>
+</div>
+{% endif %}
+
+<div class="legend">
+    <span><i class="sw" style="background:#F5E6E2"></i>أحمر = بصمة واحدة فقط (لا يوجد انصراف مسجَّل)</span>
+    <span><i class="sw" style="background:#FFF3CD"></i>أصفر = بصم على أكثر من جهاز في نفس اليوم</span>
+    <span><i class="sw" style="background:#EFEFEF"></i>رمادي = لا توجد بصمة (غياب أو إجازة — التقرير لا يفرّق بينهما)</span>
+</div>
+
+</body>
+</html>

@@ -9339,6 +9339,69 @@ msgstr "الساعات المعتمدة"
 msgid "x.mp_source_hint"
 msgstr "الخام: يحسب من البصمات مباشرةً ويصلح قبل الاعتماد وأثناء الشهر. المعتمد: يطابق كشف الرواتب لكنه يبقى صفرًا حتى تُعتمد ساعات الشهر."
 
+msgid "x.fl_title"
+msgstr "تقرير الأول والأخير"
+
+msgid "x.fl_from"
+msgstr "من تاريخ"
+
+msgid "x.fl_to"
+msgstr "إلى تاريخ"
+
+msgid "x.fl_all_depts"
+msgstr "كل الأقسام"
+
+msgid "x.fl_show_absent"
+msgstr "إظهار أيام الغياب"
+
+msgid "x.fl_employees"
+msgstr "الموظفون"
+
+msgid "x.fl_select_all"
+msgstr "تحديد الكل"
+
+msgid "x.fl_clear"
+msgstr "إلغاء التحديد"
+
+msgid "x.fl_hint"
+msgstr "اتركه بلا تحديد لطباعة كل الموظفين دفعةً واحدة"
+
+msgid "x.fl_emp_count"
+msgstr "عدد الموظفين"
+
+msgid "x.fl_present"
+msgstr "أيام الحضور"
+
+msgid "x.fl_missing_out"
+msgstr "أيام ناقصة انصراف"
+
+msgid "x.fl_total_time"
+msgstr "الوقت الإجمالي"
+
+msgid "x.fl_date"
+msgstr "التاريخ"
+
+msgid "x.fl_day"
+msgstr "اليوم"
+
+msgid "x.fl_first_in"
+msgstr "أول تسجيل دخول"
+
+msgid "x.fl_last_out"
+msgstr "آخر تسجيل خروج"
+
+msgid "x.fl_total"
+msgstr "الوقت الإجمالي"
+
+msgid "x.fl_punches"
+msgstr "البصمات"
+
+msgid "x.fl_device"
+msgstr "سريال الجهاز"
+
+msgid "x.fl_none"
+msgstr "لا توجد بيانات في المدى المحدد"
+
 #~ msgid "btn.back"
 #~ msgstr "عودة"
 

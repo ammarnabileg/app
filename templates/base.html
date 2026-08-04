@@ -660,6 +660,15 @@
                         {% endif %}
                         {# الكشف بصلاحيته الخاصة: لا يظهر لمن لا يملكها،
                            فلا يرى مستخدمٌ رابطًا يُرفض عند فتحه. #}
+                        {% if has_permission('attendance.view') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'first_last.index' %}active{% endif %}"
+                                href="{{ url_for('first_last.index') }}">
+                                <i class="fas fa-clock"></i>
+                                {{ _('x.fl_title') }}
+                            </a>
+                        </li>
+                        {% endif %}
                         {% if has_permission('report.manpower') %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'manpower.index' %}active{% endif %}"
