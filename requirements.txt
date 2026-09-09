@@ -8,9 +8,6 @@ blinker==1.6.3
 pyzk==0.9.0
 openpyxl>=3.1.5
 cryptography>=41.0.0
-customtkinter
-Pillow
-pystray
 oracledb
 requests
 flask_babel
