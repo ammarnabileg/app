@@ -288,8 +288,7 @@ def main():
     except ValueError:
         port = default_port
 
-    # debug = os.environ.get('FLASK_DEBUG', '').lower() in {'1', 'true', 'yes', 'on'}
-    debug = True # ENABLE DEBUG FOR TROUBLESHOOTING
+    debug = os.environ.get('FLASK_DEBUG', '').lower() in {'1', 'true', 'yes', 'on'}
     # Startup License Check
     print("--- STARTUP LICENSE CHECK ---")
     try:
