@@ -14,6 +14,22 @@ from utils.system_id import get_system_hwid
 LICENSE_SECRET = 'hr-system-license-secret-2024'
 LICENSE_KEYS = []
 LICENSE_DB_ENABLED = True
+
+# كلمات التوقيع القديمة. مؤقتة — تُحذف بعد ترحيل العملاء إلى ONZ1.
+#
+# ليست بابًا خلفيًا منسيًّا كما تبدو: الخادم يُصدر بها فعلًا. من مفاتيح
+# الإنتاج الستين، ٣٩ مفتاحًا (٦٥٪) موقَّع بـ 'comaped#' و٢٠ فقط موقَّعة
+# بـ sha256 الصحيح. فحذفها اليوم يوقف ٣٩ عميلًا.
+#
+# لكنها بلا قيمة أمنية: مكتوبة نصًّا داخل المثبِّت الذي يُحمَّل من الموقع.
+# الخطر الحقيقي كان قبولها في صيغة L-<تاريخ>-<توقيع> المكتوبة يدويًا، إذ
+# يكفي أن يكتب أحدهم  L-20991231-comaped#  ليحصل على ترخيص حتى ٢٠٩٩ بلا أي
+# مفتاح. تلك الصيغة أُلغيت بالكامل (لا يستخدمها أي عميل: المفاتيح الستون
+# كلها LE2-)، فبقيت الكلمات مقبولة داخل غلاف LE2- المشفَّر وحده — وهو ما
+# يتطلب معرفة LICENSE_SECRET وتشغيل Fernet، لا مجرد الكتابة في خانة التفعيل.
+#
+# ومع تحديد مهلة العمل دون اتصال (OFFLINE_GRACE_DAYS) صار حتى المفتاح
+# المصنوع يدويًا يسقط عند أول تحقق من الخادم.
 LICENSE_WORDS = ['Maped$', 'Mabed #', 'comaped#']
 
 # Online Config
@@ -21,6 +37,10 @@ API_URL = "https://onz.one/PHP/license_api.php"
 CLIENT_LOGIN_URL = "https://onz.one/PHP/client_login.php"
 API_SECRET = 'hr-system-license-secret-2024' # Shared with PHP
 ONLINE_CHECK_ENABLED = True
+
+# كم يومًا يُسمح بالعمل دون وصول ناجح لخادم التراخيص.
+# تُقاس من آخر تحقق ناجح، لا من آخر محاولة. انظر check_online_license_secure.
+OFFLINE_GRACE_DAYS = 14
 
 def _get_fernet():
     try:
@@ -220,8 +240,59 @@ def init_license_table(conn):
         cur.execute("ALTER TABLE license_settings ADD COLUMN api_key TEXT")
     except sqlite3.OperationalError:
         pass # Column likely exists
-    
+
+    # آخر تحقق **ناجح** — منفصل عن last_check الذي يُكتب عند كل محاولة.
+    # مهلة العمل دون اتصال تُقاس من هذا العمود تحديدًا، وإلا لجدّدتها
+    # المحاولات الفاشلة إلى الأبد.
+    try:
+        cur.execute("ALTER TABLE license_settings ADD COLUMN last_ok_check DATETIME")
+    except sqlite3.OperationalError:
+        pass # Column likely exists
+
+    # ترحيل التثبيتات القائمة: من كان آخر فحص لديه ناجحًا يبدأ عدّاد المهلة
+    # من ذلك التاريخ بدل أن يبدأ فارغًا ويُرفض فور أول انقطاع.
+    try:
+        cur.execute("""
+            UPDATE license_settings
+               SET last_ok_check = last_check
+             WHERE id = 1 AND last_ok_check IS NULL AND last_status_ok = 1
+        """)
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
+
+
+def _parse_dt(value):
+    """يقرأ طابعًا زمنيًا من العمود مهما اختلفت صيغته المحفوظة."""
+    if not value:
+        return None
+    text = str(value).split('.')[0]
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _days_since_last_ok(conn):
+    """عدد الأيام منذ آخر تحقق ناجح، أو None إن لم يحدث قط."""
+    if conn is None:
+        return None
+    row = conn.execute(
+        "SELECT last_ok_check FROM license_settings WHERE id=1"
+    ).fetchone()
+    if not row:
+        return None
+
+    when = _parse_dt(row['last_ok_check'])
+    if when is None:
+        return None
+
+    # طابع زمني في المستقبل يعني ساعة عُدِّلت للخلف للتحايل على المهلة.
+    # يُعامَل كصفر أيام، لا كقيمة سالبة تُطيلها.
+    return max(0, (datetime.now() - when).days)
 
 def _xor_bytes(data: bytes, key: bytes) -> bytes:
     if not key:
@@ -383,29 +454,39 @@ def verify_license_key(key: str):
             if not date_part or not sig:
                 return False, 'تنسيق السيريال المشفّر (LE2) غير صحيح'
         else:
-            if not key.startswith('L-'):
-                return False, 'تنسيق المفتاح غير صحيح'
-            parts = key.split('-')
-            if len(parts) != 3:
-                return False, 'تنسيق المفتاح غير صحيح'
-            _, date_part, sig = parts
-        
+            # صيغة L-<تاريخ>-<توقيع> لم تعد مقبولة.
+            #
+            # كانت الفرع الوحيد الذي تُقرأ منه LICENSE_WORDS، وتوقيعها
+            # sha256(date + LICENSE_SECRET) — والمفتاح مكتوب داخل المثبِّت،
+            # فمن يملكه يولّد مفتاحًا صالحًا لأي تاريخ.
+            #
+            # لا عميل متأثر: المفاتيح الستون كلها LE2-.
+            return False, 'تنسيق المفتاح غير صحيح'
+
         if len(date_part) != 8 or not date_part.isdigit():
             return False, 'تاريخ انتهاء غير صحيح'
-            
+
         # Allow salt in token (Token|Salt) for uniqueness
         if sig and '|' in sig:
             sig = sig.split('|')[0]
 
-        ok_sig = False
         expected = hashlib.sha256((date_part + LICENSE_SECRET).encode('utf-8')).hexdigest()[:12].lower()
-        if sig.lower() == expected:
-            ok_sig = True
+        ok_sig = hmac.compare_digest(sig.lower(), expected)
+
         if not ok_sig and sig in LICENSE_WORDS:
+            # مقبول هنا فقط، أي داخل غلاف LE2-/LE- المشفَّر. الفرع النصّي
+            # L-<تاريخ>-<توقيع> — الذي كان يجعل هذه الكلمات قابلة للكتابة
+            # يدويًا — أُلغي أعلاه.
+            #
+            # ٣٩ من ٦٠ مفتاح إنتاج موقَّعة هكذا، فالرفض يوقفهم. تُطبع ملاحظة
+            # ليظهر في السجلات كم بقي منها قبل حذف الكلمات نهائيًا.
             ok_sig = True
+            print('[License] مفتاح بصيغة توقيع قديمة — يحتاج ترحيلًا إلى ONZ1.')
+
         if not ok_sig:
-            return False, 'توقيع/كلمة المفتاح غير معتمدة'
-            
+            return False, 'توقيع المفتاح غير معتمد'
+
+
         expiry = datetime.strptime(date_part, '%Y%m%d').date()
         if date.today() > expiry:
             return False, 'انتهت مدة الترخيص'
@@ -544,20 +625,47 @@ def check_online_license_secure(key):
         # 3. Update Cache in DB
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         status_int = 1 if is_valid else 0
-        
+
         conn.execute("UPDATE license_settings SET last_check = ?, last_status_ok = ? WHERE id=1", (now_str, status_int))
+        # يُحدَّث عند النجاح فقط — هو مرجع مهلة العمل دون اتصال.
+        if is_valid:
+            conn.execute("UPDATE license_settings SET last_ok_check = ? WHERE id=1", (now_str,))
         conn.commit()
         
         return is_valid, msg
             
     except requests.exceptions.RequestException as e:
-        # Grace Period Logic
-        print(f"License Server Warning: {e}") 
-        # On failure, if we had a valid cache before (even if expired recently?), maybe allow?
-        # For now, standard grace logic: "Server Unreachable => Allow"
-        if conn: pass # conn.close() removed to prevent leak in Flask g
-        return True, "Server Unreachable (Grace Period)"
-        
+        # مهلة السماح عند تعذّر الوصول للخادم — محدودة بمدة.
+        #
+        # كانت "Server Unreachable => Allow" بلا حدّ، وهذه كانت النصف الثاني
+        # من ثغرة التفعيل: افصل الشبكة، فيسقط التحقق الأونلاين إلى "مسموح"
+        # إلى الأبد. مع كلمة من LICENSE_WORDS في الفحص المحلي كان ذلك ترخيصًا
+        # دائمًا بلا أي سرّ. حُذفت الكلمات، وهنا تُغلق النصف الآخر.
+        #
+        # المهلة تُقاس من آخر تحقق ناجح لا من آخر محاولة: وإلا فمحاولة فاشلة
+        # كل يوم تُجدّد المهلة إلى ما لا نهاية.
+        #
+        # العميل الذي يعمل داخل شبكة مغلقة فعلًا لا يتأثر خلال المهلة، وبعدها
+        # يحتاج اتصالًا واحدًا — وهو أصلًا يتصل كل ساعة حين تسمح الشبكة.
+        print(f"License Server Warning: {e}")
+        try:
+            ok_since = _days_since_last_ok(conn)
+        except Exception:
+            ok_since = None
+
+        if ok_since is None:
+            # لا يوجد تحقق ناجح مسجَّل أصلًا — أي أن هذا المفتاح لم يُقبل من
+            # الخادم مرة واحدة. لا تُمنح مهلة لما لم يثبت قط.
+            return False, "تعذّر الوصول لخادم التراخيص، ولم يسبق التحقق من هذا المفتاح"
+
+        if ok_since <= OFFLINE_GRACE_DAYS:
+            remaining = OFFLINE_GRACE_DAYS - ok_since
+            return True, f"Server Unreachable (Grace Period: {remaining} d left)"
+
+        return False, (f"تعذّر الوصول لخادم التراخيص منذ {ok_since} يومًا "
+                       f"(الحد {OFFLINE_GRACE_DAYS}) — يلزم اتصال واحد للمتابعة")
+
+
     except Exception as e:
         print(f"License Check Error: {e}")
         if conn: pass # conn.close() removed to prevent leak in Flask g
