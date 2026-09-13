@@ -48,10 +48,14 @@ def login():
             
             flash(gettext('x.f_welcome_login') % {'p0': f'{user["full_name"]}'}, 'success')
             
-            # If regular employee, redirect straight to Employee Self-Service Portal
-            if user['role'] == 'employee':
+            # If regular employee/user, redirect straight to Employee Self-Service Portal
+            if user['role'] in ('employee', 'user') or (user['role'] != 'admin' and user['employee_id'] and user['role'] != 'department_manager'):
                 return redirect(url_for('portal.dashboard'))
                 
+            from utils.db import get_setting
+            if get_setting('setup_wizard_completed', '0') != '1':
+                return redirect(url_for('main.setup_wizard'))
+
             return redirect(url_for('main.index'))
         else:
             flash(gettext('x.f_bad_credentials'), 'error')
@@ -107,7 +111,7 @@ def reset_password():
         session['employee_id'] = reset_row['employee_id']
         
         flash('تم تعيين كلمة المرور بنجاح مرحباً بك!', 'success')
-        if reset_row['role'] == 'employee':
+        if reset_row['role'] in ('employee', 'user') or (reset_row['role'] != 'admin' and reset_row['employee_id'] and reset_row['role'] != 'department_manager'):
             return redirect(url_for('portal.dashboard'))
         return redirect(url_for('main.index'))
         

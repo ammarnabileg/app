@@ -53,6 +53,8 @@ def require_permission(permission_code):
                     return {"success": False, "message": "Unauthorized access"}, 403
                 
                 flash(gettext('x.f_no_permission'), 'error')
+                if session.get('role') in ('employee', 'user') or (session.get('role') != 'admin' and session.get('employee_id') and session.get('role') != 'department_manager'):
+                    return redirect(url_for('portal.dashboard'))
                 return redirect(request.referrer or url_for('main.index'))
             
             return f(*args, **kwargs)

@@ -40,11 +40,9 @@ def dashboard():
     employee = None
     if emp_id:
         employee = conn.execute('''
-            SELECT e.*, d.name as department_name, p.name as position_name,
+            SELECT e.*, e.department as department_name, e.position as position_name,
                    m.name as manager_name
             FROM employees e
-            LEFT JOIN departments_master d ON e.department_id = d.id
-            LEFT JOIN positions_master p ON e.position_id = p.id
             LEFT JOIN employees m ON e.manager_id = m.id
             WHERE e.id = ?
         ''', (emp_id,)).fetchone()
@@ -64,12 +62,16 @@ def dashboard():
     
     leave_types = conn.execute("SELECT id, name, is_hourly_permission FROM leave_types ORDER BY id ASC").fetchall()
     
+    from utils.settings_utils import get_portal_attendance_settings
+    portal_att = get_portal_attendance_settings(conn)
+
     return render_template(
         'portal/index.html',
         employee=employee,
         is_manager=is_manager,
         subordinates_count=subordinates_count,
         leave_types=leave_types,
+        portal_att=portal_att,
         today_date=date.today().strftime('%Y-%m-%d'),
         today_display=date.today().strftime('%A, %d %B %Y')
     )
@@ -90,7 +92,7 @@ def api_my_data():
     # 1. Employee Info
     emp_row = conn.execute('''
         SELECT e.id, e.name, e.arabic_name, e.employee_number, e.department, e.position,
-               e.hire_date, e.salary, e.phone, e.civil_id
+               e.hire_date, e.salary, e.phone, e.national_id as civil_id
         FROM employees e WHERE e.id = ?
     ''', (emp_id,)).fetchone()
     if not emp_row:
@@ -99,14 +101,34 @@ def api_my_data():
     
     # 2. Today's Punches
     punches = conn.execute('''
-        SELECT check_time FROM attendance_records
+        SELECT check_time, check_type, note FROM attendance_records
         WHERE employee_id = ? AND DATE(check_time) = ?
         ORDER BY check_time ASC
     ''', (emp_id, today_str)).fetchall()
     
     punch_times = [p['check_time'][11:16] for p in punches] # 'HH:MM'
-    check_in = punch_times[0] if punch_times else None
-    check_out = punch_times[-1] if len(punch_times) > 1 else None
+    check_in = None
+    check_out = None
+    presence = None
+    
+    for p in punches:
+        t = p['check_time'][11:16]
+        c = p['check_type']
+        n = p['note'] or ''
+        if c == 2 or 'تواجد' in n:
+            if not presence:
+                presence = t
+        elif c == 1 or 'حضور' in n:
+            if not check_in:
+                check_in = t
+        elif c == 0 or 'انصراف' in n:
+            check_out = t
+            
+    if not check_in and punch_times:
+        check_in = punch_times[0]
+    if not check_out and len(punch_times) > 1 and punch_times[-1] != presence:
+        check_out = punch_times[-1]
+        
     is_present = bool(punches)
     
     # 3. Current Month Stats
@@ -137,14 +159,11 @@ def api_my_data():
     ''', (emp_id,)).fetchall()
     
     # 6. Active Loans
-    loans = conn.execute('''
-        SELECT principal, monthly_installment, (principal - COALESCE(paid_amount, 0)) as remaining
-        FROM employee_loans
-        WHERE employee_id = ? AND (principal - COALESCE(paid_amount, 0)) > 0
-    ''', (emp_id,)).fetchall()
-    
+    from utils.payroll_engine import fetch_employee_loans_detail
+    all_loans = fetch_employee_loans_detail(conn, emp_id)
+    loans = [l for l in all_loans if l.get('status') == 'active' and (l.get('remaining') or 0) > 0]
     total_loan_remaining = sum(float(l['remaining']) for l in loans) if loans else 0
-    monthly_installment = sum(float(l['monthly_installment']) for l in loans) if loans else 0
+    monthly_installment = sum(float(l.get('installment') or 0) for l in loans) if loans else 0
     
     return jsonify({
         'success': True,
@@ -153,6 +172,7 @@ def api_my_data():
             'date': today_str,
             'is_present': is_present,
             'check_in': check_in,
+            'presence': presence,
             'check_out': check_out,
             'punches_count': len(punches),
             'punches': punch_times
@@ -432,3 +452,354 @@ def api_approve_request():
     conn.commit()
     msg = 'تمت الموافقة على الطلب بنجاح ✅' if action == 'approve' else 'تم رفض الطلب ❌'
     return jsonify({'success': True, 'message': msg, 'new_status': new_status})
+
+
+# =========================================================================
+# EMPLOYEE MOBILE GPS ATTENDANCE PUNCH ENDPOINTS
+# =========================================================================
+
+@portal_bp.route('/api/punch-status')
+@login_required
+def api_punch_status():
+    emp_id = get_portal_employee_id()
+    if not emp_id:
+        return jsonify({'success': False, 'message': 'حساب الموظف غير محدد'}), 400
+    
+    from utils.settings_utils import get_portal_attendance_settings
+    conn = get_db_connection()
+    stg = get_portal_attendance_settings(conn)
+    
+    today_str = date.today().strftime('%Y-%m-%d')
+    punches = conn.execute('''
+        SELECT check_time, source, note, check_type
+        FROM attendance_records
+        WHERE employee_id = ? AND DATE(check_time) = ?
+        ORDER BY check_time ASC
+    ''', (emp_id, today_str)).fetchall()
+    
+    punch_list = []
+    has_check_in = False
+    has_presence = False
+    has_check_out = False
+    presence_time = None
+    check_in_time = None
+    check_out_time = None
+
+    for idx, p in enumerate(punches):
+        t = p['check_time'][11:16]
+        c_type = p['check_type']
+        note = p['note'] or ''
+
+        if c_type == 2 or 'تواجد' in note:
+            p_type = 'تواجد'
+            has_presence = True
+            presence_time = t
+        elif c_type == 1 or 'حضور' in note:
+            p_type = 'حضور'
+            has_check_in = True
+            if not check_in_time:
+                check_in_time = t
+        elif c_type == 0 or 'انصراف' in note:
+            p_type = 'انصراف'
+            has_check_out = True
+            check_out_time = t
+        else:
+            if idx == 0:
+                p_type = 'حضور'
+                has_check_in = True
+                check_in_time = t
+            elif idx == len(punches) - 1:
+                p_type = 'انصراف'
+                has_check_out = True
+                check_out_time = t
+            else:
+                p_type = 'تواجد'
+                has_presence = True
+                presence_time = t
+
+        punch_list.append({
+            'time': t,
+            'full_time': p['check_time'],
+            'type': p_type,
+            'check_type': c_type,
+            'source': p['source'] or 'device',
+            'note': note
+        })
+        
+    last_punch = punches[-1]['check_time'] if punches else None
+    
+    # Suggested next action
+    if not has_check_in:
+        next_action = 'حضور'
+    elif not has_presence:
+        next_action = 'تواجد'
+    else:
+        next_action = 'انصراف'
+    
+    return jsonify({
+        'success': True,
+        'enabled': stg['enabled'],
+        'geofence_enabled': stg['geofence_enabled'],
+        'company_lat': stg['latitude'],
+        'company_latitude': stg['latitude'],
+        'company_lon': stg['longitude'],
+        'company_longitude': stg['longitude'],
+        'radius': stg['radius'],
+        'geofence_radius_meters': stg['radius'],
+        'cooldown_minutes': stg['cooldown_minutes'],
+        'today_punches': punch_list,
+        'last_punch': last_punch,
+        'next_action': next_action,
+        'has_check_in': has_check_in,
+        'has_presence': has_presence,
+        'has_check_out': has_check_out,
+        'presence_time': presence_time,
+        'is_present': bool(punches)
+    })
+
+@portal_bp.route('/api/punch', methods=['POST'])
+@login_required
+def api_punch():
+    import math
+    emp_id = get_portal_employee_id()
+    if not emp_id:
+        return jsonify({'success': False, 'message': 'حساب الموظف غير محدد'}), 400
+        
+    from utils.settings_utils import get_portal_attendance_settings, calculate_haversine_distance
+    conn = get_db_connection()
+    stg = get_portal_attendance_settings(conn)
+    
+    # 1. Feature Enabled Check
+    if not stg['enabled']:
+        return jsonify({
+            'success': False,
+            'message': 'تسجيل البصمة الذاتية عبر الهاتف غير مفعّل وفق سياسة الشركة. يرجى استخدام جهاز البصمة المكتبي.'
+        }), 403
+        
+    data = request.get_json(silent=True) or request.form
+    emp_lat = data.get('latitude')
+    emp_lon = data.get('longitude')
+    accuracy = data.get('accuracy', 0)
+    gps_timestamp = data.get('timestamp')
+    device_uuid = (data.get('device_uuid') or '').strip()[:64]
+    
+    try:
+        emp_lat = float(emp_lat) if emp_lat is not None else None
+        emp_lon = float(emp_lon) if emp_lon is not None else None
+        accuracy = float(accuracy) if accuracy is not None else 0
+    except (ValueError, TypeError):
+        emp_lat, emp_lon, accuracy = None, None, 0
+
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '')
+    if ',' in client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+
+    # 1. Fetch Employee Branch Info & Active Branches
+    emp_row = conn.execute('SELECT branch_location FROM employees WHERE id = ?', (emp_id,)).fetchone()
+    emp_branch_name = (emp_row['branch_location'] or '').strip() if emp_row else ''
+    
+    active_branches = conn.execute('''
+        SELECT id, name, location, latitude, longitude, geofence_radius, allowed_ips, wifi_name
+        FROM branches WHERE is_active = 1
+    ''').fetchall()
+
+    matched_branch_name = None
+    distance = None
+
+    # 1.1 Multi-Branch Wi-Fi / IP Restriction Check
+    assigned_branch = next((b for b in active_branches if b['name'] and b['name'].strip().lower() == emp_branch_name.lower()), None)
+    
+    branch_ips = []
+    if assigned_branch and assigned_branch['allowed_ips']:
+        branch_ips = [ip.strip() for ip in assigned_branch['allowed_ips'].split(',') if ip.strip()]
+    elif stg.get('allowed_ips'):
+        branch_ips = [ip.strip() for ip in stg['allowed_ips'].split(',') if ip.strip()]
+    else:
+        all_branch_ips = []
+        for b in active_branches:
+            if b['allowed_ips']:
+                all_branch_ips.extend([ip.strip() for ip in b['allowed_ips'].split(',') if ip.strip()])
+        if all_branch_ips:
+            branch_ips = all_branch_ips
+
+    if branch_ips:
+        is_ip_matched = any(client_ip == aip or client_ip.startswith(aip.rstrip('*')) for aip in branch_ips)
+        if not is_ip_matched:
+            return jsonify({
+                'success': False,
+                'message': f'يجب الاتصال بشبكة واي فاي الفرع المعتمدة لتسجيل البصمة (عنوان IP الحالي: {client_ip}).'
+            }), 403
+
+    # 2. Multi-Branch Geofence & GPS Verification
+    has_any_gps = (stg['geofence_enabled'] and stg['latitude'] is not None and stg['longitude'] is not None) or \
+                  any(b['latitude'] is not None and b['longitude'] is not None for b in active_branches)
+
+    if has_any_gps:
+        if emp_lat is None or emp_lon is None:
+            return jsonify({
+                'success': False,
+                'message': 'يرجى السماح بصلاحية الوصول إلى موقعك الجغرافي (GPS) للتحقق من تواجدك بمقر العمل.'
+            }), 400
+
+        # Anti-Spoofing: Check GPS Timestamp Freshness (prevent stale/delayed replay)
+        if gps_timestamp:
+            try:
+                import time as _time
+                gps_ts_sec = float(gps_timestamp) / 1000.0
+                server_ts_sec = _time.time()
+                if abs(server_ts_sec - gps_ts_sec) > 35:
+                    return jsonify({
+                        'success': False,
+                        'message': 'بيانات الموقع الجغرافي قديمة أو تم حفظها مسبقاً. يرجى الضغط للبصمة اللحظية الآن.'
+                    }), 400
+            except (ValueError, TypeError):
+                pass
+
+        gps_matched = False
+        min_distance = float('inf')
+        closest_branch_title = ''
+
+        # A. Check assigned branch first
+        if assigned_branch and assigned_branch['latitude'] is not None and assigned_branch['longitude'] is not None:
+            d = calculate_haversine_distance(emp_lat, emp_lon, assigned_branch['latitude'], assigned_branch['longitude'])
+            allowed_r = (assigned_branch['geofence_radius'] or 150) + max(0, min(accuracy, 30))
+            if d <= allowed_r:
+                gps_matched = True
+                distance = d
+                matched_branch_name = assigned_branch['name']
+            else:
+                min_distance = d
+                closest_branch_title = assigned_branch['name']
+
+        # B. Check other active branches
+        if not gps_matched:
+            for b in active_branches:
+                if b['latitude'] is not None and b['longitude'] is not None:
+                    d = calculate_haversine_distance(emp_lat, emp_lon, b['latitude'], b['longitude'])
+                    allowed_r = (b['geofence_radius'] or 150) + max(0, min(accuracy, 30))
+                    if d <= allowed_r:
+                        gps_matched = True
+                        distance = d
+                        matched_branch_name = b['name']
+                        break
+                    elif d < min_distance:
+                        min_distance = d
+                        closest_branch_title = b['name']
+
+        # C. Check global HQ if configured
+        if not gps_matched and stg['latitude'] is not None and stg['longitude'] is not None:
+            d = calculate_haversine_distance(emp_lat, emp_lon, stg['latitude'], stg['longitude'])
+            allowed_r = stg['radius'] + max(0, min(accuracy, 30))
+            if d <= allowed_r:
+                gps_matched = True
+                distance = d
+                matched_branch_name = 'المقر الرئيسي'
+            elif d < min_distance:
+                min_distance = d
+                closest_branch_title = 'المقر الرئيسي'
+
+        if not gps_matched:
+            target_desc = f" ({closest_branch_title})" if closest_branch_title else ""
+            return jsonify({
+                'success': False,
+                'message': f'أنت خارج النطاق الجغرافي المسموح به لمقر العمل{target_desc} (المسافة: {int(min_distance)} متراً).'
+            }), 400
+
+    # 3. Cooldown Verification (Anti-duplication)
+    now = datetime.now()
+    cooldown_sec = stg['cooldown_minutes'] * 60
+    last_rec = conn.execute('''
+        SELECT check_time FROM attendance_records
+        WHERE employee_id = ?
+        ORDER BY check_time DESC LIMIT 1
+    ''', (emp_id,)).fetchone()
+    
+    if last_rec:
+        try:
+            last_dt = datetime.strptime(last_rec['check_time'], '%Y-%m-%d %H:%M:%S')
+            diff_sec = (now - last_dt).total_seconds()
+            if diff_sec < cooldown_sec:
+                rem_mins = int(math.ceil((cooldown_sec - diff_sec) / 60))
+                return jsonify({
+                    'success': False,
+                    'message': f'تم تسجيل بصمة مسبقاً قبل قليل. يرجى الانتظار {rem_mins} دقيقة قبل تسجيل بصمة أخرى.'
+                }), 400
+        except Exception:
+            pass
+
+    # 4. Insert Attendance Record
+    check_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    dist_str = f" | مسافة: {int(distance)}م" if distance is not None else ""
+    acc_str = f" | دقة: {int(accuracy)}م" if accuracy else ""
+    coord_str = f" ({emp_lat:.5f}, {emp_lon:.5f})" if emp_lat and emp_lon else ""
+    ip_str = f" | IP: {client_ip}" if client_ip else ""
+    dev_str = f" | جهاز: {device_uuid[:8]}" if device_uuid else ""
+    
+    req_type = (data.get('punch_type') or data.get('action') or '').strip().lower()
+
+    today_str = now.strftime('%Y-%m-%d')
+    todays_punches = conn.execute('''
+        SELECT check_type, note FROM attendance_records
+        WHERE employee_id = ? AND DATE(check_time) = ?
+        ORDER BY check_time ASC
+    ''', (emp_id, today_str)).fetchall()
+    
+    if req_type in ('presence', 'تواجد'):
+        check_type_code = 2
+        punch_label = 'بصمة التواجد'
+        punch_action_name = 'تواجد'
+    elif req_type in ('check_out', 'out', 'انصراف'):
+        check_type_code = 0
+        punch_label = 'الانصراف'
+        punch_action_name = 'انصراف'
+    elif req_type in ('check_in', 'in', 'حضور'):
+        check_type_code = 1
+        punch_label = 'الحضور'
+        punch_action_name = 'حضور'
+    else:
+        # Automatic fallback based on today's count
+        cnt = len(todays_punches)
+        if cnt == 0:
+            check_type_code = 1
+            punch_label = 'الحضور'
+            punch_action_name = 'حضور'
+        elif cnt == 1:
+            check_type_code = 2
+            punch_label = 'بصمة التواجد'
+            punch_action_name = 'تواجد'
+        else:
+            check_type_code = 0
+            punch_label = 'الانصراف'
+            punch_action_name = 'انصراف'
+
+    branch_tag = f" | فرع: {matched_branch_name}" if matched_branch_name else (f" | فرع: {emp_branch_name}" if emp_branch_name else "")
+    note_prefix = f"بصمة {punch_label} ذاتية (GPS){branch_tag}"
+    note_str = f"{note_prefix}{dist_str}{acc_str}{coord_str}{ip_str}{dev_str}"
+
+    conn.execute('''
+        INSERT INTO attendance_records (employee_id, device_id, check_time, check_type, verify_code, source, note, created_at, created_by)
+        VALUES (?, 0, ?, ?, 15, 'portal_mobile', ?, CURRENT_TIMESTAMP, ?)
+    ''', (emp_id, check_time_str, check_type_code, note_str, session.get('user_id')))
+    conn.commit()
+
+    # Optional sync to Oracle if enabled
+    try:
+        from routes.adms_routes import ORACLE_ENABLED
+        if ORACLE_ENABLED:
+            from utils.oracle_db import add_to_sync_queue
+            emp_row = conn.execute('SELECT employee_number FROM employees WHERE id = ?', (emp_id,)).fetchone()
+            u_id = emp_row['employee_number'] if emp_row and emp_row['employee_number'] else str(emp_id)
+            add_to_sync_queue(u_id, check_time_str, check_type_code, 15, client_ip, sqlite_conn=conn)
+    except Exception:
+        pass
+
+    branch_display = f" ({matched_branch_name})" if matched_branch_name else ""
+    return jsonify({
+        'success': True,
+        'message': f'تم تسجيل {punch_label} بنجاح الساعة {check_time_str[11:16]} 🎯{branch_display}',
+        'punch_type': punch_action_name,
+        'punch_label': punch_label,
+        'check_time': check_time_str,
+        'distance': round(distance, 1) if distance is not None else None,
+        'branch_name': matched_branch_name or emp_branch_name
+    })

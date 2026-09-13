@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 62
+SCHEMA_VERSION = 63
 
 
 def get_schema_version(conn):
@@ -648,16 +648,16 @@ def init_db():
             app_name TEXT DEFAULT 'نظام إدارة الموارد البشرية',
             app_version TEXT DEFAULT '1.0.0',
             company_name TEXT DEFAULT 'شركتي',
-            currency_name TEXT DEFAULT 'ريال سعودي',
-            currency_symbol TEXT DEFAULT 'ر.س',
-            currency_code TEXT DEFAULT 'SAR',
+            currency_name TEXT DEFAULT 'دينار كويتي',
+            currency_symbol TEXT DEFAULT 'د.ك',
+            currency_code TEXT DEFAULT 'KWD',
             currency_position TEXT DEFAULT 'right',
             working_hours_per_day INTEGER DEFAULT 8,
             company_address TEXT DEFAULT 'العنوان هنا',
             company_phone TEXT DEFAULT '',
             company_email TEXT DEFAULT '',
             default_language TEXT DEFAULT 'ar',
-            timezone TEXT DEFAULT 'Asia/Riyadh',
+            timezone TEXT DEFAULT 'Asia/Kuwait',
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -832,18 +832,31 @@ def init_db():
     cursor.execute('INSERT OR IGNORE INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)', 
                    ('admin', admin_pw_hash, 'مدير النظام', 'admin'))
     
-    # Insert default system settings
+    # Insert default system settings (Kuwait Default)
     cursor.execute('''
         INSERT OR IGNORE INTO system_settings (
             id, app_name, app_version, company_name, currency_name, 
             currency_symbol, currency_code, currency_position, working_hours_per_day,
             company_address, company_phone, company_email, default_language, timezone
         ) VALUES (
-            1, 'نظام إدارة الموارد البشرية', '1.0.0', 'شركتي', 'ريال سعودي',
-            'ر.س', 'SAR', 'right', 8,
-            'العنوان هنا', '', '', 'ar', 'Asia/Riyadh'
+            1, 'نظام إدارة الموارد البشرية', '1.0.0', 'شركتي', 'دينار كويتي',
+            'د.ك', 'KWD', 'right', 8,
+            'العنوان هنا', '', '', 'ar', 'Asia/Kuwait'
         )
     ''')
+
+    # Automatically update currency to Kuwait if previously set to Saudi defaults
+    try:
+        cursor.execute('''
+            UPDATE system_settings
+            SET currency_name = 'دينار كويتي',
+                currency_symbol = 'د.ك',
+                currency_code = 'KWD',
+                timezone = CASE WHEN timezone = 'Asia/Riyadh' THEN 'Asia/Kuwait' ELSE timezone END
+            WHERE id = 1 AND (currency_symbol = 'ر.س' OR currency_code = 'SAR' OR currency_name = 'ريال سعودي')
+        ''')
+    except Exception as e:
+        print(f"Notice updating currency defaults to Kuwait: {e}")
     
     # --- App Settings & License Settings ---
     cursor.execute('''
@@ -1088,6 +1101,16 @@ def init_db():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS branches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            location TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # Put all ALTER TABLE statements here to ensure they run AFTER everything is created
     
     migrations = [
@@ -1170,6 +1193,8 @@ def init_db():
         ('attendance_records', 'source', "TEXT DEFAULT 'device'"),
         ('attendance_records', 'note', 'TEXT'),
         ('attendance_records', 'created_by', 'INTEGER'),
+        ('fingerprint_devices', 'branch_name', 'TEXT'),
+        ('fingerprint_devices', 'branch_id', 'INTEGER'),
     ]
     
     for table, column, col_type in migrations:
@@ -1183,6 +1208,19 @@ def init_db():
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
         except Exception as e:
             print(f"Migration error for {table}.{column}: {e}")
+
+    # Seed default branch if empty
+    try:
+        if cursor.execute('SELECT COUNT(*) FROM branches').fetchone()[0] == 0:
+            cursor.execute("INSERT OR IGNORE INTO branches (name, location) VALUES ('الفرع الرئيسي', 'المقر الرئيسي')")
+            emp_branches = cursor.execute("SELECT DISTINCT branch_location FROM employees WHERE branch_location IS NOT NULL AND branch_location != ''").fetchall()
+            for eb in emp_branches:
+                b_name = eb[0].strip() if eb[0] else ''
+                if b_name:
+                    cursor.execute("INSERT OR IGNORE INTO branches (name, location) VALUES (?, ?)", (b_name, b_name))
+            conn.commit()
+    except Exception as e:
+        print(f"Error seeding branches: {e}")
 
     # --- Seeding Data (Post-Table Creation) ---
     try:
@@ -1508,7 +1546,38 @@ def init_db():
             ('payroll_runs', 'unlocked_by', 'INTEGER'),
             ('payroll_runs', 'unlocked_at', 'DATETIME'),
             ('payroll_runs', 'unlock_reason', 'TEXT'),
+            ('branches', 'location', 'TEXT'),
+            ('branches', 'latitude', 'REAL'),
+            ('branches', 'longitude', 'REAL'),
+            ('branches', 'geofence_radius', 'INTEGER DEFAULT 150'),
+            ('branches', 'allowed_ips', "TEXT DEFAULT ''"),
+            ('branches', 'wifi_name', "TEXT DEFAULT ''"),
+            ('branches', 'address_details', "TEXT DEFAULT ''"),
+            ('branches', 'is_active', 'INTEGER DEFAULT 1'),
+            ('branches', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP'),
         ]
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS branches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                location TEXT,
+                latitude REAL,
+                longitude REAL,
+                geofence_radius INTEGER DEFAULT 150,
+                allowed_ips TEXT DEFAULT '',
+                wifi_name TEXT DEFAULT '',
+                address_details TEXT DEFAULT '',
+                is_active INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        try:
+            if cursor.execute("SELECT COUNT(*) FROM branches").fetchone()[0] == 0:
+                cursor.execute("INSERT OR IGNORE INTO branches (name, location, is_active) VALUES ('الفرع الرئيسي', 'المقر الرئيسي', 1)")
+        except Exception:
+            pass
         for _tbl, _col, _decl in _post_migrations:
             try:
                 _cols = [c[1] for c in cursor.execute(f"PRAGMA table_info({_tbl})").fetchall()]
@@ -1678,6 +1747,7 @@ def init_db():
             ('page.roles', 'الصلاحيات (Roles)', 'Pages', 'Access Roles page'),
             ('page.users', 'المستخدمين (Users)', 'Pages', 'Access Users page'),
             ('page.settings', 'الإعدادات (Settings)', 'Pages', 'Access Settings page'),
+            ('page.branches', 'إدارة الفروع (Branches)', 'Pages', 'Access Branches page'),
             ('page.translations', 'الترجمات (Translations)', 'Pages', 'Access Translations page'),
         ]
         

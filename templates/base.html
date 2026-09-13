@@ -587,6 +587,9 @@
                         <li><span class="dropdown-item-text text-muted">
                                 <i class="fas fa-user-tag me-2"></i>{{ session.role }}
                             </span></li>
+                        <li><a class="dropdown-item" href="{{ url_for('portal.dashboard') }}">
+                                <i class="fas fa-id-badge me-2 text-primary"></i>بوابة الخدمة الذاتية للموظف
+                            </a></li>
                         <li>
                             <hr class="dropdown-divider">
                         </li>
@@ -986,6 +989,15 @@
                                 href="{{ url_for('main.settings') }}">
                                 <i class="fas fa-cog"></i>
                                 {{ _('nav.settings') }}
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if has_permission('page.branches') or has_permission('page.settings') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint and 'branch' in request.endpoint %}active{% endif %}"
+                                href="{{ url_for('branch.branches_list') }}">
+                                <i class="fas fa-code-branch"></i>
+                                إدارة الفروع
                             </a>
                         </li>
                         {% endif %}

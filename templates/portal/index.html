@@ -580,6 +580,488 @@
         .btn-ios-submit:active {
             transform: scale(0.98);
         }
+
+        /* ============================================================== */
+        /* iOS HTML Alert Dialog & Toast System                           */
+        /* ============================================================== */
+        .ios-alert-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 100000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+
+        .ios-alert-overlay.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .ios-alert-box {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            width: 100%;
+            max-width: 320px;
+            border-radius: 24px;
+            padding: 28px 22px 20px 22px;
+            text-align: center;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            transform: scale(0.85);
+            transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .ios-alert-overlay.active .ios-alert-box {
+            transform: scale(1);
+        }
+
+        .ios-alert-icon-wrap {
+            width: 62px;
+            height: 62px;
+            border-radius: 50%;
+            margin: 0 auto 16px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+        }
+
+        .ios-alert-icon-wrap.success {
+            background: rgba(52, 199, 89, 0.16);
+            color: #34C759;
+        }
+
+        .ios-alert-icon-wrap.error {
+            background: rgba(255, 59, 48, 0.16);
+            color: #FF3B30;
+        }
+
+        .ios-alert-icon-wrap.info {
+            background: rgba(0, 122, 255, 0.16);
+            color: #007AFF;
+        }
+
+        .ios-alert-title {
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: var(--ios-text);
+            margin-bottom: 8px;
+        }
+
+        .ios-alert-msg {
+            font-size: 0.92rem;
+            color: var(--ios-subtext);
+            font-weight: 600;
+            line-height: 1.5;
+            margin-bottom: 22px;
+            word-break: break-word;
+        }
+
+        .ios-alert-btn {
+            width: 100%;
+            padding: 13px;
+            background: var(--ios-blue);
+            color: #ffffff;
+            border: none;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(0, 122, 255, 0.25);
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+
+        .ios-alert-btn:active {
+            opacity: 0.85;
+            transform: scale(0.97);
+        }
+
+        /* Toast Container */
+        .ios-toast-container {
+            position: fixed;
+            top: max(16px, env(safe-area-inset-top));
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100001;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: calc(100% - 32px);
+            max-width: 400px;
+            pointer-events: none;
+        }
+
+        .ios-toast {
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 18px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            animation: toastSlideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .ios-toast.toast-exit {
+            animation: toastSlideUp 0.3s ease forwards;
+        }
+
+        @keyframes toastSlideDown {
+            from { opacity: 0; transform: translateY(-30px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        @keyframes toastSlideUp {
+            from { opacity: 1; transform: translateY(0) scale(1); }
+            to { opacity: 0; transform: translateY(-25px) scale(0.92); }
+        }
+
+        .ios-toast-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            flex-shrink: 0;
+        }
+
+        .ios-toast.success .ios-toast-icon {
+            background: rgba(52, 199, 89, 0.15);
+            color: #34C759;
+        }
+
+        .ios-toast.error .ios-toast-icon {
+            background: rgba(255, 59, 48, 0.15);
+            color: #FF3B30;
+        }
+
+        .ios-toast.info .ios-toast-icon {
+            background: rgba(0, 122, 255, 0.15);
+            color: #007AFF;
+        }
+
+        .ios-toast-content {
+            flex: 1;
+        }
+
+        .ios-toast-title {
+            font-size: 0.9rem;
+            font-weight: 800;
+            color: var(--ios-text);
+            margin-bottom: 2px;
+        }
+
+        .ios-toast-msg {
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--ios-subtext);
+            line-height: 1.35;
+        }
+
+        /* ============================================================== */
+        /* PUNCH / MOBILE ATTENDANCE STYLES                               */
+        /* ============================================================== */
+        .quick-punch-banner {
+            background: linear-gradient(135deg, rgba(52, 199, 89, 0.12), rgba(0, 122, 255, 0.08));
+            border: 1px solid rgba(52, 199, 89, 0.25);
+            border-radius: 18px;
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 18px;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .quick-punch-banner:active {
+            transform: scale(0.98);
+        }
+        .quick-punch-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #34C759, #28A745);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);
+        }
+
+        .punch-console-card {
+            background: var(--ios-card-solid);
+            border-radius: 26px;
+            padding: 24px 20px;
+            box-shadow: var(--ios-shadow-lg);
+            border: 1px solid var(--ios-border);
+            text-align: center;
+        }
+
+        .punch-clock-wrap {
+            margin-bottom: 20px;
+        }
+
+        .punch-date-badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: 20px;
+            background: rgba(0, 0, 0, 0.05);
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--ios-subtext);
+            margin-bottom: 8px;
+        }
+
+        .punch-live-clock {
+            font-size: 2.8rem;
+            font-weight: 900;
+            letter-spacing: 1px;
+            color: var(--ios-text);
+            margin: 2px 0;
+            font-variant-numeric: tabular-nums;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .gps-status-card {
+            background: #F8F8FA;
+            border-radius: 18px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            text-align: right;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            margin-bottom: 22px;
+        }
+
+        .gps-status-card.in-range {
+            background: rgba(52, 199, 89, 0.08);
+            border-color: rgba(52, 199, 89, 0.25);
+        }
+
+        .gps-status-card.out-range {
+            background: rgba(255, 59, 48, 0.08);
+            border-color: rgba(255, 59, 48, 0.25);
+        }
+
+        .gps-status-title {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--ios-text);
+            margin-bottom: 2px;
+        }
+
+        .gps-status-desc {
+            font-size: 0.78rem;
+            color: var(--ios-subtext);
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .btn-gps-refresh {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            background: white;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--ios-text);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+        .btn-gps-refresh:active {
+            transform: scale(0.92);
+        }
+
+        /* Radar Wave Pulse */
+        .radar-wrap {
+            position: relative;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .radar-circle {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: rgba(0, 122, 255, 0.2);
+            animation: radarPulse 2s infinite ease-out;
+        }
+        .radar-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--ios-blue);
+            box-shadow: 0 0 10px rgba(0, 122, 255, 0.5);
+            z-index: 2;
+        }
+        .radar-wrap.success .radar-circle { background: rgba(52, 199, 89, 0.25); }
+        .radar-wrap.success .radar-dot { background: var(--ios-green); box-shadow: 0 0 10px rgba(52, 199, 89, 0.6); }
+        .radar-wrap.danger .radar-circle { background: rgba(255, 59, 48, 0.25); }
+        .radar-wrap.danger .radar-dot { background: var(--ios-red); box-shadow: 0 0 10px rgba(255, 59, 48, 0.6); }
+
+        @keyframes radarPulse {
+            0% { transform: scale(0.9); opacity: 0.8; }
+            70% { transform: scale(1.35); opacity: 0; }
+            100% { transform: scale(1.35); opacity: 0; }
+        }
+
+        /* Giant Punch Button */
+        .punch-btn-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 18px 0 24px 0;
+        }
+
+        .punch-giant-btn {
+            width: 184px;
+            height: 184px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            background: linear-gradient(145deg, #34C759, #28A745);
+            color: white;
+            box-shadow: 0 16px 36px rgba(52, 199, 89, 0.38), 0 0 0 12px rgba(52, 199, 89, 0.12), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .punch-giant-btn.btn-check-out {
+            background: linear-gradient(145deg, #FF3B30, #D32F2F);
+            box-shadow: 0 16px 36px rgba(255, 59, 48, 0.38), 0 0 0 12px rgba(255, 59, 48, 0.12), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+        }
+
+        .punch-giant-btn.btn-presence {
+            background: linear-gradient(145deg, #007AFF, #0051A8);
+            box-shadow: 0 16px 36px rgba(0, 122, 255, 0.38), 0 0 0 12px rgba(0, 122, 255, 0.12), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+        }
+
+        .punch-mode-selector {
+            display: flex;
+            align-items: center;
+            background: rgba(118, 118, 128, 0.12);
+            padding: 4px;
+            border-radius: 14px;
+            margin: 0 auto 20px auto;
+            max-width: 360px;
+            width: 100%;
+            gap: 4px;
+        }
+
+        .punch-mode-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 6px;
+            border: none;
+            background: transparent;
+            color: var(--ios-subtext);
+            font-size: 0.82rem;
+            font-weight: 700;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .punch-mode-btn.active {
+            background: #FFFFFF;
+            color: var(--ios-text);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        .punch-mode-btn.active.mode-presence {
+            color: var(--ios-blue);
+        }
+
+        .punch-mode-btn.active.mode-check-in {
+            color: var(--ios-green);
+        }
+
+        .punch-mode-btn.active.mode-check-out {
+            color: var(--ios-red);
+        }
+
+        .punch-giant-btn:active {
+            transform: scale(0.94);
+        }
+
+        .punch-giant-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .punch-btn-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .punch-fingerprint-icon {
+            font-size: 3.2rem;
+            margin-bottom: 6px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.18));
+        }
+
+        .punch-btn-text {
+            font-size: 1.15rem;
+            font-weight: 900;
+            letter-spacing: 0.5px;
+        }
+
+        .punch-btn-sub {
+            font-size: 0.72rem;
+            font-weight: 700;
+            opacity: 0.9;
+            margin-top: 2px;
+        }
+
+        .punch-security-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            background: rgba(0, 0, 0, 0.04);
+            font-size: 0.74rem;
+            font-weight: 700;
+            color: var(--ios-subtext);
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
@@ -624,6 +1106,11 @@
                     </div>
                     <div class="time-divider"></div>
                     <div class="hero-time-item">
+                        <h3 id="heroPresence" style="color: var(--ios-blue);">--:--</h3>
+                        <p>بصمة التواجد</p>
+                    </div>
+                    <div class="time-divider"></div>
+                    <div class="hero-time-item">
                         <h3 id="heroCheckOut">--:--</h3>
                         <p>بصمة الانصراف</p>
                     </div>
@@ -638,6 +1125,20 @@
                     </small>
                 </div>
             </div>
+
+            {% if portal_att and portal_att.enabled %}
+            <!-- Quick Punch Banner on Today Screen -->
+            <div class="quick-punch-banner" onclick="switchTab('tab-punch')">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                    <div class="quick-punch-icon"><i class="fas fa-fingerprint"></i></div>
+                    <div style="text-align: right;">
+                        <h4 style="font-weight: 800; margin-bottom: 2px; font-size: 0.95rem; color: var(--ios-text);">تسجيل البصمة الذاتية (GPS)</h4>
+                        <p style="font-size: 0.78rem; color: var(--ios-subtext); font-weight: 600; margin: 0;">اضغط هنا لتسجيل الحضور أو الانصراف الآن</p>
+                    </div>
+                </div>
+                <i class="fas fa-chevron-left" style="color: var(--ios-subtext); font-size: 0.9rem;"></i>
+            </div>
+            {% endif %}
 
             <!-- Quick Action Cards Grid -->
             <div class="action-grid">
@@ -685,6 +1186,97 @@
                 </div>
             </div>
 
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: PUNCH / MOBILE ATTENDANCE (البصمة الذاتية)              -->
+        <!-- ============================================================== -->
+        <section id="view-punch" class="portal-view">
+            {% if not portal_att or not portal_att.enabled %}
+            <!-- حالة التعطيل من الإعدادات -->
+            <div class="card-ios" style="text-align: center; padding: 42px 20px; background: var(--ios-card-solid); border-radius: 24px; box-shadow: var(--ios-shadow); border: 1px solid var(--ios-border); margin-top: 10px;">
+                <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(255, 59, 48, 0.12); color: var(--ios-red); display: flex; align-items: center; justify-content: center; font-size: 2.2rem; margin: 0 auto 18px auto;">
+                    <i class="fas fa-ban"></i>
+                </div>
+                <h3 style="font-weight: 800; font-size: 1.25rem; margin-bottom: 10px; color: var(--ios-text);">البصمة الذاتية غير مفعّلة</h3>
+                <p style="color: var(--ios-subtext); font-size: 0.92rem; line-height: 1.6; max-width: 360px; margin: 0 auto 20px auto; font-weight: 600;">
+                    تسجيل الحضور والانصراف عبر الهاتف غير مفعّل وفق السياسة المعتمدة لشركتكم. يرجى تسجيل البصمة عبر أجهزة البصمة المعتمدة في مقر العمل.
+                </p>
+                <div style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 12px; background: #f2f2f7; font-size: 0.8rem; font-weight: 700; color: var(--ios-subtext);">
+                    <i class="fas fa-building text-primary"></i> يرجى مراجعة إدارة الموارد البشرية
+                </div>
+            </div>
+            {% else %}
+            <!-- حالة التفعيل: شاشة البصمة المتكاملة -->
+            <div class="punch-console-card">
+                <!-- Clock & Date -->
+                <div class="punch-clock-wrap">
+                    <span class="punch-date-badge">{{ today_display }}</span>
+                    <h2 class="punch-live-clock" id="punchLiveClock">--:--:--</h2>
+                    <small style="color: var(--ios-subtext); font-weight: 700;">التوقيت الرسمي المعتمد</small>
+                </div>
+
+                <!-- GPS Status / Radar Banner -->
+                <div class="gps-status-card" id="gpsStatusCard">
+                    <div class="radar-wrap" id="radarWrap">
+                        <div class="radar-circle"></div>
+                        <div class="radar-dot"></div>
+                    </div>
+                    <div style="flex: 1;">
+                        <h5 class="gps-status-title" id="gpsStatusTitle">جاري فحص الموقع الجغرافي (GPS)...</h5>
+                        <p class="gps-status-desc" id="gpsStatusDesc">يرجى الانتظار لحساب المسافة بدقة</p>
+                    </div>
+                    <button type="button" class="btn-gps-refresh" onclick="checkUserLocation(true)" title="تحديث الإحداثيات">
+                        <i class="fas fa-arrows-rotate" id="gpsRefreshIcon"></i>
+                    </button>
+                </div>
+
+                <!-- 3-Mode Punch Selector: حضور | تواجد | انصراف -->
+                <div class="punch-mode-selector" id="punchModeSelector">
+                    <button type="button" class="punch-mode-btn mode-check-in active" id="modeBtn_check_in" onclick="setPunchMode('check_in')">
+                        <i class="fas fa-sign-in-alt"></i> الحضور
+                    </button>
+                    <button type="button" class="punch-mode-btn mode-presence" id="modeBtn_presence" onclick="setPunchMode('presence')">
+                        <i class="fas fa-user-check"></i> التواجد
+                    </button>
+                    <button type="button" class="punch-mode-btn mode-check-out" id="modeBtn_check_out" onclick="setPunchMode('check_out')">
+                        <i class="fas fa-sign-out-alt"></i> الانصراف
+                    </button>
+                </div>
+
+                <!-- Giant Biometric Punch Button -->
+                <div class="punch-btn-container">
+                    <button type="button" class="punch-giant-btn btn-check-in" id="mainPunchBtn" onclick="doPortalPunch()">
+                        <div class="punch-btn-inner">
+                            <i class="fas fa-fingerprint punch-fingerprint-icon" id="mainPunchIcon"></i>
+                            <span class="punch-btn-text" id="mainPunchBtnText">تسجيل الحضور</span>
+                            <small class="punch-btn-sub" id="mainPunchBtnSub">انقر للبصمة</small>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- Security Assurance Pill -->
+                <div class="punch-security-pill">
+                    <i class="fas fa-shield-halved text-success me-1"></i>
+                    <span>بصمة رسمية موثقة بنظام الحماية الجغرافية GPS ومسجلة بالسيرفر</span>
+                </div>
+            </div>
+
+            <!-- Today's Punches Timeline -->
+            <div style="margin-top: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="font-weight: 800; font-size: 1.1rem; color: var(--ios-text); margin: 0;">
+                        <i class="fas fa-history text-primary me-2"></i> حركات البصمة المسجلة اليوم
+                    </h4>
+                    <span class="badge-tag approved" id="punchCountBadge">0 حركات</span>
+                </div>
+                <div id="punchTimelineContainer">
+                    <div style="text-align: center; color: var(--ios-subtext); padding: 24px; font-weight: 600;">
+                        لا توجد حركات بصمة مسجلة لهذا اليوم حتى الآن
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </section>
 
         <!-- ============================================================== -->
@@ -821,7 +1413,7 @@
                     <p>المعتمد في العقد</p>
                 </div>
                 <div style="font-weight: 800; font-size: 1.15rem; color: var(--ios-green);" id="profileSalary">
-                    {{ employee.salary or 0 }} ر.س
+                    {{ employee.salary or 0 }} د.ك
                 </div>
             </div>
             <div class="list-card">
@@ -920,12 +1512,33 @@
     </div>
 
     <!-- ============================================================== -->
+    <!-- HTML POPUPS & TOASTS (Replaces browser JS alert)                -->
+    <!-- ============================================================== -->
+    <div id="iosToastContainer" class="ios-toast-container"></div>
+
+    <div class="ios-alert-overlay" id="portalAlertOverlay" onclick="closePortalAlert(event)">
+        <div class="ios-alert-box" onclick="event.stopPropagation()">
+            <div class="ios-alert-icon-wrap success" id="portalAlertIcon">
+                <i class="fas fa-check"></i>
+            </div>
+            <h4 class="ios-alert-title" id="portalAlertTitle">تم بنجاح</h4>
+            <p class="ios-alert-msg" id="portalAlertMsg">تفاصيل الرسالة...</p>
+            <button type="button" class="ios-alert-btn" id="portalAlertBtn" onclick="closePortalAlert()">حسناً</button>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
     <!-- IOS BOTTOM TAB BAR                                             -->
     <!-- ============================================================== -->
     <nav class="ios-tabbar">
         <div class="tab-item active" onclick="switchTab('tab-today')" id="btn-tab-today">
             <i class="fas fa-calendar-day"></i>
             <span>اليوم</span>
+        </div>
+
+        <div class="tab-item" onclick="switchTab('tab-punch')" id="btn-tab-punch">
+            <i class="fas fa-fingerprint"></i>
+            <span>البصمة</span>
         </div>
         
         {% if is_manager %}
@@ -956,6 +1569,7 @@
         // Tab switching logic
         const TITLES = {
             'tab-today': 'اليوم',
+            'tab-punch': 'البصمة الذاتية',
             'tab-team': 'فريق العمل',
             'tab-attendance': 'سجل الحضور',
             'tab-leaves': 'الإجازات',
@@ -976,6 +1590,11 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
 
             // Specific refresh on tab switch
+            if (tabId === 'tab-punch') {
+                loadPunchStatus().then(() => {
+                    checkUserLocation();
+                });
+            }
             if (tabId === 'tab-attendance') loadAttendanceLog();
             if (tabId === 'tab-team') loadTeamData();
         }
@@ -1013,13 +1632,15 @@
                 }
 
                 document.getElementById('heroCheckIn').textContent = today.check_in || '--:--';
+                const heroPresEl = document.getElementById('heroPresence');
+                if (heroPresEl) heroPresEl.textContent = today.presence || '--:--';
                 document.getElementById('heroCheckOut').textContent = today.check_out || '--:--';
                 document.getElementById('heroPunchesCount').textContent = today.punches_count || 0;
 
                 // KPIs
                 document.getElementById('kpiLeaveBal').textContent = data.stats.annual_balance + ' د';
                 document.getElementById('kpiWorkedDays').textContent = data.stats.days_worked;
-                document.getElementById('kpiLoans').textContent = data.stats.loan_remaining > 0 ? (data.stats.loan_remaining + ' ر.س') : 'لا يوجد';
+                document.getElementById('kpiLoans').textContent = data.stats.loan_remaining > 0 ? (data.stats.loan_remaining + ' د.ك') : 'لا يوجد';
 
                 // Leaves view elements
                 document.getElementById('leavesMainBalance').innerHTML = `${data.stats.annual_balance} <span style="font-size: 1rem; font-weight: 700; color: var(--ios-subtext);">يوم متبقي</span>`;
@@ -1187,6 +1808,101 @@
             }
         }
 
+        // ==============================================================
+        // HTML ALERT & TOAST SYSTEM (Replaces Native Browser alert())
+        // ==============================================================
+        let alertCallback = null;
+
+        function showPortalAlert(title, message, type = 'success', onConfirm = null) {
+            const overlay = document.getElementById('portalAlertOverlay');
+            const iconWrap = document.getElementById('portalAlertIcon');
+            const titleEl = document.getElementById('portalAlertTitle');
+            const msgEl = document.getElementById('portalAlertMsg');
+            const btnEl = document.getElementById('portalAlertBtn');
+
+            if (!overlay) return;
+
+            alertCallback = onConfirm;
+
+            titleEl.textContent = title || (type === 'success' ? 'تم بنجاح' : 'تنبيه');
+            msgEl.textContent = message || '';
+
+            // Set Type Styling
+            iconWrap.className = 'ios-alert-icon-wrap ' + type;
+            if (type === 'success') {
+                iconWrap.innerHTML = '<i class="fas fa-check"></i>';
+                btnEl.style.background = 'var(--ios-blue)';
+            } else if (type === 'error') {
+                iconWrap.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+                btnEl.style.background = 'var(--ios-red)';
+            } else {
+                iconWrap.innerHTML = '<i class="fas fa-info-circle"></i>';
+                btnEl.style.background = 'var(--ios-blue)';
+            }
+
+            overlay.style.display = 'flex';
+            setTimeout(() => {
+                overlay.classList.add('active');
+            }, 10);
+        }
+
+        function closePortalAlert(event) {
+            if (event && event.target && event.target !== document.getElementById('portalAlertOverlay') && !event.target.classList.contains('ios-alert-btn')) {
+                return;
+            }
+            const overlay = document.getElementById('portalAlertOverlay');
+            if (!overlay) return;
+
+            overlay.classList.remove('active');
+            setTimeout(() => {
+                overlay.style.display = 'none';
+                if (typeof alertCallback === 'function') {
+                    const cb = alertCallback;
+                    alertCallback = null;
+                    cb();
+                }
+            }, 200);
+        }
+
+        function showToast(message, type = 'success', title = '') {
+            const container = document.getElementById('iosToastContainer');
+            if (!container) return;
+
+            const toast = document.createElement('div');
+            toast.className = `ios-toast ${type}`;
+
+            let iconHtml = '<i class="fas fa-check"></i>';
+            if (type === 'error') iconHtml = '<i class="fas fa-times"></i>';
+            else if (type === 'info') iconHtml = '<i class="fas fa-info"></i>';
+
+            toast.innerHTML = `
+                <div class="ios-toast-icon">${iconHtml}</div>
+                <div class="ios-toast-content">
+                    ${title ? `<div class="ios-toast-title">${title}</div>` : ''}
+                    <div class="ios-toast-msg">${message}</div>
+                </div>
+            `;
+
+            toast.onclick = () => {
+                toast.classList.add('toast-exit');
+                setTimeout(() => toast.remove(), 280);
+            };
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.classList.add('toast-exit');
+                    setTimeout(() => toast.remove(), 280);
+                }
+            }, 3500);
+        }
+
+        // Intercept native alert() so any script calls render as stylish HTML!
+        window.alert = function(message) {
+            showPortalAlert('تنبيه', message, 'info');
+        };
+
         async function handleApproval(requestId, action) {
             const card = document.getElementById('req-card-' + requestId);
             if (card) card.style.opacity = '0.5';
@@ -1203,13 +1919,14 @@
                         card.innerHTML = `<div style="padding: 8px; text-align: center; font-weight: 700; width: 100%; color: ${action === 'approve' ? 'var(--ios-green)' : 'var(--ios-red)'}">${data.message}</div>`;
                         setTimeout(() => card.remove(), 1200);
                     }
+                    showToast(data.message, action === 'approve' ? 'success' : 'error', 'اعتماد الطلب');
                     loadTeamData(); // Refresh counter
                 } else {
-                    alert(data.message || 'تعذر اتخاذ الإجراء');
+                    showPortalAlert('تعذر اتخاذ الإجراء', data.message || 'تعذر اتخاذ الإجراء المطلوب', 'error');
                     if (card) card.style.opacity = '1';
                 }
             } catch (e) {
-                alert('حدث خطأ في الاتصال');
+                showPortalAlert('خطأ بالاتصال', 'حدث خطأ في الاتصال، يرجى المحاولة لاحقاً', 'error');
                 if (card) card.style.opacity = '1';
             }
         }
@@ -1232,15 +1949,15 @@
                 });
                 const json = await res.json();
                 if (json.success) {
-                    alert(json.message);
                     closeModals();
                     document.getElementById('leaveForm').reset();
                     loadMyData();
+                    showPortalAlert('تم تقديم الطلب بنجاح', json.message, 'success');
                 } else {
-                    alert(json.message || 'حدث خطأ');
+                    showPortalAlert('تعذر تقديم الطلب', json.message || 'حدث خطأ أثناء تقديم طلب الإجازة', 'error');
                 }
             } catch (err) {
-                alert('تعذر إرسال الطلب');
+                showPortalAlert('خطأ بالاتصال', 'تعذر إرسال الطلب، يرجى التحقق من الشبكة والمحاولة لاحقاً', 'error');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'إرسال الطلب';
@@ -1265,19 +1982,401 @@
                 });
                 const json = await res.json();
                 if (json.success) {
-                    alert(json.message);
                     closeModals();
                     document.getElementById('excuseForm').reset();
+                    showPortalAlert('تم تسجيل الاستئذان بنجاح', json.message, 'success');
                 } else {
-                    alert(json.message || 'حدث خطأ');
+                    showPortalAlert('تنبيه', json.message || 'حدث خطأ أثناء تسجيل الاستئذان', 'error');
                 }
             } catch (err) {
-                alert('تعذر إرسال الطلب');
+                showPortalAlert('خطأ بالاتصال', 'تعذر إرسال طلب الاستئذان، يرجى المحاولة لاحقاً', 'error');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'إرسال الطلب';
             }
         }
+
+        // ==============================================================
+        // PORTAL MOBILE PUNCH (البصمة الذاتية)
+        // ==============================================================
+        let punchSettings = {
+            enabled: false,
+            geofence_enabled: false,
+            company_lat: null,
+            company_lon: null,
+            radius: 100,
+            cooldown_minutes: 5,
+            next_action: 'حضور'
+        };
+        let userCurrentPosition = null;
+        let isLocating = false;
+
+        function updatePunchClock() {
+            const clockEl = document.getElementById('punchLiveClock');
+            if (!clockEl) return;
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            clockEl.textContent = `${hours}:${minutes}:${seconds}`;
+        }
+
+        function calcHaversineMeters(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const toRad = (x) => x * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        function isGeofenceActive() {
+            return !!(punchSettings.geofence_enabled && punchSettings.company_lat && punchSettings.company_lon);
+        }
+
+        let currentPunchMode = 'check_in'; // 'check_in', 'presence', 'check_out'
+
+        function setPunchMode(mode) {
+            currentPunchMode = mode;
+
+            // Update segmented selector buttons
+            document.querySelectorAll('.punch-mode-btn').forEach(btn => btn.classList.remove('active'));
+            const activeBtn = document.getElementById('modeBtn_' + mode);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            // Update giant punch button appearance
+            const mainBtn = document.getElementById('mainPunchBtn');
+            const iconEl = document.getElementById('mainPunchIcon');
+            const btnText = document.getElementById('mainPunchBtnText');
+            const btnSub = document.getElementById('mainPunchBtnSub');
+
+            if (!mainBtn || !btnText) return;
+
+            mainBtn.classList.remove('btn-check-in', 'btn-presence', 'btn-check-out');
+
+            if (mode === 'presence') {
+                mainBtn.classList.add('btn-presence');
+                btnText.textContent = 'بصمة التواجد';
+                if (btnSub) btnSub.textContent = 'إثبات التواجد أثناء الدوام';
+                if (iconEl) iconEl.className = 'fas fa-user-check punch-fingerprint-icon';
+            } else if (mode === 'check_out') {
+                mainBtn.classList.add('btn-check-out');
+                btnText.textContent = 'تسجيل الانصراف';
+                if (btnSub) btnSub.textContent = 'نهاية الدوام اليومي';
+                if (iconEl) iconEl.className = 'fas fa-fingerprint punch-fingerprint-icon';
+            } else {
+                mainBtn.classList.add('btn-check-in');
+                btnText.textContent = 'تسجيل الحضور';
+                if (btnSub) btnSub.textContent = 'بدء الدوام اليومي';
+                if (iconEl) iconEl.className = 'fas fa-fingerprint punch-fingerprint-icon';
+            }
+        }
+
+        async function loadPunchStatus() {
+            const punchSection = document.getElementById('view-punch');
+            if (!punchSection) return;
+
+            try {
+                const res = await fetch('/portal/api/punch-status');
+                const data = await res.json();
+                if (!data.success) return;
+
+                punchSettings.enabled = data.enabled;
+                punchSettings.geofence_enabled = data.geofence_enabled;
+                punchSettings.company_lat = data.company_lat || data.company_latitude || null;
+                punchSettings.company_lon = data.company_lon || data.company_longitude || null;
+                punchSettings.radius = data.radius || data.geofence_radius_meters || 100;
+                punchSettings.cooldown_minutes = data.cooldown_minutes || 5;
+                punchSettings.next_action = data.next_action || 'حضور';
+
+                // Automatically select the recommended next punch mode
+                let recommendedMode = 'check_in';
+                if (data.next_action === 'انصراف') {
+                    recommendedMode = 'check_out';
+                } else if (data.next_action === 'تواجد') {
+                    recommendedMode = 'presence';
+                }
+                setPunchMode(recommendedMode);
+
+                // Update Punch Timeline
+                renderPunchTimeline(data.today_punches);
+
+            } catch (err) {
+                console.error('Error loading punch status:', err);
+            }
+        }
+
+        function renderPunchTimeline(punches) {
+            const container = document.getElementById('punchTimelineContainer');
+            const countBadge = document.getElementById('punchCountBadge');
+            if (!container) return;
+
+            if (!punches || punches.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: var(--ios-subtext); padding: 24px; font-weight: 600;">لا توجد حركات بصمة مسجلة لهذا اليوم حتى الآن</div>';
+                if (countBadge) countBadge.textContent = '0 حركات';
+                return;
+            }
+
+            if (countBadge) countBadge.textContent = punches.length + ' حركات';
+
+            let html = '';
+            punches.forEach(p => {
+                const isCheckIn = p.type === 'حضور';
+                const isPresence = p.type === 'تواجد';
+                
+                let iconColor = isCheckIn ? 'var(--ios-green)' : (isPresence ? 'var(--ios-blue)' : 'var(--ios-red)');
+                let bgLight = isCheckIn ? 'rgba(52, 199, 89, 0.12)' : (isPresence ? 'rgba(0, 122, 255, 0.12)' : 'rgba(255, 59, 48, 0.12)');
+                let iconClass = isCheckIn ? 'fa-sign-in-alt' : (isPresence ? 'fa-user-check' : 'fa-sign-out-alt');
+                let typeColor = isCheckIn ? 'approved' : (isPresence ? 'manager' : 'rejected');
+
+                html += `
+                    <div class="list-card" style="margin-bottom: 10px;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="width: 42px; height: 42px; border-radius: 14px; background: ${bgLight}; color: ${iconColor}; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+                                <i class="fas ${iconClass}"></i>
+                            </div>
+                            <div class="list-info">
+                                <h5 style="margin-bottom: 2px;">بصمة ${p.type}</h5>
+                                <p style="margin: 0; font-size: 0.76rem;">${p.source_display || 'البوابة الذاتية'} • ${p.note || 'نظامي'}</p>
+                            </div>
+                        </div>
+                        <div style="text-align: left;">
+                            <div style="font-weight: 800; font-size: 1.1rem; color: var(--ios-text); font-family: monospace;">${p.time}</div>
+                            <span class="badge-tag ${typeColor}" style="padding: 2px 8px; font-size: 0.7rem;">مسجلة</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function checkUserLocation(forceRefresh = false) {
+            const statusCard = document.getElementById('gpsStatusCard');
+            const radarWrap = document.getElementById('radarWrap');
+            const statusTitle = document.getElementById('gpsStatusTitle');
+            const statusDesc = document.getElementById('gpsStatusDesc');
+            const refreshIcon = document.getElementById('gpsRefreshIcon');
+            const mainBtn = document.getElementById('mainPunchBtn');
+
+            if (!statusCard) return;
+
+            // If geofence is NOT active (e.g. disabled or company coordinates not set yet)
+            if (!isGeofenceActive()) {
+                radarWrap.className = 'radar-wrap success';
+                statusCard.className = 'gps-status-card in-range';
+                statusTitle.textContent = 'نظام البصمة جاهز للتسجيل';
+                statusDesc.textContent = 'يمكنك النقر على زر البصمة للتسجيل مباشرة';
+                if (mainBtn) mainBtn.disabled = false;
+
+                // Grab coordinates in background if available
+                if (navigator.geolocation && !userCurrentPosition) {
+                    navigator.geolocation.getCurrentPosition(
+                        (p) => {
+                            userCurrentPosition = {
+                                latitude: p.coords.latitude,
+                                longitude: p.coords.longitude,
+                                accuracy: p.coords.accuracy || 10
+                            };
+                        },
+                        () => {},
+                        { timeout: 6000, maximumAge: 60000 }
+                    );
+                }
+                return;
+            }
+
+            if (!navigator.geolocation) {
+                radarWrap.className = 'radar-wrap danger';
+                statusCard.className = 'gps-status-card out-range';
+                statusTitle.textContent = 'الموقع غير مدعوم في المتصفح';
+                statusDesc.textContent = 'متصفحك لا يدعم نظام الـ GPS أو الموقع محظور';
+                if (mainBtn) mainBtn.disabled = true;
+                return;
+            }
+
+            if (refreshIcon) refreshIcon.classList.add('fa-spin');
+            isLocating = true;
+            statusTitle.textContent = 'جاري فحص الموقع الجغرافي (GPS)...';
+            statusDesc.textContent = 'يرجى السماح بالوصول للموقع لحساب المسافة بدقة';
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+                    isLocating = false;
+                    userCurrentPosition = {
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy || 10
+                    };
+
+                    const dist = Math.round(calcHaversineMeters(
+                        userCurrentPosition.latitude,
+                        userCurrentPosition.longitude,
+                        punchSettings.company_lat,
+                        punchSettings.company_lon
+                    ));
+
+                    const maxAllowed = punchSettings.radius + Math.min(Math.max(0, userCurrentPosition.accuracy), 30);
+
+                    if (dist <= maxAllowed) {
+                        radarWrap.className = 'radar-wrap success';
+                        statusCard.className = 'gps-status-card in-range';
+                        statusTitle.textContent = 'أنت الآن داخل نطاق العمل المعتمد ✅';
+                        statusDesc.textContent = `المسافة الحالية: ${dist}م (المسموح حتى: ${punchSettings.radius}م)`;
+                        if (mainBtn) mainBtn.disabled = false;
+                    } else {
+                        radarWrap.className = 'radar-wrap danger';
+                        statusCard.className = 'gps-status-card out-range';
+                        statusTitle.textContent = 'أنت خارج نطاق مقر العمل 📍';
+                        statusDesc.textContent = `المسافة الحالية: ${dist}م (المسموح حتى: ${punchSettings.radius}م)`;
+                        if (mainBtn) mainBtn.disabled = true;
+                    }
+                },
+                (err) => {
+                    if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+                    isLocating = false;
+                    radarWrap.className = 'radar-wrap danger';
+                    statusCard.className = 'gps-status-card out-range';
+                    let msg = 'تعذر الحصول على إحداثيات الموقع';
+                    if (err.code === 1) msg = 'تم رفض الإذن بالوصول للموقع. يرجى تفعيله من إعدادات المتصفح.';
+                    else if (err.code === 2) msg = 'تعذر التقاط إشارة GPS. تأكد من فتح الموقع في الهاتف.';
+                    else if (err.code === 3) msg = 'استغرق تحديد الموقع وقتاً طويلاً. اضغط زر التحديث.';
+                    statusTitle.textContent = 'تعذر تحديد الموقع';
+                    statusDesc.textContent = msg;
+                    if (mainBtn) mainBtn.disabled = true;
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+
+        function getPortalDeviceUUID() {
+            let id = localStorage.getItem('portal_device_uuid');
+            if (!id) {
+                id = 'dev-' + Math.random().toString(36).substring(2, 10) + '-' + Date.now().toString(36);
+                localStorage.setItem('portal_device_uuid', id);
+            }
+            return id;
+        }
+
+        async function executePunchRequest(pos) {
+            const mainBtn = document.getElementById('mainPunchBtn');
+            const iconEl = document.getElementById('mainPunchIcon');
+            const textEl = document.getElementById('mainPunchBtnText');
+
+            mainBtn.disabled = true;
+            if (iconEl) iconEl.className = 'fas fa-spinner fa-spin punch-fingerprint-icon';
+            if (textEl) textEl.textContent = 'جاري التحقق والتوثيق...';
+
+            try {
+                const payload = {
+                    punch_type: currentPunchMode,
+                    latitude: pos ? pos.latitude : null,
+                    longitude: pos ? pos.longitude : null,
+                    accuracy: pos ? pos.accuracy : null,
+                    timestamp: pos && pos.timestamp ? pos.timestamp : Date.now(),
+                    device_uuid: pos && pos.device_uuid ? pos.device_uuid : getPortalDeviceUUID()
+                };
+
+                const res = await fetch('/portal/api/punch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    showPortalAlert(
+                        `تم تسجيل بصمة ${data.punch_type} بنجاح ✅`,
+                        `تم توثيق بصمتك في تمام الساعة ${data.punch_time}.\nشكراً لالتزامك!`,
+                        'success'
+                    );
+                    showToast(`تم تسجيل بصمة ${data.punch_type} بنجاح (${data.punch_time})`, 'success', 'البصمة الذاتية');
+                    await loadPunchStatus();
+                    loadMyData();
+                } else {
+                    showPortalAlert('تعذر تسجيل البصمة', data.message || 'حدث خطأ أثناء معالجة البصمة', 'error');
+                }
+            } catch (err) {
+                console.error('Punch error:', err);
+                showPortalAlert('خطأ في الاتصال', 'تعذر الاتصال بالسيرفر لتسجيل البصمة، يرجى المحاولة لاحقاً', 'error');
+            } finally {
+                mainBtn.disabled = false;
+                setPunchMode(currentPunchMode);
+            }
+        }
+
+        async function doPortalPunch() {
+            const mainBtn = document.getElementById('mainPunchBtn');
+            const iconEl = document.getElementById('mainPunchIcon');
+            const textEl = document.getElementById('mainPunchBtnText');
+
+            if (!punchSettings.enabled) {
+                showPortalAlert('البصمة الذاتية معطلة', 'تسجيل البصمة الذاتية غير مفعّل وفق سياسة الشركة حالياً.', 'error');
+                return;
+            }
+
+            mainBtn.disabled = true;
+            if (iconEl) iconEl.className = 'fas fa-spinner fa-spin punch-fingerprint-icon';
+
+            // IF GEOFENCE IS ACTIVE: ALWAYS acquire a fresh, un-cached GPS reading at this exact moment!
+            if (isGeofenceActive()) {
+                if (!navigator.geolocation) {
+                    showPortalAlert('الموقع غير مدعوم', 'متصفحك لا يدعم نظام تحديد الموقع GPS.', 'error');
+                    mainBtn.disabled = false;
+                    setPunchMode(currentPunchMode);
+                    return;
+                }
+
+                if (textEl) textEl.textContent = 'جاري التحقق اللحظي من موقعك (GPS)...';
+
+                navigator.geolocation.getCurrentPosition(
+                    async (pos) => {
+                        const freshPos = {
+                            latitude: pos.coords.latitude,
+                            longitude: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy || 10,
+                            timestamp: pos.timestamp || Date.now(),
+                            device_uuid: getPortalDeviceUUID()
+                        };
+                        userCurrentPosition = freshPos;
+                        checkUserLocation();
+                        await executePunchRequest(freshPos);
+                    },
+                    (err) => {
+                        mainBtn.disabled = false;
+                        setPunchMode(currentPunchMode);
+
+                        let msg = 'يرجى السماح للمتصفح بالوصول لموقعك الجغرافي لتسجيل البصمة اللحظية.';
+                        if (err.code === 1) msg = 'تم رفض إذن الوصول للموقع. يرجى تفعيله من إعدادات المتصفح.';
+                        else if (err.code === 2) msg = 'تعذر التقاط إشارة GPS. تأكد من فتح الموقع في الهاتف.';
+                        else if (err.code === 3) msg = 'استغرق تحديد الموقع وقتاً طويلاً. يرجى إعادة المحاولة.';
+                        showPortalAlert('الموقع الجغرافي مطلوب', msg, 'error');
+                    },
+                    { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 }
+                );
+                return;
+            }
+
+            // If geofence is not required by policy:
+            if (textEl) textEl.textContent = 'جاري توثيق البصمة...';
+            const freshPayload = {
+                latitude: null,
+                longitude: null,
+                accuracy: null,
+                timestamp: Date.now(),
+                device_uuid: getPortalDeviceUUID()
+            };
+            await executePunchRequest(freshPayload);
+        }
+
+        // Clock ticker initialization
+        setInterval(updatePunchClock, 1000);
+        updatePunchClock();
 
         // Service Worker registration for PWA
         if ('serviceWorker' in navigator) {

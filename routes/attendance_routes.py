@@ -62,6 +62,13 @@ def devices():
     conn = get_db_connection()
     devices = conn.execute('SELECT * FROM fingerprint_devices').fetchall()
     current_active = conn.execute('SELECT COUNT(*) FROM fingerprint_devices WHERE is_active = 1').fetchone()[0]
+    
+    # Query active branches
+    try:
+        branches = conn.execute('SELECT * FROM branches WHERE is_active = 1 ORDER BY name ASC').fetchall()
+    except Exception:
+        branches = []
+        
     pass # conn.close() removed to prevent leak in Flask g
     
     try:
@@ -69,7 +76,23 @@ def devices():
     except:
         max_devices = 3
         
-    return render_template('fingerprint_devices.html', devices=devices, max_devices=max_devices, current_active=current_active)
+    return render_template('fingerprint_devices.html', devices=devices, max_devices=max_devices, current_active=current_active, branches=branches)
+
+@attendance_bp.route('/fingerprint/branches/add', methods=['POST'])
+@login_required
+@require_permission('attendance.devices')
+def add_branch_quick():
+    conn = get_db_connection()
+    name = (request.form.get('name') or (request.get_json(silent=True) or {}).get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'message': 'اسم الفرع مطلوب'}), 400
+    try:
+        conn.execute('INSERT OR IGNORE INTO branches (name) VALUES (?)', (name,))
+        conn.commit()
+        branch = conn.execute('SELECT * FROM branches WHERE name = ?', (name,)).fetchone()
+        return jsonify({'success': True, 'branch': dict(branch) if branch else {'id': None, 'name': name}})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @attendance_bp.route('/fingerprint/devices/add', methods=['POST'])
 @login_required
@@ -93,12 +116,24 @@ def add_device():
     device_ip = request.form.get('device_ip')
     device_port = int(request.form.get('device_port', 4370))
     is_adms = 1 if 'is_adms' in request.form else 0
+    branch_name = (request.form.get('branch_name') or '').strip()
+    
+    branch_id = None
+    if branch_name:
+        try:
+            conn.execute('INSERT OR IGNORE INTO branches (name) VALUES (?)', (branch_name,))
+            conn.commit()
+            b_row = conn.execute('SELECT id FROM branches WHERE name = ?', (branch_name,)).fetchone()
+            if b_row:
+                branch_id = b_row['id']
+        except Exception as be:
+            print(f"Error registering branch: {be}")
     
     try:
         conn.execute('''
-            INSERT INTO fingerprint_devices (device_name, device_ip, device_port, is_active, is_adms)
-            VALUES (?, ?, ?, 1, ?)
-        ''', (device_name, device_ip, device_port, is_adms))
+            INSERT INTO fingerprint_devices (device_name, device_ip, device_port, is_active, is_adms, branch_name, branch_id)
+            VALUES (?, ?, ?, 1, ?, ?, ?)
+        ''', (device_name, device_ip, device_port, is_adms, branch_name or 'الفرع الرئيسي', branch_id))
         conn.commit()
         
         # If ADMS, remove from pending list if exists
@@ -128,6 +163,18 @@ def edit_device(id):
         device_port = int(request.form.get('device_port', 4370))
         is_active = 1 if 'is_active' in request.form else 0
         is_adms = 1 if 'is_adms' in request.form else 0
+        branch_name = (request.form.get('branch_name') or '').strip()
+        
+        branch_id = None
+        if branch_name:
+            try:
+                conn.execute('INSERT OR IGNORE INTO branches (name) VALUES (?)', (branch_name,))
+                conn.commit()
+                b_row = conn.execute('SELECT id FROM branches WHERE name = ?', (branch_name,)).fetchone()
+                if b_row:
+                    branch_id = b_row['id']
+            except Exception as be:
+                print(f"Error registering branch: {be}")
         
         # Enforce limit if activating
         if is_active == 1:
@@ -144,9 +191,9 @@ def edit_device(id):
         try:
             conn.execute('''
                 UPDATE fingerprint_devices 
-                SET device_name = ?, device_ip = ?, device_port = ?, is_active = ?, is_adms = ?
+                SET device_name = ?, device_ip = ?, device_port = ?, is_active = ?, is_adms = ?, branch_name = ?, branch_id = ?
                 WHERE id = ?
-            ''', (device_name, device_ip, device_port, is_active, is_adms, id))
+            ''', (device_name, device_ip, device_port, is_active, is_adms, branch_name or 'الفرع الرئيسي', branch_id, id))
             conn.commit()
             flash(gettext('x.f_device_updated'), 'success')
         except Exception as e:
@@ -158,11 +205,19 @@ def edit_device(id):
     device = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (id,)).fetchone()
     pass # conn.close() removed to prevent leak in Flask g
     
-    # Return JSON for AJAX requests (used by the modal in fingerprint_devices.html)
-    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.headers.get('Accept') == 'application/json':
-        return jsonify(dict(device))
-        
-    return render_template('edit_device.html', device=device)
+    if not device:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Accept', '') or True:
+            return jsonify({'success': False, 'message': 'الجهاز غير موجود'}), 404
+            
+    dev_dict = dict(device)
+    for k, v in dev_dict.items():
+        if hasattr(v, 'isoformat'):
+            dev_dict[k] = v.isoformat()
+        elif v is None:
+            dev_dict[k] = '' if k == 'branch_name' else None
+            
+    # Always return JSON since device editing is modal-based
+    return jsonify(dev_dict)
 
 @attendance_bp.route('/fingerprint/devices/toggle/<int:id>')
 @login_required
@@ -596,14 +651,16 @@ def add_devices_bulk():
         ip = dev.get('ip')
         name = dev.get('name') or f"Device {ip}"
         
+        branch_name = (dev.get('branch_name') or 'الفرع الرئيسي').strip()
+        
         try:
             # Check if exists
             existing = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ?', (ip,)).fetchone()
             if not existing:
                 conn.execute('''
-                    INSERT INTO fingerprint_devices (device_name, device_ip, device_port, is_active)
-                    VALUES (?, ?, ?, 1)
-                ''', (name, ip, 4370))
+                    INSERT INTO fingerprint_devices (device_name, device_ip, device_port, is_active, branch_name)
+                    VALUES (?, ?, ?, 1, ?)
+                ''', (name, ip, 4370, branch_name))
                 success_count += 1
             else:
                 errors.append(f"{ip}: موجود مسبقاً")

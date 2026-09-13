@@ -28,9 +28,11 @@ def get_employees_api():
         conn = get_db_connection()
         allowed_dept = get_allowed_department_name()
         query = '''
-            SELECT e.*, m.name as manager_name 
+            SELECT e.*, m.name as manager_name,
+                   u.id as user_id, u.username as user_username, u.is_active as user_active, u.role as user_role
             FROM employees e
             LEFT JOIN employees m ON e.manager_id = m.id
+            LEFT JOIN users u ON e.id = u.employee_id
         '''
         params = []
         if allowed_dept:
@@ -57,7 +59,11 @@ def get_employees_api():
                 'shift_type': emp['shift_type'],
                 'arabic_name': emp['arabic_name'] if 'arabic_name' in emp.keys() else '',
                 'manager_id': emp['manager_id'],
-                'manager_name': emp['manager_name']
+                'manager_name': emp['manager_name'],
+                'has_user': bool(emp['user_id']),
+                'user_active': bool(emp['user_active']) if emp['user_id'] else False,
+                'user_role': emp['user_role'] if emp['user_id'] else None,
+                'user_username': emp['user_username'] if emp['user_id'] else None
             })
             
         pass # conn.close() removed to prevent leak in Flask g
@@ -130,10 +136,10 @@ def add_employee():
             employment_status = request.form.get('employment_status', '').strip()
             manager_id_raw = request.form.get('manager_id', '').strip()
             manager_id = int(manager_id_raw) if manager_id_raw else None
-            _mgr_err = _validate_manager_chain(get_db_connection(), id, manager_id)
+            _mgr_err = _validate_manager_chain(conn, None, manager_id)
             if _mgr_err:
                 flash(_mgr_err, 'error')
-                return redirect(url_for('employee.edit_employee', id=id))
+                return redirect(url_for('employee.add_employee'))
             grade_level = request.form.get('grade_level', '').strip()
             branch_location = request.form.get('branch_location', '').strip()
             bank_name = request.form.get('bank_name', '').strip()
@@ -242,6 +248,26 @@ def add_employee():
                 }
                 queue_adms_user_update(employee_data)
             
+            # Portal User Auto-creation
+            create_portal = request.form.get('create_portal_account')
+            if str(create_portal) in ['1', 'true', 'on']:
+                import secrets
+                from werkzeug.security import generate_password_hash
+                rand_pw = secrets.token_hex(12)
+                hashed_pw = generate_password_hash(rand_pw)
+                uname = str(employee_number)
+                existing_u = conn.execute("SELECT id FROM users WHERE LOWER(username) = LOWER(?)", (uname,)).fetchone()
+                if not existing_u:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO users (username, password, full_name, role, is_active, employee_id)
+                        VALUES (?, ?, ?, 'employee', 1, ?)
+                    ''', (uname, hashed_pw, name, employee_id))
+                    new_uid = cursor.lastrowid
+                    emp_role = conn.execute("SELECT id FROM roles WHERE LOWER(name) IN ('employee', 'موظف') LIMIT 1").fetchone()
+                    if emp_role:
+                        conn.execute("INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)", (new_uid, emp_role[0]))
+
             conn.commit()
             flash(gettext('x.f_employee_added'), 'success')
             return redirect(url_for('employee.employees'))
@@ -339,6 +365,10 @@ def edit_employee(id):
             employment_status = request.form.get('employment_status', '').strip()
             manager_id_raw = request.form.get('manager_id', '').strip()
             manager_id = int(manager_id_raw) if manager_id_raw else None
+            _mgr_err = _validate_manager_chain(conn, id, manager_id)
+            if _mgr_err:
+                flash(_mgr_err, 'error')
+                return redirect(url_for('employee.edit_employee', id=id))
             grade_level = request.form.get('grade_level', '').strip()
             branch_location = request.form.get('branch_location', '').strip()
             bank_name = request.form.get('bank_name', '').strip()
@@ -1376,12 +1406,24 @@ def org_chart():
 def _validate_manager_chain(conn, employee_id, manager_id):
     """Reject a manager assignment that would make an employee their own
     manager or close a reporting cycle. Returns an error message or None."""
-    if not manager_id:
+    if not manager_id or conn is None:
         return None
-    if employee_id and int(manager_id) == int(employee_id):
+    try:
+        mgr_id_int = int(manager_id)
+    except (ValueError, TypeError):
+        return None
+
+    emp_id_int = None
+    if employee_id is not None and not callable(employee_id):
+        try:
+            emp_id_int = int(employee_id)
+        except (ValueError, TypeError):
+            emp_id_int = None
+
+    if emp_id_int is not None and mgr_id_int == emp_id_int:
         return gettext('x.mgr_self')
-    seen = {int(employee_id)} if employee_id else set()
-    cur = int(manager_id)
+    seen = {emp_id_int} if emp_id_int is not None else set()
+    cur = mgr_id_int
     while cur is not None:
         if cur in seen:
             return gettext('x.mgr_cycle')
@@ -1689,6 +1731,17 @@ def api_employee_profile():
         eos = dict(eos_row)
         eos['breakdown'] = _j.loads(eos.pop('breakdown_json', None) or '{}')
 
+    user_row = conn.execute("""
+        SELECT u.id, u.username, u.role, u.is_active,
+               GROUP_CONCAT(r.name, ', ') as roles_list
+        FROM users u
+        LEFT JOIN user_roles ur ON u.id = ur.user_id
+        LEFT JOIN roles r ON ur.role_id = r.id
+        WHERE u.employee_id = ?
+        GROUP BY u.id
+    """, (id,)).fetchone()
+    user_account = dict(user_row) if user_row else None
+
     return jsonify({'success': True,
                     'employee': {'id': emp['id'],
                                 'employee_number': emp['employee_number'],
@@ -1718,7 +1771,8 @@ def api_employee_profile():
                     'dependents': dependents,
                     'assets': assets,
                     'audit': audit,
-                    'attendance': attendance})
+                    'attendance': attendance,
+                    'user_account': user_account})
 
 
 @employee_bp.route('/api/employees/profile/attendance')
@@ -2074,4 +2128,23 @@ def api_generate_reset_link(emp_id):
         'whatsapp_msg': whatsapp_msg,
         'expires_hours': 48
     })
+
+
+@employee_bp.route('/api/employees/<int:emp_id>/toggle-account-status', methods=['POST'])
+@login_required
+@require_permission('employee.edit')
+def api_toggle_account_status(emp_id):
+    conn = get_db_connection()
+    user = conn.execute("SELECT id, is_active FROM users WHERE employee_id = ?", (emp_id,)).fetchone()
+    if not user:
+        return jsonify({'success': False, 'message': 'لا يوجد حساب مرتبط بهذا الموظف حتى الآن'}), 404
+    new_status = 0 if user['is_active'] else 1
+    conn.execute("UPDATE users SET is_active = ? WHERE id = ?", (new_status, user['id']))
+    conn.commit()
+    return jsonify({
+        'success': True,
+        'is_active': new_status,
+        'message': 'تم تفعيل حساب الموظف بنجاح ✅' if new_status else 'تم تعطيل حساب الموظف بنجاح ⛔'
+    })
+
 

@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from flask_babel import _
+from flask_babel import _, gettext
 from datetime import datetime, date
 from utils.db import get_db_connection
 from utils.auth import login_required
@@ -23,6 +23,11 @@ def set_language(code):
 def index():
     if 'user_id' not in session:
         return redirect(url_for('auth.login'))
+    
+    # التحقق: تحويل الموظف / المستخدم العادي تلقائياً إلى بوابة الخدمة الذاتية
+    role = session.get('role')
+    if role in ('employee', 'user') or (role != 'admin' and session.get('employee_id') and role != 'department_manager'):
+        return redirect(url_for('portal.dashboard'))
     
     conn = get_db_connection()
     current_month = datetime.now().month
@@ -107,11 +112,141 @@ def update_settings():
             continue
         conn.execute('INSERT INTO salary_settings_v2(setting_name, setting_value) VALUES(?, ?) '
                      'ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value', (k, v))
+
+    # --- إعدادات بصمة بوابة الموظف الذاتية (Portal Mobile Attendance) ---
+    portal_enabled = '1' if request.form.get('portal_attendance_enabled') in ('1', 'on', 'true') else '0'
+    geofence_enabled = '1' if request.form.get('portal_attendance_geofence_enabled') in ('1', 'on', 'true') else '0'
+    comp_lat = request.form.get('company_latitude', '').strip()
+    comp_lon = request.form.get('company_longitude', '').strip()
+    geo_radius = request.form.get('geofence_radius_meters', '150').strip()
+    cooldown = request.form.get('portal_attendance_cooldown_minutes', '5').strip()
+    allowed_ips = request.form.get('portal_attendance_allowed_ips', '').strip()
+
+    portal_dict = {
+        'portal_attendance_enabled': portal_enabled,
+        'portal_attendance_geofence_enabled': geofence_enabled,
+        'company_latitude': comp_lat,
+        'company_longitude': comp_lon,
+        'geofence_radius_meters': geo_radius,
+        'portal_attendance_cooldown_minutes': cooldown,
+        'portal_attendance_allowed_ips': allowed_ips
+    }
+    for pk, pv in portal_dict.items():
+        conn.execute('INSERT INTO salary_settings_v2(setting_name, setting_value) VALUES(?, ?) '
+                     'ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value', (pk, pv))
+
     conn.commit()
     import utils.settings_utils as _su
     _su._SETTINGS_CACHE = None
     flash(_('msg.settings_saved'), 'success')
     return redirect(url_for('main.settings'))
+
+# ==============================================================
+# معالج التهيئة السريعة الشامل للشركة (Setup Wizard)
+# ==============================================================
+@main_bp.route('/setup-wizard')
+@login_required
+@require_permission('admin.settings')
+def setup_wizard():
+    from utils.db import set_setting
+    from utils.settings_utils import get_salary_settings_v2
+    
+    # Handle user opting to skip the wizard directly
+    if request.args.get('skip') == '1':
+        set_setting('setup_wizard_completed', '1')
+        flash('تم تخطي المعالج، يمكنك دائماً تعديل الإعدادات من صفحة الإعدادات العامة.', 'info')
+        return redirect(url_for('main.index'))
+
+    conn = get_db_connection()
+    settings_data = get_system_settings() or {}
+    sal = get_salary_settings_v2(conn)
+    return render_template('setup_wizard.html', settings=settings_data, sal=sal)
+
+@main_bp.route('/setup-wizard/save', methods=['POST'])
+@login_required
+@require_permission('admin.settings')
+def setup_wizard_save():
+    from utils.db import set_setting
+    conn = get_db_connection()
+    f = request.form
+
+    # 1. Company Identity & Schedule in system_settings
+    sys_fields = [
+        'company_name', 'company_phone', 'company_email', 'company_address',
+        'currency_name', 'currency_symbol', 'currency_code', 'currency_position',
+        'working_hours_per_day', 'weekend_days', 'work_start_time', 'work_end_time'
+    ]
+    for k in sys_fields:
+        v = f.get(k, '').strip()
+        if v:
+            conn.execute(f'UPDATE system_settings SET {k}=? WHERE id=1', (v,))
+
+    ppd = f.get('payroll_period_start_day', '').strip()
+    if ppd:
+        try:
+            conn.execute('UPDATE system_settings SET payroll_period_start_day = ? WHERE id = 1',
+                         (max(1, min(int(ppd), 28)),))
+        except ValueError:
+            pass
+
+    # 2. Salary, Overtime, Penalties, & Policies (salary_settings_v2)
+    policy_keys = [
+        'grace_late_minutes', 'grace_early_minutes',
+        'late_arrival_policy', 'early_departure_policy',
+        'missing_punch_policy', 'missing_punch_penalty_1', 'missing_punch_penalty_2', 'missing_punch_penalty_3',
+        'presence_missing_policy', 'presence_penalty_day_fraction', 'presence_penalty_1', 'presence_penalty_2', 'presence_penalty_3', 'presence_penalty_monthly_cap_days',
+        'hourly_perm_max_hours_per_day', 'hourly_perm_max_days_per_month',
+        'weekday_ot_multiplier', 'weekend_ot_multiplier', 'holiday_ot_multiplier', 'overtime_cap_monthly_hours',
+        'daily_rate_basis', 'leave_earned_per_month'
+    ]
+    for pk in policy_keys:
+        val = f.get(pk, '').strip()
+        if val != '':
+            conn.execute('''
+                INSERT INTO salary_settings_v2 (setting_name, setting_value)
+                VALUES (?, ?)
+                ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value
+            ''', (pk, val))
+
+    # 3. Mobile GPS Geofence Settings
+    portal_enabled = '1' if f.get('portal_attendance_enabled') in ('1', 'on', 'true') else '0'
+    geofence_enabled = '1' if f.get('portal_attendance_geofence_enabled') in ('1', 'on', 'true') else '0'
+    comp_lat = f.get('company_latitude', '').strip()
+    comp_lon = f.get('company_longitude', '').strip()
+    geo_radius = f.get('geofence_radius_meters', '150').strip()
+
+    portal_dict = {
+        'portal_attendance_enabled': portal_enabled,
+        'portal_attendance_geofence_enabled': geofence_enabled,
+        'company_latitude': comp_lat,
+        'company_longitude': comp_lon,
+        'geofence_radius_meters': geo_radius
+    }
+    for gk, gv in portal_dict.items():
+        conn.execute('''
+            INSERT INTO salary_settings_v2 (setting_name, setting_value)
+            VALUES (?, ?)
+            ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value
+        ''', (gk, gv))
+
+    # 4. Optional Admin Password Update
+    new_pw = f.get('new_admin_password', '').strip()
+    if new_pw and len(new_pw) >= 4:
+        from werkzeug.security import generate_password_hash
+        hashed = generate_password_hash(new_pw)
+        curr_user_id = session.get('user_id')
+        if curr_user_id:
+            conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed, curr_user_id))
+
+    # 5. Mark Setup Wizard as Completed
+    conn.commit()
+    set_setting('setup_wizard_completed', '1')
+
+    import utils.settings_utils as _su
+    _su._SETTINGS_CACHE = None
+
+    flash('تهانينا! تم ضبط إعدادات الشركة ولائحة الجزاءات والسياسات بنجاح. النظام جاهز للعمل الآن.', 'success')
+    return redirect(url_for('main.index'))
 
 @main_bp.route('/license', methods=['GET', 'POST'])
 def license_page():
@@ -134,6 +269,9 @@ def license_page():
             
             if ok:
                 flash(_('msg.license_activated'), 'success')
+                from utils.db import get_setting
+                if get_setting('setup_wizard_completed', '0') != '1':
+                    return redirect(url_for('main.setup_wizard'))
                 return redirect(url_for('main.index'))
             else:
                 flash(_('error.license_activation_failed') + f': {msg}', 'error')
@@ -158,6 +296,9 @@ def license_page():
                 except Exception:
                     pass
                 flash(_('msg.license_activated'), 'success')
+                from utils.db import get_setting
+                if get_setting('setup_wizard_completed', '0') != '1':
+                    return redirect(url_for('main.setup_wizard'))
                 return redirect(url_for('main.index'))
             else:
                 flash(_('error.license_activation_failed') + f': {msg}', 'error')

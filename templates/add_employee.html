@@ -527,7 +527,20 @@
                                     <label class="form-label">{{ _('x.opening_leave_balance') }}</label>
                                     <input type="number" class="form-control" name="previous_leave_balance" value="0">
                                 </div>
+                            </div>
 
+                            <hr class="my-4">
+                            <h6 class="mb-3"><i class="fas fa-user-shield me-2 text-primary"></i>حساب بوابة الموظف الذاتية (Self-Service Portal)</h6>
+                            <div class="card bg-light border-0 rounded-3 p-3 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="create_portal_account" id="create_portal_account" value="1" checked>
+                                    <label class="form-check-label fw-bold" for="create_portal_account">
+                                        تفعيل حساب الدخول لبوابة الموظف تلقائياً فور الحفظ
+                                    </label>
+                                </div>
+                                <div class="form-text small text-muted mt-1">
+                                    سيقوم النظام تلقائياً بإنشاء حساب دخول باسم الرقم الوظيفي وإسناد رتبة موظف بوابة، لتتمكن من مشاركة رابط تفعيل الحساب معه فوراً عبر واتساب.
+                                </div>
                             </div>
                         </div>
 

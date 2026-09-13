@@ -48,6 +48,8 @@
                                 <span class="badge badge-primary">{{ _('x.general_manager') }}</span>
                                 {% elif user.role == 'department_manager' %}
                                 <span class="badge badge-warning">{{ _('x.department_manager') }}</span>
+                                {% elif user.role == 'employee' %}
+                                <span class="badge badge-success"><i class="fas fa-id-badge me-1"></i>موظف (بوابة ذاتية)</span>
                                 {% else %}
                                 <span class="badge badge-secondary">{{ user.role }}</span>
                                 {% endif %}
@@ -129,6 +131,7 @@
                         <select class="form-control" name="role" id="roleSelect" onchange="toggleDepartmentSelect()">
                             <option value="admin">{{ _('x.gm_full_permissions') }}</option>
                             <option value="department_manager">{{ _('x.dm_limited') }}</option>
+                            <option value="employee">موظف (بوابة الخدمة الذاتية فقط)</option>
                         </select>
                     </div>
 

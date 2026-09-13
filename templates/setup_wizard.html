@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="{{ get_locale() }}" dir="{{ get_direction() }}">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>معالج التهيئة السريعة للنظام | نظام الموارد البشرية</title>
+    
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Bootstrap RTL -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+
+    <style>
+        :root {
+            --paper: #FAFAF7;
+            --paper-raised: #FFFFFF;
+            --paper-line: #E3E0D3;
+            --ink: #1A2420;
+            --ink-muted: #5F6B62;
+            --ink-faint: #98A199;
+            --ledger: #1F5C4A;
+            --ledger-dark: #163F32;
+            --ledger-light: #E7F1EC;
+            --debit: #A8402F;
+            --blue: #007AFF;
+            --blue-light: #EBF5FF;
+            --gold: #D97706;
+            --gold-light: #FEF3C7;
+            --border: #E2E8F0;
+            --radius-lg: 20px;
+            --radius-md: 14px;
+            --radius-sm: 10px;
+            --shadow-card: 0 12px 36px -8px rgba(31, 92, 74, 0.12), 0 2px 10px rgba(0, 0, 0, 0.04);
+            --shadow-float: 0 20px 40px -10px rgba(22, 63, 50, 0.2);
+            --font-sans: -apple-system, "Segoe UI", "Noto Sans Arabic", Tahoma, Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-sans);
+            color: var(--ink);
+            background-color: var(--paper);
+            background-image: repeating-linear-gradient(to bottom, transparent 0 38px, var(--paper-line) 38px 39px);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Ambient Glow Circles */
+        body::before, body::after {
+            content: "";
+            position: fixed;
+            width: 500px;
+            height: 500px;
+            border-radius: 50%;
+            filter: blur(120px);
+            pointer-events: none;
+            z-index: 0;
+        }
+        body::before { background: rgba(31, 92, 74, 0.18); top: -150px; right: -100px; }
+        body::after { background: rgba(0, 122, 255, 0.12); bottom: -150px; left: -100px; }
+
+        .wizard-container {
+            max-width: 920px;
+            width: 100%;
+            margin: 30px auto 40px auto;
+            padding: 0 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header Card */
+        .wizard-header-card {
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            border-radius: var(--radius-lg);
+            padding: 24px 30px;
+            box-shadow: var(--shadow-card);
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .wizard-title-wrap {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .wizard-logo-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, var(--ledger), var(--ledger-dark));
+            color: #FFFFFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+            box-shadow: 0 8px 18px rgba(31, 92, 74, 0.3);
+        }
+
+        .wizard-title {
+            font-size: 1.35rem;
+            font-weight: 800;
+            color: var(--ledger-dark);
+            margin: 0;
+        }
+
+        .wizard-subtitle {
+            font-size: 0.84rem;
+            color: var(--ink-muted);
+            margin: 2px 0 0 0;
+            font-weight: 600;
+        }
+
+        .btn-skip-wizard {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--ink-muted);
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 8px 16px;
+            border-radius: var(--radius-md);
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-skip-wizard:hover {
+            background: #F1F5F9;
+            color: var(--ledger-dark);
+        }
+
+        /* Stepper */
+        .stepper-wrap {
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            border-radius: var(--radius-lg);
+            padding: 16px 20px;
+            box-shadow: var(--shadow-card);
+            margin-bottom: 24px;
+        }
+
+        .stepper-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+        }
+
+        .stepper-progress-line {
+            position: absolute;
+            top: 24px;
+            right: 40px;
+            left: 40px;
+            height: 4px;
+            background: var(--border);
+            z-index: 1;
+        }
+
+        .stepper-progress-active {
+            position: absolute;
+            top: 24px;
+            right: 40px;
+            height: 4px;
+            background: linear-gradient(90deg, var(--ledger), var(--blue));
+            z-index: 2;
+            transition: width 0.35s ease;
+            width: 0%;
+        }
+
+        .step-item {
+            position: relative;
+            z-index: 3;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: transparent;
+            border: none;
+            padding: 0;
+        }
+
+        .step-circle {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: #FFFFFF;
+            border: 3px solid var(--border);
+            color: var(--ink-faint);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            font-weight: 800;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .step-item.active .step-circle {
+            background: var(--ledger);
+            border-color: var(--ledger);
+            color: #FFFFFF;
+            transform: scale(1.12);
+            box-shadow: 0 8px 20px rgba(31, 92, 74, 0.35);
+        }
+
+        .step-item.completed .step-circle {
+            background: #34C759;
+            border-color: #34C759;
+            color: #FFFFFF;
+        }
+
+        .step-label {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--ink-muted);
+            margin-top: 8px;
+            white-space: nowrap;
+            transition: color 0.2s;
+        }
+
+        .step-item.active .step-label {
+            color: var(--ledger-dark);
+            font-weight: 800;
+        }
+
+        /* Main Wizard Content Card */
+        .wizard-main-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            border-radius: var(--radius-lg);
+            padding: 34px 36px;
+            box-shadow: var(--shadow-card);
+            min-height: 480px;
+            position: relative;
+        }
+
+        .step-pane {
+            display: none;
+            animation: fadeInStep 0.35s ease forwards;
+        }
+        .step-pane.active {
+            display: block;
+        }
+
+        @keyframes fadeInStep {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .step-header {
+            border-bottom: 1px dashed var(--border);
+            padding-bottom: 18px;
+            margin-bottom: 24px;
+        }
+
+        .step-header-title {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: var(--ledger-dark);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0 0 6px 0;
+        }
+
+        .step-header-desc {
+            font-size: 0.88rem;
+            color: var(--ink-muted);
+            margin: 0;
+            font-weight: 600;
+        }
+
+        /* Form Inputs */
+        .form-label {
+            font-size: 0.86rem;
+            font-weight: 700;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+
+        .form-control, .form-select {
+            border: 1.5px solid #E2E8F0;
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            font-size: 0.92rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            background: #FFFFFF;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: var(--ledger);
+            box-shadow: 0 0 0 4px rgba(31, 92, 74, 0.12);
+            outline: none;
+        }
+
+        .form-hint {
+            font-size: 0.76rem;
+            color: var(--ink-muted);
+            margin-top: 4px;
+            font-weight: 600;
+        }
+
+        /* Quick Option Chips / Buttons */
+        .quick-chips-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .chip-option {
+            background: #F8FAFC;
+            border: 1.5px solid #E2E8F0;
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+            user-select: none;
+        }
+        .chip-option:hover {
+            border-color: var(--ledger);
+            background: #F0FDF4;
+        }
+        .chip-option.active {
+            background: var(--ledger-light);
+            border-color: var(--ledger);
+            color: var(--ledger-dark);
+            box-shadow: 0 4px 12px rgba(31, 92, 74, 0.14);
+        }
+        .chip-flag {
+            font-size: 1.4rem;
+            margin-bottom: 4px;
+        }
+        .chip-title {
+            font-size: 0.84rem;
+            font-weight: 800;
+        }
+        .chip-sub {
+            font-size: 0.72rem;
+            color: var(--ink-muted);
+            font-weight: 700;
+        }
+        .chip-option.active .chip-sub {
+            color: var(--ledger);
+        }
+
+        /* Presets Cards for Policies */
+        .policy-preset-card {
+            background: #F8FAFC;
+            border: 1.5px solid #E2E8F0;
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .policy-preset-card:hover {
+            border-color: var(--ledger);
+            transform: translateY(-2px);
+        }
+        .policy-preset-card.active {
+            border-color: var(--ledger);
+            background: var(--ledger-light);
+            box-shadow: 0 4px 14px rgba(31, 92, 74, 0.15);
+        }
+
+        /* GPS Radar Banner */
+        .gps-capture-box {
+            background: linear-gradient(135deg, rgba(0, 122, 255, 0.06), rgba(31, 92, 74, 0.06));
+            border: 1.5px dashed rgba(0, 122, 255, 0.35);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        .btn-capture-gps {
+            background: var(--blue);
+            color: #FFFFFF;
+            border: none;
+            border-radius: var(--radius-md);
+            padding: 10px 20px;
+            font-size: 0.88rem;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 6px 16px rgba(0, 122, 255, 0.3);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .btn-capture-gps:hover {
+            background: #005bb5;
+            transform: translateY(-1px);
+        }
+
+        /* Bottom Controls Bar */
+        .wizard-footer-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid var(--border);
+            padding-top: 24px;
+            margin-top: 32px;
+        }
+
+        .btn-wizard-prev {
+            background: #F1F5F9;
+            color: var(--ink-muted);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 10px 22px;
+            font-size: 0.92rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-wizard-prev:hover:not(:disabled) {
+            background: #E2E8F0;
+            color: var(--ink);
+        }
+        .btn-wizard-prev:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-wizard-next {
+            background: var(--ledger);
+            color: #FFFFFF;
+            border: none;
+            border-radius: var(--radius-md);
+            padding: 12px 28px;
+            font-size: 0.95rem;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 8px 20px rgba(31, 92, 74, 0.3);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-wizard-next:hover {
+            background: var(--ledger-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px rgba(22, 63, 50, 0.35);
+        }
+
+        .btn-wizard-finish {
+            background: linear-gradient(135deg, #34C759, #28A745);
+            color: #FFFFFF;
+            border: none;
+            border-radius: var(--radius-md);
+            padding: 12px 32px;
+            font-size: 1rem;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 8px 24px rgba(52, 199, 89, 0.35);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-wizard-finish:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgba(52, 199, 89, 0.45);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .stepper-wrap {
+                overflow-x: auto;
+            }
+            .step-label {
+                display: none;
+            }
+            .wizard-main-card {
+                padding: 24px 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="wizard-container">
+
+        <!-- Top Header Card -->
+        <div class="wizard-header-card">
+            <div class="wizard-title-wrap">
+                <div class="wizard-logo-icon">
+                    <i class="fas fa-sliders"></i>
+                </div>
+                <div>
+                    <h2 class="wizard-title">معالج تهيئة النظام والشركة</h2>
+                    <p class="wizard-subtitle">خطوات سريعة لضبط هوية الشركة، الدوام، لائحة الجزاءات، والعملة</p>
+                </div>
+            </div>
+            <div>
+                <a href="{{ url_for('main.setup_wizard', skip='1') }}" class="btn-skip-wizard" onclick="return confirm('هل ترغب بتخطي المعالج والاعتماد على الإعدادات الافتراضية الآن؟ يمكنك دائماً تعديلها لاحقاً.')">
+                    <span>تخطي للرئيسية</span>
+                    <i class="fas fa-forward me-1"></i>
+                </a>
+            </div>
+        </div>
+
+        <!-- Stepper Progress Bar -->
+        <div class="stepper-wrap">
+            <div class="stepper-nav">
+                <div class="stepper-progress-line"></div>
+                <div class="stepper-progress-active" id="stepperProgressActive"></div>
+
+                <div class="step-item active" id="stepTab-1" onclick="goToStep(1)">
+                    <div class="step-circle"><i class="fas fa-building"></i></div>
+                    <span class="step-label">بيانات الشركة</span>
+                </div>
+                <div class="step-item" id="stepTab-2" onclick="goToStep(2)">
+                    <div class="step-circle"><i class="fas fa-coins"></i></div>
+                    <span class="step-label">العملة والمالية</span>
+                </div>
+                <div class="step-item" id="stepTab-3" onclick="goToStep(3)">
+                    <div class="step-circle"><i class="fas fa-clock"></i></div>
+                    <span class="step-label">أوقات الدوام</span>
+                </div>
+                <div class="step-item" id="stepTab-4" onclick="goToStep(4)">
+                    <div class="step-circle"><i class="fas fa-gavel"></i></div>
+                    <span class="step-label">لائحة الجزاءات</span>
+                </div>
+                <div class="step-item" id="stepTab-5" onclick="goToStep(5)">
+                    <div class="step-circle"><i class="fas fa-umbrella-beach"></i></div>
+                    <span class="step-label">الإضافي والإجازات</span>
+                </div>
+                <div class="step-item" id="stepTab-6" onclick="goToStep(6)">
+                    <div class="step-circle"><i class="fas fa-shield-halved"></i></div>
+                    <span class="step-label">الموقع والحماية</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Form Wrapper -->
+        <form method="POST" action="{{ url_for('main.setup_wizard_save') }}" id="wizardForm">
+            
+            <div class="wizard-main-card">
+
+                <!-- ============================================================== -->
+                <!-- STEP 1: COMPANY PROFILE                                        -->
+                <!-- ============================================================== -->
+                <div class="step-pane active" id="stepPane-1">
+                    <div class="step-header">
+                        <h3 class="step-header-title">
+                            <i class="fas fa-building text-success"></i> الخطوة الأولى: هوية وبيانات الشركة
+                        </h3>
+                        <p class="step-header-desc">أدخل الاسم الرسمي للشركة وبيانات التواصل التي ستظهر في التقارير ومسيرات الرواتب</p>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-12">
+                            <label class="form-label">اسم المنشأة / الشركة <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="company_name" id="company_name" 
+                                   value="{{ settings.company_name or 'شركتي' }}" required placeholder="مثال: شركة الحلول المتقدمة للتجارة">
+                            <div class="form-hint">يظهر اسم الشركة في رأس كافة الكشوفات والمطبوعات الرسمية.</div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">رقم الهاتف الرسمي</label>
+                            <input type="text" class="form-control" name="company_phone" 
+                                   value="{{ settings.company_phone or '' }}" placeholder="+965 22000000">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">البريد الإلكتروني للإدارة</label>
+                            <input type="email" class="form-control" name="company_email" 
+                                   value="{{ settings.company_email or '' }}" placeholder="hr@company.com">
+                        </div>
+
+                        <div class="col-md-12">
+                            <label class="form-label">العنوان الرئيسي للمقر</label>
+                            <input type="text" class="form-control" name="company_address" 
+                                   value="{{ settings.company_address or 'العنوان هنا' }}" placeholder="المدينة، المنطقة، الشارع، المبنى">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================== -->
+                <!-- STEP 2: CURRENCY & PAYROLL PERIOD                              -->
+                <!-- ============================================================== -->
+                <div class="step-pane" id="stepPane-2">
+                    <div class="step-header">
+                        <h3 class="step-header-title">
+                            <i class="fas fa-coins text-warning"></i> الخطوة الثانية: العملة والتهيئة المالية
+                        </h3>
+                        <p class="step-header-desc">اختر العملة الرسمية لدولة منشأتك لتثبيتها في مسيرات الرواتب والسلفيات والحسابات</p>
+                    </div>
+
+                    <label class="form-label mb-2">اختر الدولة أو العملة بضغطة واحدة:</label>
+                    <div class="quick-chips-grid">
+                        <div class="chip-option active" id="chip-kwd" onclick="selectCurrencyPreset('دينار كويتي', 'د.ك', 'KWD', 'chip-kwd')">
+                            <div class="chip-flag">🇰🇼</div>
+                            <div class="chip-title">الكويت</div>
+                            <div class="chip-sub">دينار كويتي (د.ك)</div>
+                        </div>
+                        <div class="chip-option" id="chip-sar" onclick="selectCurrencyPreset('ريال سعودي', 'ر.س', 'SAR', 'chip-sar')">
+                            <div class="chip-flag">🇸🇦</div>
+                            <div class="chip-title">السعودية</div>
+                            <div class="chip-sub">ريال سعودي (ر.س)</div>
+                        </div>
+                        <div class="chip-option" id="chip-aed" onclick="selectCurrencyPreset('درهم إماراتي', 'د.إ', 'AED', 'chip-aed')">
+                            <div class="chip-flag">🇦🇪</div>
+                            <div class="chip-title">الإمارات</div>
+                            <div class="chip-sub">درهم إماراتي (د.إ)</div>
+                        </div>
+                        <div class="chip-option" id="chip-egp" onclick="selectCurrencyPreset('جنيه مصري', 'ج.م', 'EGP', 'chip-egp')">
+                            <div class="chip-flag">🇪🇬</div>
+                            <div class="chip-title">مصر</div>
+                            <div class="chip-sub">جنيه مصري (ج.م)</div>
+                        </div>
+                        <div class="chip-option" id="chip-qar" onclick="selectCurrencyPreset('ريال قطري', 'ر.ق', 'QAR', 'chip-qar')">
+                            <div class="chip-flag">🇶🇦</div>
+                            <div class="chip-title">قطر</div>
+                            <div class="chip-sub">ريال قطري (ر.ق)</div>
+                        </div>
+                        <div class="chip-option" id="chip-usd" onclick="selectCurrencyPreset('دولار أمريكي', '$', 'USD', 'chip-usd')">
+                            <div class="chip-flag">🌐</div>
+                            <div class="chip-title">دولار أمريكي</div>
+                            <div class="chip-sub">US Dollar ($)</div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4">
+                            <label class="form-label">اسم العملة</label>
+                            <input type="text" class="form-control" name="currency_name" id="inp_currency_name" 
+                                   value="{{ settings.currency_name or 'دينار كويتي' }}">
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label">رمز العملة</label>
+                            <input type="text" class="form-control" name="currency_symbol" id="inp_currency_symbol" 
+                                   value="{{ settings.currency_symbol or 'د.ك' }}">
+                        </div>
+
+                        <div class="col-md-2">
+                            <label class="form-label">رمز ISO الدولي</label>
+                            <input type="text" class="form-control" name="currency_code" id="inp_currency_code" 
+                                   value="{{ settings.currency_code or 'KWD' }}">
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label">موضع الرمز</label>
+                            <select class="form-select" name="currency_position">
+                                <option value="right" {% if settings.currency_position == 'right' or not settings.currency_position %}selected{% endif %}>يمين المبلغ (مثال: 150 د.ك)</option>
+                                <option value="left" {% if settings.currency_position == 'left' %}selected{% endif %}>يسار المبلغ (مثال: $ 150)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">يوم بدء دورة الرواتب الشهرية</label>
+                            <input type="number" class="form-control" min="1" max="28" name="payroll_period_start_day" 
+                                   value="{{ settings.payroll_period_start_day or 1 }}">
+                            <div class="form-hint">مثال: (1) يعني الحساب يبدأ من 1 بالشهر، (26) يعني من 26 إلى 25 من الشهر التالي.</div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">أساس احتساب أجر اليوم في الراتب</label>
+                            <select class="form-select" name="daily_rate_basis">
+                                <option value="30" {% if sal.get('daily_rate_basis','30')=='30' %}selected{% endif %}>ثابت 30 يوماً شهرياً (النظام الشائع)</option>
+                                <option value="26" {% if sal.get('daily_rate_basis')=='26' %}selected{% endif %}>26 يوماً (استبعاد عطلة الجمعة)</option>
+                                <option value="working" {% if sal.get('daily_rate_basis')=='working' %}selected{% endif %}>عدد أيام العمل الفعلية للشهر</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================== -->
+                <!-- STEP 3: WORK SCHEDULE & WEEKENDS                               -->
+                <!-- ============================================================== -->
+                <div class="step-pane" id="stepPane-3">
+                    <div class="step-header">
+                        <h3 class="step-header-title">
+                            <i class="fas fa-clock text-primary"></i> الخطوة الثالثة: أوقات الدوام والعطلات الأسبوعية
+                        </h3>
+                        <p class="step-header-desc">تحديد ساعات الدوام الرسمي الافتراضية للموظفين وأيام الراحة الأسبوعية</p>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">ساعات العمل اليومية الرسمية</label>
+                            <div class="input-group">
+                                <input type="number" step="0.5" min="4" max="14" class="form-control" 
+                                       name="working_hours_per_day" value="{{ settings.working_hours_per_day or 8 }}">
+                                <span class="input-group-text">ساعات / يوم</span>
+                            </div>
+                            <div class="form-hint">المعتمد في احتساب التأخير وساعات الإضافي.</div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">أيام العطلة الأسبوعية المعتمدة</label>
+                            <select class="form-select" name="weekend_days" id="weekend_days_select">
+                                <option value="Fri,Sat" {% if settings.weekend_days == 'Fri,Sat' or not settings.weekend_days %}selected{% endif %}>الجمعة والسبت (يومان عطلة)</option>
+                                <option value="Fri" {% if settings.weekend_days == 'Fri' %}selected{% endif %}>الجمعة فقط (يوم واحد عطلة)</option>
+                                <option value="Sat,Sun" {% if settings.weekend_days == 'Sat,Sun' %}selected{% endif %}>السبت والأحد</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">وقت بدء الدوام الصباحي الافتراضي</label>
+                            <input type="time" class="form-control" name="work_start_time" 
+                                   value="{{ settings.work_start_time or '08:00' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">وقت نهاية الدوام الافتراضي</label>
+                            <input type="time" class="form-control" name="work_end_time" 
+                                   value="{{ settings.work_end_time or '16:00' }}">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">فترة السماح للتأخير الصباحي</label>
+                            <div class="input-group">
+                                <input type="number" step="1" min="0" max="60" class="form-control" 
+                                       name="grace_late_minutes" value="{{ sal.get('grace_late_minutes', '10') }}">
+                                <span class="input-group-text">دقائق</span>
+                            </div>
+                            <div class="form-hint">التأخير ضمن هذه الدقائق لا يُسجل عليه خصم.</div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">فترة السماح للانصراف المبكر</label>
+                            <div class="input-group">
+                                <input type="number" step="1" min="0" max="60" class="form-control" 
+                                       name="grace_early_minutes" value="{{ sal.get('grace_early_minutes', '5') }}">
+                                <span class="input-group-text">دقائق</span>
+                            </div>
+                            <div class="form-hint">الخروج قبل الوقت بهذا القدر لا يوقع خصماً.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================== -->
+                <!-- STEP 4: DISCIPLINARY POLICIES & PENALTIES                      -->
+                <!-- ============================================================== -->
+                <div class="step-pane" id="stepPane-4">
+                    <div class="step-header">
+                        <h3 class="step-header-title">
+                            <i class="fas fa-gavel text-danger"></i> الخطوة الرابعة: لائحة الجزاءات والسياسات المعتمدة
+                        </h3>
+                        <p class="step-header-desc">اختر نموذج السياسات الجاهز أو خصص احتساب التأخير والبصمة الناقصة والاستئذان</p>
+                    </div>
+
+                    <!-- Presets Selector -->
+                    <label class="form-label mb-2">نماذج اللوائح المعتمدة الجاهزة:</label>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4">
+                            <div class="policy-preset-card active" id="preset-standard" onclick="applyPolicyPreset('standard')">
+                                <div>
+                                    <div style="font-size: 1.2rem; margin-bottom: 6px;">⚖️ <strong>اللائحة المتوازنة (موصى بها)</strong></div>
+                                    <p style="font-size: 0.78rem; color: var(--ink-muted); margin: 0; line-height: 1.5;">
+                                        خصم التأخير دقيقة بدقيقة، البصمة الناقصة بنظام الشرائح، وخصم ربع يوم لعدم التواجد.
+                                    </p>
+                                </div>
+                                <span class="badge bg-success mt-2" style="font-size: 0.7rem;">الأكثر استخداماً</span>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="policy-preset-card" id="preset-flexible" onclick="applyPolicyPreset('flexible')">
+                                <div>
+                                    <div style="font-size: 1.2rem; margin-bottom: 6px;">🕊️ <strong>اللائحة المرنة المخففة</strong></div>
+                                    <p style="font-size: 0.78rem; color: var(--ink-muted); margin: 0; line-height: 1.5;">
+                                        تنبيه وإنذار قبل الخصم، تسامح أكبر في البصمة الناقصة وبصمة التواجد للشركات الناشئة.
+                                    </p>
+                                </div>
+                                <span class="badge bg-info text-dark mt-2" style="font-size: 0.7rem;">مرن وسلس</span>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="policy-preset-card" id="preset-strict" onclick="applyPolicyPreset('strict')">
+                                <div>
+                                    <div style="font-size: 1.2rem; margin-bottom: 6px;">🎯 <strong>اللائحة الصارمة الدقيقة</strong></div>
+                                    <p style="font-size: 0.78rem; color: var(--ink-muted); margin: 0; line-height: 1.5;">
+                                        خصم ربع يوم مباشرة عند التأخير الصباحي أو الانصراف المبكر، وانضباط حازم في الحضور.
+                                    </p>
+                                </div>
+                                <span class="badge bg-danger mt-2" style="font-size: 0.7rem;">انضباط صارم</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">سياسة التأخير الصباحي بعد فترة السماح</label>
+                            <select class="form-select" name="late_arrival_policy" id="pol_late_arrival">
+                                <option value="actual_time" {% if sal.get('late_arrival_policy','actual_time')=='actual_time' %}selected{% endif %}>خصم الوقت الفعلي للتأخير (دقيقة بدقيقة)</option>
+                                <option value="warning" {% if sal.get('late_arrival_policy')=='warning' %}selected{% endif %}>إنذار وتنبيه فقط دون خصم مالي</option>
+                                <option value="quarter_day" {% if sal.get('late_arrival_policy')=='quarter_day' %}selected{% endif %}>خصم ربع يوم (0.25 يوم)</option>
+                                <option value="half_day" {% if sal.get('late_arrival_policy')=='half_day' %}selected{% endif %}>خصم نصف يوم (0.50 يوم)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">سياسة الانصراف المبكر قبل نهاية الدوام</label>
+                            <select class="form-select" name="early_departure_policy" id="pol_early_departure">
+                                <option value="actual_time" {% if sal.get('early_departure_policy','actual_time')=='actual_time' %}selected{% endif %}>خصم الوقت الفعلي المبكر (دقيقة بدقيقة)</option>
+                                <option value="warning" {% if sal.get('early_departure_policy')=='warning' %}selected{% endif %}>تنبيه فقط دون خصم</option>
+                                <option value="quarter_day" {% if sal.get('early_departure_policy')=='quarter_day' %}selected{% endif %}>خصم ربع يوم (0.25 يوم)</option>
+                                <option value="half_day" {% if sal.get('early_departure_policy')=='half_day' %}selected{% endif %}>خصم نصف يوم (0.50 يوم)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">سياسة البصمة الناقصة (تسجيل دخول بلا خروج أو العكس)</label>
+                            <select class="form-select" name="missing_punch_policy" id="pol_missing_punch">
+                                <option value="penalty_tiered" {% if sal.get('missing_punch_policy','penalty_tiered')=='penalty_tiered' %}selected{% endif %}>نظام الشرائح التصاعدية (إنذار ثم تدرج الخصم)</option>
+                                <option value="invalid" {% if sal.get('missing_punch_policy')=='invalid' %}selected{% endif %}>اعتبار الحركة باطلة (غير محسوبة)</option>
+                                <option value="zero_hours" {% if sal.get('missing_punch_policy')=='zero_hours' %}selected{% endif %}>صفر ساعات عمل (غياب اليوم)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">سياسة عدم إثبات بصمة التواجد</label>
+                            <select class="form-select" name="presence_missing_policy" id="pol_presence">
+                                <option value="deduct_fraction" {% if sal.get('presence_missing_policy','deduct_fraction')=='deduct_fraction' %}selected{% endif %}>خصم جزء من أجر اليوم (ربع يوم)</option>
+                                <option value="warning" {% if sal.get('presence_missing_policy')=='warning' %}selected{% endif %}>تنبيه شفهي فقط دون خصم</option>
+                                <option value="penalty_tiered" {% if sal.get('presence_missing_policy')=='penalty_tiered' %}selected{% endif %}>نظام الشرائح التصاعدي للتكرار</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">الحد الأقصى لساعات الاستئذان اليومي</label>
+                            <div class="input-group">
+                                <input type="number" step="0.5" min="0.5" max="8" class="form-control" 
+                                       name="hourly_perm_max_hours_per_day" value="{{ sal.get('hourly_perm_max_hours_per_day', '2') }}">
+                                <span class="input-group-text">ساعات / يوم</span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">الحد الأقصى لمرات الاستئذان شهرياً</label>
+                            <div class="input-group">
+                                <input type="number" step="1" min="0" max="31" class="form-control" 
+                                       name="hourly_perm_max_days_per_month" value="{{ sal.get('hourly_perm_max_days_per_month', '4') }}">
+                                <span class="input-group-text">مرات / شهر</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================== -->
+                <!-- STEP 5: OVERTIME & LEAVES                                      -->
+                <!-- ============================================================== -->
+                <div class="step-pane" id="stepPane-5">
+                    <div class="step-header">
+                        <h3 class="step-header-title">
+                            <i class="fas fa-umbrella-beach text-info"></i> الخطوة الخامسة: العمل الإضافي والإجازات السنوية
+                        </h3>
+                        <p class="step-header-desc">محددات احتساب الساعات الإضافية ورصيد الإجازات المكتسب تلقائياً</p>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">مضاعف الإضافي في الأيام العادية</label>
+                            <div class="input-group">
+                                <input type="number" step="0.05" class="form-control" 
+                                       name="weekday_ot_multiplier" value="{{ sal.get('weekday_ot_multiplier', '1.25') }}">
+                                <span class="input-group-text">x أجر الساعة</span>
+                            </div>
+                            <div class="form-hint">المعتمد قانونياً هو 1.25 أو 1.50</div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">مضاعف الإضافي في العطلات الأسبوعية</label>
+                            <div class="input-group">
+                                <input type="number" step="0.05" class="form-control" 
+                                       name="weekend_ot_multiplier" value="{{ sal.get('weekend_ot_multiplier', '1.5') }}">
+                                <span class="input-group-text">x أجر الساعة</span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">مضاعف الإضافي في الأعياد الرسمية</label>
+                            <div class="input-group">
+                                <input type="number" step="0.05" class="form-control" 
+                                       name="holiday_ot_multiplier" value="{{ sal.get('holiday_ot_multiplier', '2.0') }}">
+                                <span class="input-group-text">x أجر الساعة</span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">سقف الساعات الإضافية الأقصى شهرياً</label>
+                            <div class="input-group">
+                                <input type="number" step="1" class="form-control" 
+                                       name="overtime_cap_monthly_hours" value="{{ sal.get('overtime_cap_monthly_hours', '60') }}">
+                                <span class="input-group-text">ساعة / شهر</span>
+                            </div>
+                            <div class="form-hint">أقصى حد للساعات الإضافية التي تصرف للموظف في الشهر.</div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">رصيد الإجازة السنوية المكتسب شهرياً</label>
+                            <div class="input-group">
+                                <input type="number" step="0.05" class="form-control" 
+                                       name="leave_earned_per_month" value="{{ sal.get('leave_earned_per_month', '2.5') }}">
+                                <span class="input-group-text">يوم / شهر</span>
+                            </div>
+                            <div class="form-hint">(2.5 يوم/شهر) تعادل 30 يوماً إجازة سنوية كاملة.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================== -->
+                <!-- STEP 6: MOBILE GPS ATTENDANCE & SECURITY                       -->
+                <!-- ============================================================== -->
+                <div class="step-pane" id="stepPane-6">
+                    <div class="step-header">
+                        <h3 class="step-header-title">
+                            <i class="fas fa-shield-halved text-success"></i> الخطوة السادسة: بصمة الجوال وتأمين الإدارة
+                        </h3>
+                        <p class="step-header-desc">تفعيل بصمة الجوال الذاتية وتحديد موقع مقر الشركة بالـ GPS وتعيين كلمة مرور للمسؤول</p>
+                    </div>
+
+                    <!-- Toggle Mobile Attendance -->
+                    <div class="d-flex align-items-center justify-content-between p-3 border rounded mb-3 bg-light">
+                        <div>
+                            <h6 class="mb-1 fw-bold">تفعيل بصمة الجوال الذاتية (GPS)</h6>
+                            <p class="small text-muted mb-0">تمكين الموظفين من تسجيل الحضور والانصراف والتواجد من هواتفهم داخل المقر</p>
+                        </div>
+                        <div class="form-check form-switch fs-4">
+                            <input class="form-check-input" type="checkbox" name="portal_attendance_enabled" id="portal_attendance_enabled" value="1" 
+                                   {% if sal.get('portal_attendance_enabled') == '1' %}checked{% endif %}>
+                        </div>
+                    </div>
+
+                    <!-- GPS Capture Box -->
+                    <div class="gps-capture-box">
+                        <div>
+                            <h6 class="fw-bold mb-1"><i class="fas fa-location-dot text-danger me-1"></i> موقع مقر الشركة الجغرافي</h6>
+                            <p class="small text-muted mb-0" id="gpsStatusDesc">انقر الزر المقابل لالتقاط إحداثيات موقعك الحالي كمقر معتمد للشركة فورياً</p>
+                        </div>
+                        <button type="button" class="btn-capture-gps" onclick="captureCompanyGps()">
+                            <i class="fas fa-crosshairs" id="gpsBtnIcon"></i>
+                            <span>التقاط موقعي الحالي كالمقر</span>
+                        </button>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">خط العرض (Latitude)</label>
+                            <input type="text" class="form-control" name="company_latitude" id="inp_company_latitude" 
+                                   value="{{ sal.get('company_latitude', '') }}" placeholder="مثال: 29.3759">
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">خط الطول (Longitude)</label>
+                            <input type="text" class="form-control" name="company_longitude" id="inp_company_longitude" 
+                                   value="{{ sal.get('company_longitude', '') }}" placeholder="مثال: 47.9774">
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">نطاق السماح الجغرافي</label>
+                            <div class="input-group">
+                                <input type="number" step="10" min="20" max="1000" class="form-control" 
+                                       name="geofence_radius_meters" value="{{ sal.get('geofence_radius_meters', '150') }}">
+                                <span class="input-group-text">متراً</span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-12 mt-4 pt-3 border-top">
+                            <label class="form-label text-danger">
+                                <i class="fas fa-key me-1"></i> تأمين حساب المسؤول (اختياري - يوصى به)
+                            </label>
+                            <input type="password" class="form-control" name="new_admin_password" id="new_admin_password" 
+                                   placeholder="أدخل كلمة مرور جديدة لحسابك الإداري إن أردت تغييرها الآن (أو اتركها فارغة للمحافظة عليها)">
+                            <div class="form-hint">اترك الحقل فارغاً إذا كنت لا ترغب بتغيير كلمة المرور الحالية.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Navigation Buttons -->
+                <div class="wizard-footer-bar">
+                    <button type="button" class="btn-wizard-prev" id="btnPrev" onclick="navigateStep(-1)" disabled>
+                        <i class="fas fa-arrow-right"></i> السابق
+                    </button>
+                    
+                    <button type="button" class="btn-wizard-next" id="btnNext" onclick="navigateStep(1)">
+                        التالي <i class="fas fa-arrow-left"></i>
+                    </button>
+
+                    <button type="submit" class="btn-wizard-finish" id="btnFinish" style="display: none;">
+                        <i class="fas fa-check-circle"></i> حفظ وبدء استخدام النظام
+                    </button>
+                </div>
+
+            </div>
+
+        </form>
+
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        let currentStep = 1;
+        const totalSteps = 6;
+
+        function updateStepUI() {
+            // Update Stepper Progress Line
+            const progressPct = ((currentStep - 1) / (totalSteps - 1)) * 100;
+            document.getElementById('stepperProgressActive').style.width = progressPct + '%';
+
+            // Update Stepper Tabs
+            for (let i = 1; i <= totalSteps; i++) {
+                const tab = document.getElementById('stepTab-' + i);
+                const pane = document.getElementById('stepPane-' + i);
+                if (tab) {
+                    tab.classList.remove('active', 'completed');
+                    if (i === currentStep) tab.classList.add('active');
+                    else if (i < currentStep) tab.classList.add('completed');
+                }
+                if (pane) {
+                    pane.classList.remove('active');
+                    if (i === currentStep) pane.classList.add('active');
+                }
+            }
+
+            // Update Navigation Buttons
+            const btnPrev = document.getElementById('btnPrev');
+            const btnNext = document.getElementById('btnNext');
+            const btnFinish = document.getElementById('btnFinish');
+
+            btnPrev.disabled = (currentStep === 1);
+
+            if (currentStep === totalSteps) {
+                btnNext.style.display = 'none';
+                btnFinish.style.display = 'inline-flex';
+            } else {
+                btnNext.style.display = 'inline-flex';
+                btnFinish.style.display = 'none';
+            }
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function navigateStep(direction) {
+            // Validation on Step 1
+            if (currentStep === 1 && direction === 1) {
+                const nameInp = document.getElementById('company_name');
+                if (nameInp && !nameInp.value.trim()) {
+                    alert('يرجى إدخال اسم المنشأة أو الشركة للمتابعة.');
+                    nameInp.focus();
+                    return;
+                }
+            }
+
+            const targetStep = currentStep + direction;
+            if (targetStep >= 1 && targetStep <= totalSteps) {
+                currentStep = targetStep;
+                updateStepUI();
+            }
+        }
+
+        function goToStep(step) {
+            if (step >= 1 && step <= totalSteps) {
+                currentStep = step;
+                updateStepUI();
+            }
+        }
+
+        // Currency Presets
+        function selectCurrencyPreset(name, symbol, code, chipId) {
+            document.querySelectorAll('.quick-chips-grid .chip-option').forEach(c => c.classList.remove('active'));
+            const activeChip = document.getElementById(chipId);
+            if (activeChip) activeChip.classList.add('active');
+
+            document.getElementById('inp_currency_name').value = name;
+            document.getElementById('inp_currency_symbol').value = symbol;
+            document.getElementById('inp_currency_code').value = code;
+        }
+
+        // Policy Presets
+        function applyPolicyPreset(preset) {
+            document.querySelectorAll('.policy-preset-card').forEach(c => c.classList.remove('active'));
+            const activeCard = document.getElementById('preset-' + preset);
+            if (activeCard) activeCard.classList.add('active');
+
+            const polLate = document.getElementById('pol_late_arrival');
+            const polEarly = document.getElementById('pol_early_departure');
+            const polMissing = document.getElementById('pol_missing_punch');
+            const polPresence = document.getElementById('pol_presence');
+
+            if (preset === 'standard') {
+                if (polLate) polLate.value = 'actual_time';
+                if (polEarly) polEarly.value = 'actual_time';
+                if (polMissing) polMissing.value = 'penalty_tiered';
+                if (polPresence) polPresence.value = 'deduct_fraction';
+            } else if (preset === 'flexible') {
+                if (polLate) polLate.value = 'warning';
+                if (polEarly) polEarly.value = 'warning';
+                if (polMissing) polMissing.value = 'penalty_tiered';
+                if (polPresence) polPresence.value = 'warning';
+            } else if (preset === 'strict') {
+                if (polLate) polLate.value = 'quarter_day';
+                if (polEarly) polEarly.value = 'quarter_day';
+                if (polMissing) polMissing.value = 'invalid';
+                if (polPresence) polPresence.value = 'deduct_fraction';
+            }
+        }
+
+        // GPS Capture
+        function captureCompanyGps() {
+            const icon = document.getElementById('gpsBtnIcon');
+            const desc = document.getElementById('gpsStatusDesc');
+            const inpLat = document.getElementById('inp_company_latitude');
+            const inpLon = document.getElementById('inp_company_longitude');
+
+            if (!navigator.geolocation) {
+                alert('متصفحك لا يدعم نظام تحديد المواقع الجغرافية (GPS).');
+                return;
+            }
+
+            if (icon) icon.className = 'fas fa-spinner fa-spin';
+            if (desc) desc.textContent = 'جاري الاتصال بالأقمار الصناعية لتحديد إحداثيات موقعك بدقة...';
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    if (icon) icon.className = 'fas fa-check-circle text-white';
+                    const lat = pos.coords.latitude.toFixed(6);
+                    const lon = pos.coords.longitude.toFixed(6);
+                    const acc = Math.round(pos.coords.accuracy || 10);
+
+                    if (inpLat) inpLat.value = lat;
+                    if (inpLon) inpLon.value = lon;
+                    if (desc) desc.textContent = `تم التقاط الإحداثيات بنجاح! (${lat}, ${lon}) بدقة ±${acc} متراً.`;
+                    
+                    // Enable mobile punch automatically
+                    const toggle = document.getElementById('portal_attendance_enabled');
+                    if (toggle) toggle.checked = true;
+                },
+                (err) => {
+                    if (icon) icon.className = 'fas fa-crosshairs';
+                    let msg = 'تعذر التقاط الموقع. يرجى تفعيل خدمة الموقع في المتصفح.';
+                    if (err.code === 1) msg = 'تم رفض إذن الوصول للموقع في المتصفح.';
+                    else if (err.code === 2) msg = 'إشارة الموقع غير متوفرة حالياً.';
+                    if (desc) desc.textContent = msg;
+                    alert(msg);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+
+        // Initialize UI
+        updateStepUI();
+    </script>
+</body>
+</html>
