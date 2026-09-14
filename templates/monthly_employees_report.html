@@ -185,17 +185,17 @@
                 let clickAction = '';
                 let cellStyle = '';
 
-                if (val === 'H') { cellContent = {{ _("symbol.holiday") | tojson }}; cellClass = 'bg-warning bg-opacity-25 text-warning fw-bold'; }
-                else if (val === 'L') { cellContent = {{ _("symbol.leave") | tojson }}; cellClass = 'bg-info bg-opacity-25 text-info fw-bold'; }
-                else if (val === 'W') { cellContent = {{ _("symbol.weekend") | tojson }}; cellClass = 'bg-secondary bg-opacity-10 text-muted fw-bold'; }
-                else if (val === 'A') { cellContent = {{ _("symbol.absent") | tojson }}; cellClass = 'bg-danger bg-opacity-25 text-danger fw-bold'; clickAction = `onclick="openActionModal('${r.id}', '${r.name}', '${dateStr}', 'absent')"`; cellStyle = 'cursor:pointer;'; }
-                else if (val === 'I') { cellContent = {{ _("symbol.invalid") | tojson }}; cellClass = 'bg-danger text-white fw-bold'; tooltip += ' ({{ _("tooltip.missing_punch") }})'; clickAction = `onclick="openActionModal('${r.id}', '${r.name}', '${dateStr}', 'invalid')"`; cellStyle = 'cursor:pointer;'; }
-                else if (val > 0) { cellContent = val; }
-                else if (typeof val === 'number') { cellContent = val > 0 ? val : '<span class="text-muted opacity-25">-</span>'; }
-                else { cellContent = '<span class="text-muted opacity-25">-</span>'; }
-
-                daysHtml += `<td class="${cellClass}" title="${tooltip}" style="${cellStyle}" ${clickAction}>${cellContent}</td>`;
-            });
+                if (val === 'H') { cellContent = {{ _("symbol.holiday") | tojson }}; cellClass = 'bg-warning bg-opacity-25 text-warning fw-bold'; }
+                else if (val === 'L') { cellContent = {{ _("symbol.leave") | tojson }}; cellClass = 'bg-info bg-opacity-25 text-info fw-bold'; }
+                else if (val === 'W') { cellContent = {{ _("symbol.weekend") | tojson }}; cellClass = 'bg-secondary bg-opacity-10 text-muted fw-bold'; }
+                else if (val === 'A') { cellContent = {{ _("symbol.absent") | tojson }}; cellClass = 'bg-danger bg-opacity-25 text-danger fw-bold'; clickAction = `onclick="openActionModal('${r.id}', '${r.name}', '${dateStr}', 'absent')"`; cellStyle = 'cursor:pointer;'; }
+                else if (val === 'I') { cellContent = {{ _("symbol.invalid") | tojson }}; cellClass = 'bg-danger text-white fw-bold'; tooltip += ' ({{ _("tooltip.missing_punch") }})'; clickAction = `onclick="openActionModal('${r.id}', '${r.name}', '${dateStr}', 'invalid')"`; cellStyle = 'cursor:pointer;'; }
+                else if (val > 0) { cellContent = val; }
+                else if (typeof val === 'number') { cellContent = val > 0 ? val : '<span class="text-muted opacity-25">-</span>'; }
+                else { cellContent = '<span class="text-muted opacity-25">-</span>'; }
+
+                daysHtml += `<td class="${cellClass}" title="${tooltip}" style="${cellStyle}" ${clickAction}>${cellContent}</td>`;
+            });
 
     let deductionTooltip = `{{ _("tooltip.total_deductions") }}: ${r.total_deduction}`;
     if (r.deduction_details) {

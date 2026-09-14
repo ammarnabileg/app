@@ -52,7 +52,8 @@
                                         <li><i class="fas fa-clock text-danger me-2"></i>{{ _('x.last_punch_out') }}</li>
                                         <li><i class="fas fa-users text-info me-2"></i>{{ _('x.shifts_from_shifts_page') }}</li>
                                         <li><i class="fas fa-calculator text-warning me-2"></i>{{ _('x.late_early_calc_part1') }}
-                                            {{ _('x.late_early_calc_part2') }}</li>                                    </ul>
+                                            {{ _('x.late_early_calc_part2') }}</li>
+                                    </ul>
 
                                     <form action="{{ url_for('report.smart_reports_daily') }}" method="GET"
                                         class="mb-3">
@@ -134,10 +135,12 @@
                             <div class="card border-primary">
                                 <div class="card-header bg-primary text-white">
                                     <h5 class="mb-0"><i class="fas fa-calendar me-2"></i>{{ _('x.monthly_attendance_reports') }}
-                                        {{ _('x.date_range_paren') }}</h5>                                </div>
+                                        {{ _('x.date_range_paren') }}</h5>
+                                </div>
                                 <div class="card-body">
                                     <p class="mb-2">{{ _('x.range_report_desc1') }}
-                                        {{ _('x.range_report_desc2') }}</p>                                    <form action="{{ url_for('report.smart_reports_range') }}" method="GET"
+                                        {{ _('x.range_report_desc2') }}</p>
+                                    <form action="{{ url_for('report.smart_reports_range') }}" method="GET"
                                         class="row g-2 align-items-end">
                                         <div class="col-md-4">
                                             <label class="form-label">{{ _('x.from_date') }}</label>

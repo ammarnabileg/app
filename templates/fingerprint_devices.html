@@ -30,7 +30,8 @@
             <i class="fas fa-info-circle me-3 fs-3"></i>
             <div>
                 <strong>{{ _('x.license_status_colon') }}</strong>
-                {{ _('x.you_now_have') }} <strong>{{ current_active }}</strong> {{ _('x.active_devices_of') }} <strong>{{ max_devices }}</strong> {{ _('x.allowed_devices_period') }}                {% if current_active >= max_devices %}
+                {{ _('x.you_now_have') }} <strong>{{ current_active }}</strong> {{ _('x.active_devices_of') }} <strong>{{ max_devices }}</strong> {{ _('x.allowed_devices_period') }}
+                {% if current_active >= max_devices %}
                 <br><small class="text-danger mt-1 d-block"><i class="fas fa-exclamation-triangle me-1"></i>{{ _('x.max_reached_no_new_devices') }}</small>
                 {% endif %}
             </div>

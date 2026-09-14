@@ -1,0 +1,25 @@
+# أحرف السطر: LF في المستودع دائمًا.
+#
+# وصل تحديث 2.10.55 وكل ملفاته محوَّلة إلى CRLF، فظهر ٦٧ ملفًا «معدَّلًا»
+# ولا حرف واحد تغيّر فيها — يغرق التغيير الحقيقي (٣٦ ملفًا) في ضجيج،
+# ويجعل كل دمج لاحق يتعارض على كل سطر. هذا السطر يمنع تكرارها.
+* text=auto eol=lf
+
+# ثنائيات: لا تُمسّ.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.docx binary
+*.xlsx binary
+*.db   binary
+*.mo   binary
+*.ttf  binary
+*.woff  binary
+*.woff2 binary
+
+# سكربتات ويندوز تحتاج CRLF لتعمل في cmd.
+*.bat text eol=crlf
+*.cmd text eol=crlf

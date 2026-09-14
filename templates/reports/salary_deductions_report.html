@@ -63,7 +63,8 @@
                                         <span class="badge bg-secondary">{{ detail.leave_type }}</span>
                                         {{ detail.days_count }} {{ _('x.day') }}
                                         {% if detail.tier_percentage < 1.0 %} <span class="text-danger">({{
-                                            detail.tier_percentage * 100 }}% مدفوع)</span>                                            {% else %}
+                                            detail.tier_percentage * 100 }}% مدفوع)</span>
+                                            {% else %}
                                             <span class="text-success">{{ _('x.paid_paren') }}</span>
                                             {% endif %}
                                             {{ _('x.deduction_dash_colon') }} {{ detail.deducted_amount | format_currency }}
