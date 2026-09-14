@@ -43,25 +43,20 @@ services:
       start_period: 40s
       retries: 3
 
-  hr_sync:
-    image: hr_system_${COMPANY}:latest
-    pull_policy: build
-    container_name: ${COMPANY}_sync
-    restart: unless-stopped
-    volumes:
-      - hr_data:/app/data
-    environment:
-      - HR_DATA_DIR=/app/data
-      - TZ=${TZ:-Asia/Kuwait}
-      - COMPANY_NAME=${COMPANY}
-    command: python fingerprint_sync.py
-    # لا فحص صحة لهذه الخدمة: لا تفتح منفذًا، وكل فحص يبحث عن اسمها في
-    # /proc يطابق سطرَ أمر الفحص نفسه فينجح دائمًا — وفحصٌ ينجح دائمًا
-    # أسوأ من غيابه لأنه يوحي بمراقبة غير قائمة. مراقبتها الحقيقية عبر
-    # بطاقة «متأخرات المزامنة» في اللانشر، وهي تقيس أثر عملها لا وجودها.
-    depends_on:
-      hr_web:
-        condition: service_healthy
+  # حُذفت خدمة hr_sync التي كانت هنا، ولم تكن تعمل يومًا:
+  #
+  # أمرها كان `python fingerprint_sync.py`، وهذا الملف وحدة مكتبة لا
+  # برنامج — لا `if __name__ == '__main__'` فيه إطلاقًا. فالحاوية تعرّف
+  # أصنافها ثم تنتهي فورًا، و`restart: unless-stopped` يعيدها، فتنتهي،
+  # فتعاد… حلقة إعادة تشغيل بلا نهاية، تُشغِل المعالج وتملأ السجلّ ولا
+  # تزامن بصمةً واحدة. تحقّقتُ بتشغيلها: تنتهي في أقلّ من ثانية.
+  #
+  # ولا حاجة إليها أصلًا: البصمات تصل من الجهاز دفعًا إلى hr_adms على
+  # ‏/iclock، والسحب اليدوي يُستدعى من داخل hr_web من زرّ «مزامنة
+  # الأجهزة» (routes/attendance_routes.py).
+  #
+  # ولو أُريد سحبٌ مجدول يومًا فهو ميزة تُضاف عن قصد إلى
+  # fingerprint_sync.py — لا خدمةٌ تُترك تدور على ملف لا يعمل.
 
   hr_adms:
     image: hr_system_${COMPANY}:latest
