@@ -1,4 +1,6 @@
 import os
+import re
+import sys
 import requests
 import hashlib
 import json
@@ -6,12 +8,20 @@ import time
 import hmac
 import subprocess
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.version_info import CURRENT_VERSION
+
 # Configuration
-API_URL = "https://onz.one/PHP/api/publish_release.php"
-# SECRET must match the server's secret
-API_SECRET = "YOUR_SECRET_KEY_Should_Be_Very_Long_And_Random" 
+API_URL = os.environ.get('PUBLISH_API_URL', 'https://onz.one/PHP/api/publish_release.php')
+
+# يُقرأ من البيئة ولا يُكتب هنا. كان مكتوبًا في الملف نصًّا
+# ("YOUR_SECRET_KEY_..."), فكان كل توقيع يُرفَض من اللوحة بـInvalid
+# Signature — واللوحة نفسها ترفض الانطلاق بمفتاح فارغ، وهو الصواب.
+# يجب أن يساوي API_SECRET في config/secrets.local.php على اللوحة.
+API_SECRET = os.environ.get('PUBLISH_API_SECRET', '')
+
 CHANGELOG_FILE = 'CHANGELOG.md'
-EXE_PATH = 'dist/HRSystem/HRSystem.exe'
+EXE_PATH = os.environ.get('PUBLISH_EXE_PATH', 'dist/HRSystem/HRSystem.exe')
 
 def calculate_checksum(file_path):
     """Calculate SHA256 checksum of a file."""
@@ -25,45 +35,77 @@ def calculate_checksum(file_path):
     return sha256_hash.hexdigest()
 
 def parse_latest_changelog():
-    """Parse ONLY the latest version from CHANGELOG.md"""
+    """ملاحظات إصدار CURRENT_VERSION من CHANGELOG.md.
+
+    الرقم يأتي من utils/version_info.py وحده، لا من هنا. مصدران للرقم
+    يعني أنهما سيختلفان يومًا، وقد اختلفا فعلًا: الملف أعلن 2.10.0.0
+    والبناء المنشور 2.10.55.1994، فرأى كل عميل التحديث نفسه بعد تركيبه
+    وأعاد تنزيله في كل فحص بلا نهاية.
+
+    والقراءة بصيغة الملف الفعلية:  ## 2.10.55.1994 — 2026-09-14
+    الصيغة القديمة كانت تبحث عن سطر يبدأ بـ'v' مثل «v6.2»، وهي صيغة لا
+    يستعملها هذا الملف في أي سطر — فكانت الدالة تعود None دائمًا،
+    وينتهي النشر عند أول سطر منه قبل أن يرسل شيئًا.
+    """
     if not os.path.exists(CHANGELOG_FILE):
         return None
-        
+
     with open(CHANGELOG_FILE, 'r', encoding='utf-8') as f:
         lines = f.readlines()
-        
-    version = None
+
+    # ## <رقم> — <تاريخ> [· «اسم»]
+    head = re.compile(r'^##\s+(\d+(?:\.\d+)+)\s')
+
     notes = []
-    found_version = False
-    
+    inside = False
+
     for line in lines:
-        line = line.strip()
-        if not line: continue
-        
-        if line.startswith('v'):
-            if found_version:
-                # We reached the NEXT version, stop
+        m = head.match(line.strip())
+        if m:
+            if inside:
+                break                       # بدأ الإصدار الذي قبله
+            if m.group(1) != CURRENT_VERSION:
+                # أحدث مقطع في السجلّ ليس هو الإصدار الذي سيُنشر. النشر
+                # بملاحظات إصدار آخر أسوأ من النشر بلا ملاحظات.
+                print(f"❌ CHANGELOG أحدث مقطع فيه {m.group(1)} "
+                      f"بينما version_info.py يقول {CURRENT_VERSION}.")
+                print("   وحِّدهما قبل النشر.")
+                return None
+            inside = True
+            continue
+        if inside:
+            t = line.strip()
+            if t.startswith('---'):
                 break
-            # Found the first (latest) version
-            # Format: v6.2 (DD Month YYYY)
-            version = line.split(' ')[0] # v6.2
-            found_version = True
-        elif found_version:
-            # This is a note item
-            notes.append(line)
-            
-    if not version:
+            if not t or t.startswith('#'):
+                continue
+            if t.startswith('- '):
+                notes.append(t[2:].strip())
+            elif notes:
+                # سطر ملفوف من البند السابق، لا بندًا جديدًا. بدون هذا
+                # كان كل سطر من ملاحظة طويلة يظهر للعميل كتغيير مستقلّ.
+                notes[-1] += ' ' + t
+
+    if not inside:
+        print(f"❌ لا مقطع للإصدار {CURRENT_VERSION} في {CHANGELOG_FILE}.")
         return None
-        
+
     return {
-        'version': version,
+        'version': CURRENT_VERSION,
         'notes': notes
     }
 
 def publish_release():
     print("🚀 HR System Release Publisher v1.0")
     print("-" * 40)
-    
+
+    # المفتاح أولًا: بدونه كل توقيع يُرفض، والوقوف هنا أوضح من رسالة
+    # "Invalid Signature" بعد رفع الملف كاملًا.
+    if not API_SECRET:
+        print("❌ PUBLISH_API_SECRET غير مضبوط في البيئة.")
+        print("   يجب أن يساوي API_SECRET في config/secrets.local.php على اللوحة.")
+        return
+
     # 1. Get Changelog Data
     release_data = parse_latest_changelog()
     if not release_data:
