@@ -1,0 +1,2397 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>بوابة الموظف | HR Portal</title>
+    
+    <!-- PWA Settings -->
+    <link rel="manifest" href="/static/portal/manifest.json">
+    <meta name="theme-color" content="#F2F2F7">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="بوابة الموظف">
+    
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --ios-bg: #F2F2F7;
+            --ios-card: rgba(255, 255, 255, 0.88);
+            --ios-card-solid: #FFFFFF;
+            --ios-border: rgba(0, 0, 0, 0.06);
+            --ios-text: #1C1C1E;
+            --ios-subtext: #8E8E93;
+            --ios-blue: #007AFF;
+            --ios-green: #34C759;
+            --ios-red: #FF3B30;
+            --ios-orange: #FF9500;
+            --ios-purple: #AF52DE;
+            --ios-indigo: #5856D6;
+            --ios-tab-bar: rgba(255, 255, 255, 0.85);
+            --ios-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+            --ios-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.08);
+            --safe-bottom: env(safe-area-inset-bottom, 20px);
+            --safe-top: env(safe-area-inset-top, 20px);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+            font-family: -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans", "Tajawal", sans-serif;
+        }
+
+        body {
+            background-color: var(--ios-bg);
+            color: var(--ios-text);
+            min-height: 100vh;
+            padding-bottom: calc(90px + var(--safe-bottom));
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Top Bar / App Store Today Header */
+        .ios-topbar {
+            padding: calc(16px + var(--safe-top)) 20px 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            position: sticky;
+            top: 0;
+            background: rgba(242, 242, 247, 0.85);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            z-index: 100;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+        }
+
+        .ios-date-badge {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--ios-subtext);
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .ios-page-title {
+            font-size: 2.1rem;
+            font-weight: 900;
+            color: var(--ios-text);
+            line-height: 1.1;
+        }
+
+        .ios-avatar-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo));
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25);
+            border: 2px solid white;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .ios-avatar-btn:active {
+            transform: scale(0.92);
+        }
+
+        /* Container */
+        .ios-content {
+            padding: 16px 20px;
+            max-width: 540px;
+            margin: 0 auto;
+        }
+
+        /* App Store Style Large Hero Card */
+        .hero-card {
+            background: var(--ios-card);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: var(--ios-shadow-lg);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .hero-card::before {
+            content: '';
+            position: absolute;
+            top: -60px;
+            right: -60px;
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(52, 199, 89, 0.25) 0%, rgba(52, 199, 89, 0) 70%);
+            pointer-events: none;
+        }
+
+        .hero-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .hero-label {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--ios-subtext);
+        }
+
+        .pill-status {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .pill-status.present {
+            background: rgba(52, 199, 89, 0.15);
+            color: #28a745;
+        }
+
+        .pill-status.absent {
+            background: rgba(255, 59, 48, 0.12);
+            color: var(--ios-red);
+        }
+
+        .pill-status.manager {
+            background: rgba(88, 86, 214, 0.15);
+            color: var(--ios-indigo);
+        }
+
+        .hero-time-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            text-align: center;
+            margin: 16px 0 20px 0;
+            padding: 16px 0;
+            background: rgba(242, 242, 247, 0.6);
+            border-radius: 18px;
+        }
+
+        .hero-time-item h3 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--ios-text);
+            margin-bottom: 4px;
+        }
+
+        .hero-time-item p {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--ios-subtext);
+        }
+
+        .time-divider {
+            width: 1px;
+            height: 36px;
+            background: rgba(0, 0, 0, 0.08);
+        }
+
+        /* Action Buttons Grid */
+        .action-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .action-card {
+            background: var(--ios-card-solid);
+            border-radius: 20px;
+            padding: 18px 16px;
+            box-shadow: var(--ios-shadow);
+            border: 1px solid var(--ios-border);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .action-card:active {
+            transform: scale(0.96);
+        }
+
+        .action-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            margin-bottom: 12px;
+        }
+
+        .icon-leave { background: rgba(0, 122, 255, 0.12); color: var(--ios-blue); }
+        .icon-excuse { background: rgba(255, 149, 0, 0.12); color: var(--ios-orange); }
+        .icon-team { background: rgba(88, 86, 214, 0.12); color: var(--ios-indigo); }
+        .icon-salary { background: rgba(52, 199, 89, 0.12); color: var(--ios-green); }
+
+        .action-card h4 {
+            font-size: 1rem;
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+
+        .action-card p {
+            font-size: 0.75rem;
+            color: var(--ios-subtext);
+            font-weight: 600;
+        }
+
+        /* KPI Cards */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+
+        .kpi-box {
+            background: var(--ios-card-solid);
+            border-radius: 18px;
+            padding: 14px 10px;
+            text-align: center;
+            box-shadow: var(--ios-shadow);
+            border: 1px solid var(--ios-border);
+        }
+
+        .kpi-val {
+            font-size: 1.3rem;
+            font-weight: 800;
+            color: var(--ios-text);
+            margin-bottom: 2px;
+        }
+
+        .kpi-title {
+            font-size: 0.72rem;
+            color: var(--ios-subtext);
+            font-weight: 700;
+        }
+
+        /* Section Titles */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 20px 0 12px 0;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: var(--ios-text);
+        }
+
+        .section-link {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--ios-blue);
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        /* Modern List Cards */
+        .list-card {
+            background: var(--ios-card-solid);
+            border-radius: 20px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: var(--ios-shadow);
+            border: 1px solid var(--ios-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .list-info h5 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .list-info p {
+            font-size: 0.78rem;
+            color: var(--ios-subtext);
+            font-weight: 600;
+        }
+
+        .badge-tag {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 12px;
+        }
+
+        .badge-tag.approved { background: rgba(52, 199, 89, 0.12); color: var(--ios-green); }
+        .badge-tag.pending { background: rgba(255, 149, 0, 0.12); color: var(--ios-orange); }
+        .badge-tag.rejected { background: rgba(255, 59, 48, 0.12); color: var(--ios-red); }
+
+        /* Direct Manager Team Cards */
+        .team-member-card {
+            background: var(--ios-card-solid);
+            border-radius: 20px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: var(--ios-shadow);
+            border: 1px solid var(--ios-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .team-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            background: rgba(88, 86, 214, 0.12);
+            color: var(--ios-indigo);
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            margin-left: 12px;
+        }
+
+        .approval-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-approve {
+            background: var(--ios-green);
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: transform 0.15s ease;
+        }
+
+        .btn-reject {
+            background: rgba(255, 59, 48, 0.1);
+            color: var(--ios-red);
+            border: none;
+            padding: 8px 14px;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: transform 0.15s ease;
+        }
+
+        .btn-approve:active, .btn-reject:active {
+            transform: scale(0.92);
+        }
+
+        /* iOS Bottom Tab Bar (Frosted Glass) */
+        .ios-tabbar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--ios-tab-bar);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border-top: 1px solid rgba(0, 0, 0, 0.08);
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 10px calc(8px + var(--safe-bottom)) 10px;
+            z-index: 1000;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.03);
+        }
+
+        .tab-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--ios-subtext);
+            text-decoration: none;
+            font-size: 0.68rem;
+            font-weight: 700;
+            gap: 4px;
+            cursor: pointer;
+            transition: color 0.2s ease, transform 0.15s ease;
+            position: relative;
+            flex: 1;
+        }
+
+        .tab-item i {
+            font-size: 1.35rem;
+            transition: transform 0.2s ease;
+        }
+
+        .tab-item.active {
+            color: var(--ios-blue);
+        }
+
+        .tab-item.active i {
+            transform: scale(1.1);
+        }
+
+        .tab-badge {
+            position: absolute;
+            top: -3px;
+            left: 50%;
+            margin-left: 6px;
+            background: var(--ios-red);
+            color: white;
+            font-size: 0.6rem;
+            font-weight: 800;
+            padding: 1px 6px;
+            border-radius: 10px;
+            border: 2px solid white;
+        }
+
+        /* Views Switching */
+        .portal-view {
+            display: none;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .portal-view.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Modal Sheets (iOS Action Sheet style) */
+        .ios-sheet-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            z-index: 2000;
+            display: none;
+            align-items: flex-end;
+            justify-content: center;
+        }
+
+        .ios-sheet {
+            background: white;
+            width: 100%;
+            max-width: 540px;
+            border-radius: 28px 28px 0 0;
+            padding: 24px 20px calc(24px + var(--safe-bottom)) 20px;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.2);
+            animation: slideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .sheet-handle {
+            width: 40px;
+            height: 5px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 10px;
+            margin: 0 auto 18px auto;
+        }
+
+        .sheet-title {
+            font-size: 1.3rem;
+            font-weight: 800;
+            margin-bottom: 18px;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--ios-subtext);
+            margin-bottom: 6px;
+        }
+
+        .form-control-ios {
+            width: 100%;
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            background: #F8F8FA;
+            font-size: 0.95rem;
+            font-weight: 600;
+            outline: none;
+            transition: border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .form-control-ios:focus {
+            border-color: var(--ios-blue);
+            background: white;
+        }
+
+        .btn-ios-submit {
+            width: 100%;
+            padding: 15px;
+            border-radius: 16px;
+            background: var(--ios-blue);
+            color: white;
+            font-size: 1.05rem;
+            font-weight: 800;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+            box-shadow: 0 4px 16px rgba(0, 122, 255, 0.28);
+            transition: transform 0.15s ease;
+        }
+
+        .btn-ios-submit:active {
+            transform: scale(0.98);
+        }
+
+        /* ============================================================== */
+        /* iOS HTML Alert Dialog & Toast System                           */
+        /* ============================================================== */
+        .ios-alert-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 100000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+
+        .ios-alert-overlay.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .ios-alert-box {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            width: 100%;
+            max-width: 320px;
+            border-radius: 24px;
+            padding: 28px 22px 20px 22px;
+            text-align: center;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            transform: scale(0.85);
+            transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .ios-alert-overlay.active .ios-alert-box {
+            transform: scale(1);
+        }
+
+        .ios-alert-icon-wrap {
+            width: 62px;
+            height: 62px;
+            border-radius: 50%;
+            margin: 0 auto 16px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+        }
+
+        .ios-alert-icon-wrap.success {
+            background: rgba(52, 199, 89, 0.16);
+            color: #34C759;
+        }
+
+        .ios-alert-icon-wrap.error {
+            background: rgba(255, 59, 48, 0.16);
+            color: #FF3B30;
+        }
+
+        .ios-alert-icon-wrap.info {
+            background: rgba(0, 122, 255, 0.16);
+            color: #007AFF;
+        }
+
+        .ios-alert-title {
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: var(--ios-text);
+            margin-bottom: 8px;
+        }
+
+        .ios-alert-msg {
+            font-size: 0.92rem;
+            color: var(--ios-subtext);
+            font-weight: 600;
+            line-height: 1.5;
+            margin-bottom: 22px;
+            word-break: break-word;
+        }
+
+        .ios-alert-btn {
+            width: 100%;
+            padding: 13px;
+            background: var(--ios-blue);
+            color: #ffffff;
+            border: none;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(0, 122, 255, 0.25);
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+
+        .ios-alert-btn:active {
+            opacity: 0.85;
+            transform: scale(0.97);
+        }
+
+        /* Toast Container */
+        .ios-toast-container {
+            position: fixed;
+            top: max(16px, env(safe-area-inset-top));
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100001;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: calc(100% - 32px);
+            max-width: 400px;
+            pointer-events: none;
+        }
+
+        .ios-toast {
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 18px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            animation: toastSlideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .ios-toast.toast-exit {
+            animation: toastSlideUp 0.3s ease forwards;
+        }
+
+        @keyframes toastSlideDown {
+            from { opacity: 0; transform: translateY(-30px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        @keyframes toastSlideUp {
+            from { opacity: 1; transform: translateY(0) scale(1); }
+            to { opacity: 0; transform: translateY(-25px) scale(0.92); }
+        }
+
+        .ios-toast-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            flex-shrink: 0;
+        }
+
+        .ios-toast.success .ios-toast-icon {
+            background: rgba(52, 199, 89, 0.15);
+            color: #34C759;
+        }
+
+        .ios-toast.error .ios-toast-icon {
+            background: rgba(255, 59, 48, 0.15);
+            color: #FF3B30;
+        }
+
+        .ios-toast.info .ios-toast-icon {
+            background: rgba(0, 122, 255, 0.15);
+            color: #007AFF;
+        }
+
+        .ios-toast-content {
+            flex: 1;
+        }
+
+        .ios-toast-title {
+            font-size: 0.9rem;
+            font-weight: 800;
+            color: var(--ios-text);
+            margin-bottom: 2px;
+        }
+
+        .ios-toast-msg {
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--ios-subtext);
+            line-height: 1.35;
+        }
+
+        /* ============================================================== */
+        /* PUNCH / MOBILE ATTENDANCE STYLES                               */
+        /* ============================================================== */
+        .quick-punch-banner {
+            background: linear-gradient(135deg, rgba(52, 199, 89, 0.12), rgba(0, 122, 255, 0.08));
+            border: 1px solid rgba(52, 199, 89, 0.25);
+            border-radius: 18px;
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 18px;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .quick-punch-banner:active {
+            transform: scale(0.98);
+        }
+        .quick-punch-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #34C759, #28A745);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);
+        }
+
+        .punch-console-card {
+            background: var(--ios-card-solid);
+            border-radius: 26px;
+            padding: 24px 20px;
+            box-shadow: var(--ios-shadow-lg);
+            border: 1px solid var(--ios-border);
+            text-align: center;
+        }
+
+        .punch-clock-wrap {
+            margin-bottom: 20px;
+        }
+
+        .punch-date-badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: 20px;
+            background: rgba(0, 0, 0, 0.05);
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--ios-subtext);
+            margin-bottom: 8px;
+        }
+
+        .punch-live-clock {
+            font-size: 2.8rem;
+            font-weight: 900;
+            letter-spacing: 1px;
+            color: var(--ios-text);
+            margin: 2px 0;
+            font-variant-numeric: tabular-nums;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .gps-status-card {
+            background: #F8F8FA;
+            border-radius: 18px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            text-align: right;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            margin-bottom: 22px;
+        }
+
+        .gps-status-card.in-range {
+            background: rgba(52, 199, 89, 0.08);
+            border-color: rgba(52, 199, 89, 0.25);
+        }
+
+        .gps-status-card.out-range {
+            background: rgba(255, 59, 48, 0.08);
+            border-color: rgba(255, 59, 48, 0.25);
+        }
+
+        .gps-status-title {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--ios-text);
+            margin-bottom: 2px;
+        }
+
+        .gps-status-desc {
+            font-size: 0.78rem;
+            color: var(--ios-subtext);
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .btn-gps-refresh {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            background: white;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--ios-text);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+        .btn-gps-refresh:active {
+            transform: scale(0.92);
+        }
+
+        /* Radar Wave Pulse */
+        .radar-wrap {
+            position: relative;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .radar-circle {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: rgba(0, 122, 255, 0.2);
+            animation: radarPulse 2s infinite ease-out;
+        }
+        .radar-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--ios-blue);
+            box-shadow: 0 0 10px rgba(0, 122, 255, 0.5);
+            z-index: 2;
+        }
+        .radar-wrap.success .radar-circle { background: rgba(52, 199, 89, 0.25); }
+        .radar-wrap.success .radar-dot { background: var(--ios-green); box-shadow: 0 0 10px rgba(52, 199, 89, 0.6); }
+        .radar-wrap.danger .radar-circle { background: rgba(255, 59, 48, 0.25); }
+        .radar-wrap.danger .radar-dot { background: var(--ios-red); box-shadow: 0 0 10px rgba(255, 59, 48, 0.6); }
+
+        @keyframes radarPulse {
+            0% { transform: scale(0.9); opacity: 0.8; }
+            70% { transform: scale(1.35); opacity: 0; }
+            100% { transform: scale(1.35); opacity: 0; }
+        }
+
+        /* Giant Punch Button */
+        .punch-btn-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 18px 0 24px 0;
+        }
+
+        .punch-giant-btn {
+            width: 184px;
+            height: 184px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            background: linear-gradient(145deg, #34C759, #28A745);
+            color: white;
+            box-shadow: 0 16px 36px rgba(52, 199, 89, 0.38), 0 0 0 12px rgba(52, 199, 89, 0.12), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .punch-giant-btn.btn-check-out {
+            background: linear-gradient(145deg, #FF3B30, #D32F2F);
+            box-shadow: 0 16px 36px rgba(255, 59, 48, 0.38), 0 0 0 12px rgba(255, 59, 48, 0.12), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+        }
+
+        .punch-giant-btn.btn-presence {
+            background: linear-gradient(145deg, #007AFF, #0051A8);
+            box-shadow: 0 16px 36px rgba(0, 122, 255, 0.38), 0 0 0 12px rgba(0, 122, 255, 0.12), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+        }
+
+        .punch-mode-selector {
+            display: flex;
+            align-items: center;
+            background: rgba(118, 118, 128, 0.12);
+            padding: 4px;
+            border-radius: 14px;
+            margin: 0 auto 20px auto;
+            max-width: 360px;
+            width: 100%;
+            gap: 4px;
+        }
+
+        .punch-mode-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 6px;
+            border: none;
+            background: transparent;
+            color: var(--ios-subtext);
+            font-size: 0.82rem;
+            font-weight: 700;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .punch-mode-btn.active {
+            background: #FFFFFF;
+            color: var(--ios-text);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        .punch-mode-btn.active.mode-presence {
+            color: var(--ios-blue);
+        }
+
+        .punch-mode-btn.active.mode-check-in {
+            color: var(--ios-green);
+        }
+
+        .punch-mode-btn.active.mode-check-out {
+            color: var(--ios-red);
+        }
+
+        .punch-giant-btn:active {
+            transform: scale(0.94);
+        }
+
+        .punch-giant-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .punch-btn-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .punch-fingerprint-icon {
+            font-size: 3.2rem;
+            margin-bottom: 6px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.18));
+        }
+
+        .punch-btn-text {
+            font-size: 1.15rem;
+            font-weight: 900;
+            letter-spacing: 0.5px;
+        }
+
+        .punch-btn-sub {
+            font-size: 0.72rem;
+            font-weight: 700;
+            opacity: 0.9;
+            margin-top: 2px;
+        }
+
+        .punch-security-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            background: rgba(0, 0, 0, 0.04);
+            font-size: 0.74rem;
+            font-weight: 700;
+            color: var(--ios-subtext);
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Top Navigation -->
+    <header class="ios-topbar">
+        <div>
+            <div class="ios-date-badge">{{ today_display }}</div>
+            <h1 class="ios-page-title" id="pageHeaderTitle">اليوم</h1>
+        </div>
+        <div class="ios-avatar-btn" onclick="switchTab('tab-profile')" title="حسابي">
+            {{ (employee.name[0] if employee and employee.name else 'M') | upper }}
+        </div>
+    </header>
+
+    <main class="ios-content">
+
+        <!-- ============================================================== -->
+        <!-- VIEW 1: TODAY / HOME                                           -->
+        <!-- ============================================================== -->
+        <section id="view-today" class="portal-view active">
+            
+            <!-- Hero Attendance Card -->
+            <div class="hero-card">
+                <div class="hero-header">
+                    <div>
+                        <div class="hero-label">حالة الدوام الحالية</div>
+                        <h3 style="font-weight: 800; font-size: 1.35rem; margin-top: 2px;" id="heroEmpName">
+                            {{ employee.name or 'الموظف' }}
+                        </h3>
+                    </div>
+                    <span class="pill-status present" id="todayStatusBadge">
+                        <i class="fas fa-circle" style="font-size: 0.55rem;"></i>
+                        <span id="todayStatusText">جاري التحميل...</span>
+                    </span>
+                </div>
+
+                <div class="hero-time-row">
+                    <div class="hero-time-item">
+                        <h3 id="heroCheckIn">--:--</h3>
+                        <p>بصمة الحضور</p>
+                    </div>
+                    <div class="time-divider"></div>
+                    <div class="hero-time-item">
+                        <h3 id="heroPresence" style="color: var(--ios-blue);">--:--</h3>
+                        <p>بصمة التواجد</p>
+                    </div>
+                    <div class="time-divider"></div>
+                    <div class="hero-time-item">
+                        <h3 id="heroCheckOut">--:--</h3>
+                        <p>بصمة الانصراف</p>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <small style="color: var(--ios-subtext); font-weight: 600;">
+                        <i class="fas fa-fingerprint me-1 text-primary"></i> <span id="heroPunchesCount">0</span> حركات مسجلة اليوم
+                    </small>
+                    <small style="color: var(--ios-subtext); font-weight: 600;">
+                        {{ employee.position_name or employee.position or 'موظف' }}
+                    </small>
+                </div>
+            </div>
+
+            {% if portal_att and portal_att.enabled %}
+            <!-- Quick Punch Banner on Today Screen -->
+            <div class="quick-punch-banner" onclick="switchTab('tab-punch')">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                    <div class="quick-punch-icon"><i class="fas fa-fingerprint"></i></div>
+                    <div style="text-align: right;">
+                        <h4 style="font-weight: 800; margin-bottom: 2px; font-size: 0.95rem; color: var(--ios-text);">تسجيل البصمة الذاتية (GPS)</h4>
+                        <p style="font-size: 0.78rem; color: var(--ios-subtext); font-weight: 600; margin: 0;">اضغط هنا لتسجيل الحضور أو الانصراف الآن</p>
+                    </div>
+                </div>
+                <i class="fas fa-chevron-left" style="color: var(--ios-subtext); font-size: 0.9rem;"></i>
+            </div>
+            {% endif %}
+
+            <!-- Quick Action Cards Grid -->
+            <div class="action-grid">
+                <div class="action-card" onclick="openLeaveModal()">
+                    <div class="action-icon icon-leave">
+                        <i class="fas fa-calendar-plus"></i>
+                    </div>
+                    <h4>طلب إجازة</h4>
+                    <p>سنوية / طارئة / مرضية</p>
+                </div>
+
+                <div class="action-card" onclick="openExcuseModal()">
+                    <div class="action-icon icon-excuse">
+                        <i class="fas fa-stopwatch"></i>
+                    </div>
+                    <h4>طلب استئذان</h4>
+                    <p>ساعي أو مهمة خارجية</p>
+                </div>
+            </div>
+
+            <!-- Quick KPI Stats -->
+            <div class="kpi-row">
+                <div class="kpi-box">
+                    <div class="kpi-val" id="kpiLeaveBal">--</div>
+                    <div class="kpi-title">رصيد الإجازات</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="kpi-val" id="kpiWorkedDays">--</div>
+                    <div class="kpi-title">أيام الحضور</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="kpi-val" id="kpiLoans">--</div>
+                    <div class="kpi-title">سلف قائمة</div>
+                </div>
+            </div>
+
+            <!-- Recent Leave Requests -->
+            <div class="section-header">
+                <h3 class="section-title">آخر الطلبات</h3>
+                <span class="section-link" onclick="switchTab('tab-leaves')">عرض الكل</span>
+            </div>
+            <div id="todayRecentRequests">
+                <div style="text-align: center; color: var(--ios-subtext); padding: 20px;">
+                    <i class="fas fa-spinner fa-spin me-2"></i> جاري تحميل الطلبات...
+                </div>
+            </div>
+
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: PUNCH / MOBILE ATTENDANCE (البصمة الذاتية)              -->
+        <!-- ============================================================== -->
+        <section id="view-punch" class="portal-view">
+            {% if not portal_att or not portal_att.enabled %}
+            <!-- حالة التعطيل من الإعدادات -->
+            <div class="card-ios" style="text-align: center; padding: 42px 20px; background: var(--ios-card-solid); border-radius: 24px; box-shadow: var(--ios-shadow); border: 1px solid var(--ios-border); margin-top: 10px;">
+                <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(255, 59, 48, 0.12); color: var(--ios-red); display: flex; align-items: center; justify-content: center; font-size: 2.2rem; margin: 0 auto 18px auto;">
+                    <i class="fas fa-ban"></i>
+                </div>
+                <h3 style="font-weight: 800; font-size: 1.25rem; margin-bottom: 10px; color: var(--ios-text);">البصمة الذاتية غير مفعّلة</h3>
+                <p style="color: var(--ios-subtext); font-size: 0.92rem; line-height: 1.6; max-width: 360px; margin: 0 auto 20px auto; font-weight: 600;">
+                    تسجيل الحضور والانصراف عبر الهاتف غير مفعّل وفق السياسة المعتمدة لشركتكم. يرجى تسجيل البصمة عبر أجهزة البصمة المعتمدة في مقر العمل.
+                </p>
+                <div style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 12px; background: #f2f2f7; font-size: 0.8rem; font-weight: 700; color: var(--ios-subtext);">
+                    <i class="fas fa-building text-primary"></i> يرجى مراجعة إدارة الموارد البشرية
+                </div>
+            </div>
+            {% else %}
+            <!-- حالة التفعيل: شاشة البصمة المتكاملة -->
+            <div class="punch-console-card">
+                <!-- Clock & Date -->
+                <div class="punch-clock-wrap">
+                    <span class="punch-date-badge">{{ today_display }}</span>
+                    <h2 class="punch-live-clock" id="punchLiveClock">--:--:--</h2>
+                    <small style="color: var(--ios-subtext); font-weight: 700;">التوقيت الرسمي المعتمد</small>
+                </div>
+
+                <!-- GPS Status / Radar Banner -->
+                <div class="gps-status-card" id="gpsStatusCard">
+                    <div class="radar-wrap" id="radarWrap">
+                        <div class="radar-circle"></div>
+                        <div class="radar-dot"></div>
+                    </div>
+                    <div style="flex: 1;">
+                        <h5 class="gps-status-title" id="gpsStatusTitle">جاري فحص الموقع الجغرافي (GPS)...</h5>
+                        <p class="gps-status-desc" id="gpsStatusDesc">يرجى الانتظار لحساب المسافة بدقة</p>
+                    </div>
+                    <button type="button" class="btn-gps-refresh" onclick="checkUserLocation(true)" title="تحديث الإحداثيات">
+                        <i class="fas fa-arrows-rotate" id="gpsRefreshIcon"></i>
+                    </button>
+                </div>
+
+                <!-- 3-Mode Punch Selector: حضور | تواجد | انصراف -->
+                <div class="punch-mode-selector" id="punchModeSelector">
+                    <button type="button" class="punch-mode-btn mode-check-in active" id="modeBtn_check_in" onclick="setPunchMode('check_in')">
+                        <i class="fas fa-sign-in-alt"></i> الحضور
+                    </button>
+                    <button type="button" class="punch-mode-btn mode-presence" id="modeBtn_presence" onclick="setPunchMode('presence')">
+                        <i class="fas fa-user-check"></i> التواجد
+                    </button>
+                    <button type="button" class="punch-mode-btn mode-check-out" id="modeBtn_check_out" onclick="setPunchMode('check_out')">
+                        <i class="fas fa-sign-out-alt"></i> الانصراف
+                    </button>
+                </div>
+
+                <!-- Giant Biometric Punch Button -->
+                <div class="punch-btn-container">
+                    <button type="button" class="punch-giant-btn btn-check-in" id="mainPunchBtn" onclick="doPortalPunch()">
+                        <div class="punch-btn-inner">
+                            <i class="fas fa-fingerprint punch-fingerprint-icon" id="mainPunchIcon"></i>
+                            <span class="punch-btn-text" id="mainPunchBtnText">تسجيل الحضور</span>
+                            <small class="punch-btn-sub" id="mainPunchBtnSub">انقر للبصمة</small>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- Security Assurance Pill -->
+                <div class="punch-security-pill">
+                    <i class="fas fa-shield-halved text-success me-1"></i>
+                    <span>بصمة رسمية موثقة بنظام الحماية الجغرافية GPS ومسجلة بالسيرفر</span>
+                </div>
+            </div>
+
+            <!-- Today's Punches Timeline -->
+            <div style="margin-top: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="font-weight: 800; font-size: 1.1rem; color: var(--ios-text); margin: 0;">
+                        <i class="fas fa-history text-primary me-2"></i> حركات البصمة المسجلة اليوم
+                    </h4>
+                    <span class="badge-tag approved" id="punchCountBadge">0 حركات</span>
+                </div>
+                <div id="punchTimelineContainer">
+                    <div style="text-align: center; color: var(--ios-subtext); padding: 24px; font-weight: 600;">
+                        لا توجد حركات بصمة مسجلة لهذا اليوم حتى الآن
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW 2: MY TEAM & DIRECT MANAGER (Conditional)                 -->
+        <!-- ============================================================== -->
+        {% if is_manager %}
+        <section id="view-team" class="portal-view">
+            <div class="hero-card" style="background: linear-gradient(135deg, rgba(88, 86, 214, 0.08), rgba(255, 255, 255, 0.95));">
+                <div class="hero-header">
+                    <div>
+                        <div class="hero-label">إدارة الفريق المباشر</div>
+                        <h3 style="font-weight: 800; font-size: 1.35rem;">لوحة المدير المباشر</h3>
+                    </div>
+                    <span class="pill-status manager">
+                        <i class="fas fa-user-tie me-1"></i> مدير مباشر
+                    </span>
+                </div>
+                <div class="hero-time-row" style="background: rgba(255, 255, 255, 0.8);">
+                    <div class="hero-time-item">
+                        <h3 id="teamTotalCount">0</h3>
+                        <p>إجمالي الفريق</p>
+                    </div>
+                    <div class="time-divider"></div>
+                    <div class="hero-time-item">
+                        <h3 id="teamPresentCount" style="color: var(--ios-green);">0</h3>
+                        <p>حاضر اليوم</p>
+                    </div>
+                    <div class="time-divider"></div>
+                    <div class="hero-time-item">
+                        <h3 id="teamPendingCount" style="color: var(--ios-orange);">0</h3>
+                        <p>طلبات معلقة</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Subordinates Pending Approvals -->
+            <div class="section-header">
+                <h3 class="section-title">طلبات تنتظر اعتمادك</h3>
+            </div>
+            <div id="teamApprovalsContainer">
+                <div style="text-align: center; color: var(--ios-subtext); padding: 20px;">
+                    <i class="fas fa-spinner fa-spin me-2"></i> جاري فحص الطلبات...
+                </div>
+            </div>
+
+            <!-- Team Members Live Status -->
+            <div class="section-header" style="margin-top: 24px;">
+                <h3 class="section-title">حالة حضور أفراد الفريق اليوم</h3>
+            </div>
+            <div id="teamMembersListContainer">
+                <div style="text-align: center; color: var(--ios-subtext); padding: 20px;">
+                    جاري تحميل الفريق...
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- ============================================================== -->
+        <!-- VIEW 3: ATTENDANCE LOG                                         -->
+        <!-- ============================================================== -->
+        <section id="view-attendance" class="portal-view">
+            <div class="section-header">
+                <h3 class="section-title">سجل الحضور والانصراف</h3>
+                <span class="badge-tag approved" id="attMonthBadge">هذا الشهر</span>
+            </div>
+            <div id="attendanceListContainer">
+                <div style="text-align: center; color: var(--ios-subtext); padding: 30px;">
+                    <i class="fas fa-spinner fa-spin me-2"></i> جاري تحميل السجل...
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW 4: LEAVES & REQUESTS                                      -->
+        <!-- ============================================================== -->
+        <section id="view-leaves" class="portal-view">
+            <div class="hero-card">
+                <div class="hero-header">
+                    <div>
+                        <div class="hero-label">رصيد الإجازات السنوية</div>
+                        <h2 style="font-weight: 900; font-size: 2.2rem; color: var(--ios-blue);" id="leavesMainBalance">
+                            -- <span style="font-size: 1rem; font-weight: 700; color: var(--ios-subtext);">يوم متبقي</span>
+                        </h2>
+                    </div>
+                    <button class="btn-approve" onclick="openLeaveModal()" style="padding: 10px 18px;">
+                        <i class="fas fa-plus me-1"></i> طلب جديد
+                    </button>
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 10px;">
+                    <div style="flex: 1; background: #F8F8FA; padding: 12px; border-radius: 14px; text-align: center;">
+                        <div style="font-weight: 800; font-size: 1.1rem;" id="leaveAccrued">--</div>
+                        <small style="color: var(--ios-subtext); font-weight: 600;">المستحق</small>
+                    </div>
+                    <div style="flex: 1; background: #F8F8FA; padding: 12px; border-radius: 14px; text-align: center;">
+                        <div style="font-weight: 800; font-size: 1.1rem; color: var(--ios-orange);" id="leaveTaken">--</div>
+                        <small style="color: var(--ios-subtext); font-weight: 600;">المستهلك</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-header">
+                <h3 class="section-title">تاريخ جميع الطلبات</h3>
+            </div>
+            <div id="allLeavesListContainer">
+                <!-- Dynamically filled -->
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW 5: PROFILE & SALARY                                       -->
+        <!-- ============================================================== -->
+        <section id="view-profile" class="portal-view">
+            <!-- Profile Card -->
+            <div class="hero-card" style="text-align: center;">
+                <div style="width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo)); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: 800; margin: 0 auto 14px auto; box-shadow: 0 6px 20px rgba(0, 122, 255, 0.3);">
+                    {{ (employee.name[0] if employee and employee.name else 'M') | upper }}
+                </div>
+                <h3 style="font-weight: 800; font-size: 1.4rem; margin-bottom: 4px;">{{ employee.name or 'موظف' }}</h3>
+                <p style="color: var(--ios-subtext); font-weight: 600; font-size: 0.9rem;">
+                    {{ employee.position_name or employee.position or 'موظف' }} • {{ employee.department_name or employee.department or 'عام' }}
+                </p>
+                <span class="pill-status present" style="margin-top: 10px;">
+                    رقم الموظف: {{ employee.employee_number or '-' }}
+                </span>
+            </div>
+
+            <!-- Details Section -->
+            <div class="section-header">
+                <h3 class="section-title">البيانات الوظيفية والمالية</h3>
+            </div>
+            <div class="list-card">
+                <div class="list-info">
+                    <h5>الراتب الأساسي</h5>
+                    <p>المعتمد في العقد</p>
+                </div>
+                <div style="font-weight: 800; font-size: 1.15rem; color: var(--ios-green);" id="profileSalary">
+                    {{ employee.salary or 0 }} د.ك
+                </div>
+            </div>
+            <div class="list-card">
+                <div class="list-info">
+                    <h5>المدير المباشر</h5>
+                    <p>مسؤول الاعتماد</p>
+                </div>
+                <div style="font-weight: 700; color: var(--ios-text);">
+                    {{ employee.manager_name or 'إدارة الموارد البشرية' }}
+                </div>
+            </div>
+            <div class="list-card">
+                <div class="list-info">
+                    <h5>تاريخ التعيين</h5>
+                    <p>بداية الخدمة</p>
+                </div>
+                <div style="font-weight: 700; color: var(--ios-text);">
+                    {{ employee.hire_date or '-' }}
+                </div>
+            </div>
+
+            <!-- Logout Button -->
+            <a href="{{ url_for('auth.logout') }}" style="text-decoration: none;">
+                <button class="btn-ios-submit" style="background: rgba(255, 59, 48, 0.1); color: var(--ios-red); box-shadow: none; margin-top: 24px;">
+                    <i class="fas fa-arrow-right-from-bracket me-2"></i> تسجيل الخروج
+                </button>
+            </a>
+        </section>
+
+    </main>
+
+    <!-- ============================================================== -->
+    <!-- MODAL 1: REQUEST LEAVE                                         -->
+    <!-- ============================================================== -->
+    <div class="ios-sheet-overlay" id="leaveModalOverlay" onclick="closeModals(event)">
+        <div class="ios-sheet" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <h3 class="sheet-title">تقديم طلب إجازة جديدة 🏖️</h3>
+            
+            <form id="leaveForm" onsubmit="submitLeave(event)">
+                <div class="form-group">
+                    <label>نوع الإجازة</label>
+                    <select class="form-control-ios" name="leave_type_id" required id="leaveTypeSelect">
+                        {% for lt in leave_types %}
+                        <option value="{{ lt.id }}">{{ lt.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label>من تاريخ</label>
+                        <input type="date" class="form-control-ios" name="start_date" required id="leaveStartDate" value="{{ today_date }}">
+                    </div>
+                    <div class="form-group">
+                        <label>إلى تاريخ</label>
+                        <input type="date" class="form-control-ios" name="end_date" required id="leaveEndDate" value="{{ today_date }}">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>السبب / ملاحظات (اختياري)</label>
+                    <textarea class="form-control-ios" name="reason" rows="2" placeholder="اكتب سبب طلب الإجازة..."></textarea>
+                </div>
+                <button type="submit" class="btn-ios-submit" id="submitLeaveBtn">إرسال الطلب</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL 2: REQUEST EXCUSE                                        -->
+    <!-- ============================================================== -->
+    <div class="ios-sheet-overlay" id="excuseModalOverlay" onclick="closeModals(event)">
+        <div class="ios-sheet" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <h3 class="sheet-title">طلب استئذان / مهمة عمل ⏱️</h3>
+            
+            <form id="excuseForm" onsubmit="submitExcuse(event)">
+                <div class="form-group">
+                    <label>نوع الطلب</label>
+                    <select class="form-control-ios" name="type" required>
+                        <option value="mission">مهمة عمل خارجية</option>
+                        <option value="personal">استئذان شخصي</option>
+                        <option value="manual_override">تصحيح بصمة</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>التاريخ</label>
+                    <input type="date" class="form-control-ios" name="date" required value="{{ today_date }}">
+                </div>
+                <div class="form-group">
+                    <label>السبب</label>
+                    <textarea class="form-control-ios" name="reason" rows="2" placeholder="يرجى توضيح سبب الاستئذان..." required></textarea>
+                </div>
+                <button type="submit" class="btn-ios-submit" id="submitExcuseBtn">إرسال الطلب</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- HTML POPUPS & TOASTS (Replaces browser JS alert)                -->
+    <!-- ============================================================== -->
+    <div id="iosToastContainer" class="ios-toast-container"></div>
+
+    <div class="ios-alert-overlay" id="portalAlertOverlay" onclick="closePortalAlert(event)">
+        <div class="ios-alert-box" onclick="event.stopPropagation()">
+            <div class="ios-alert-icon-wrap success" id="portalAlertIcon">
+                <i class="fas fa-check"></i>
+            </div>
+            <h4 class="ios-alert-title" id="portalAlertTitle">تم بنجاح</h4>
+            <p class="ios-alert-msg" id="portalAlertMsg">تفاصيل الرسالة...</p>
+            <button type="button" class="ios-alert-btn" id="portalAlertBtn" onclick="closePortalAlert()">حسناً</button>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- IOS BOTTOM TAB BAR                                             -->
+    <!-- ============================================================== -->
+    <nav class="ios-tabbar">
+        <div class="tab-item active" onclick="switchTab('tab-today')" id="btn-tab-today">
+            <i class="fas fa-calendar-day"></i>
+            <span>اليوم</span>
+        </div>
+
+        <div class="tab-item" onclick="switchTab('tab-punch')" id="btn-tab-punch">
+            <i class="fas fa-fingerprint"></i>
+            <span>البصمة</span>
+        </div>
+        
+        {% if is_manager %}
+        <div class="tab-item" onclick="switchTab('tab-team')" id="btn-tab-team">
+            <i class="fas fa-users-gear"></i>
+            <span>فريق العمل</span>
+            <span class="tab-badge" id="teamTabBadge" style="display: none;">0</span>
+        </div>
+        {% endif %}
+
+        <div class="tab-item" onclick="switchTab('tab-attendance')" id="btn-tab-attendance">
+            <i class="fas fa-clock-rotate-left"></i>
+            <span>الحضور</span>
+        </div>
+        
+        <div class="tab-item" onclick="switchTab('tab-leaves')" id="btn-tab-leaves">
+            <i class="fas fa-umbrella-beach"></i>
+            <span>الإجازات</span>
+        </div>
+        
+        <div class="tab-item" onclick="switchTab('tab-profile')" id="btn-tab-profile">
+            <i class="fas fa-user-circle"></i>
+            <span>حسابي</span>
+        </div>
+    </nav>
+
+    <script>
+        // Tab switching logic
+        const TITLES = {
+            'tab-today': 'اليوم',
+            'tab-punch': 'البصمة الذاتية',
+            'tab-team': 'فريق العمل',
+            'tab-attendance': 'سجل الحضور',
+            'tab-leaves': 'الإجازات',
+            'tab-profile': 'حسابي'
+        };
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-item').forEach(b => b.classList.remove('active'));
+            const btn = document.getElementById('btn-' + tabId);
+            if (btn) btn.classList.add('active');
+
+            document.querySelectorAll('.portal-view').forEach(v => v.classList.remove('active'));
+            const viewKey = tabId.replace('tab-', '');
+            const targetView = document.getElementById('view-' + viewKey);
+            if (targetView) targetView.classList.add('active');
+
+            document.getElementById('pageHeaderTitle').textContent = TITLES[tabId] || 'البوابة';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            // Specific refresh on tab switch
+            if (tabId === 'tab-punch') {
+                loadPunchStatus().then(() => {
+                    checkUserLocation();
+                });
+            }
+            if (tabId === 'tab-attendance') loadAttendanceLog();
+            if (tabId === 'tab-team') loadTeamData();
+        }
+
+        // Modals
+        function openLeaveModal() {
+            document.getElementById('leaveModalOverlay').style.display = 'flex';
+        }
+        function openExcuseModal() {
+            document.getElementById('excuseModalOverlay').style.display = 'flex';
+        }
+        function closeModals(e) {
+            document.getElementById('leaveModalOverlay').style.display = 'none';
+            document.getElementById('excuseModalOverlay').style.display = 'none';
+        }
+
+        // Load Employee Dashboard Data
+        async function loadMyData() {
+            try {
+                const res = await fetch('/portal/api/my-data');
+                const data = await res.json();
+                if (!data.success) return;
+
+                // Today Status
+                const today = data.today;
+                const statusBadge = document.getElementById('todayStatusBadge');
+                const statusText = document.getElementById('todayStatusText');
+                
+                if (today.is_present) {
+                    statusBadge.className = 'pill-status present';
+                    statusText.textContent = 'حاضر اليوم';
+                } else {
+                    statusBadge.className = 'pill-status absent';
+                    statusText.textContent = 'لم يسجل بعد';
+                }
+
+                document.getElementById('heroCheckIn').textContent = today.check_in || '--:--';
+                const heroPresEl = document.getElementById('heroPresence');
+                if (heroPresEl) heroPresEl.textContent = today.presence || '--:--';
+                document.getElementById('heroCheckOut').textContent = today.check_out || '--:--';
+                document.getElementById('heroPunchesCount').textContent = today.punches_count || 0;
+
+                // KPIs
+                document.getElementById('kpiLeaveBal').textContent = data.stats.annual_balance + ' د';
+                document.getElementById('kpiWorkedDays').textContent = data.stats.days_worked;
+                document.getElementById('kpiLoans').textContent = data.stats.loan_remaining > 0 ? (data.stats.loan_remaining + ' د.ك') : 'لا يوجد';
+
+                // Leaves view elements
+                document.getElementById('leavesMainBalance').innerHTML = `${data.stats.annual_balance} <span style="font-size: 1rem; font-weight: 700; color: var(--ios-subtext);">يوم متبقي</span>`;
+                document.getElementById('leaveAccrued').textContent = data.stats.annual_accrued + ' يوم';
+                document.getElementById('leaveTaken').textContent = data.stats.annual_taken + ' يوم';
+
+                // Render Recent Requests
+                renderRecentRequests(data.recent_leaves);
+            } catch (err) {
+                console.error('Error loading portal data:', err);
+            }
+        }
+
+        function renderRecentRequests(leaves) {
+            const container = document.getElementById('todayRecentRequests');
+            const fullContainer = document.getElementById('allLeavesListContainer');
+            
+            if (!leaves || leaves.length === 0) {
+                const emptyHtml = '<div style="text-align: center; color: var(--ios-subtext); padding: 20px; font-weight: 600;">لا توجد طلبات إجازة مسجلة مؤخراً</div>';
+                container.innerHTML = emptyHtml;
+                if (fullContainer) fullContainer.innerHTML = emptyHtml;
+                return;
+            }
+
+            let html = '';
+            leaves.forEach(l => {
+                let statusClass = 'pending';
+                let statusText = 'قيد المراجعة ⏳';
+                if (l.status === 'approved') {
+                    statusClass = 'approved';
+                    statusText = 'معتمد ✅';
+                } else if (l.status === 'rejected') {
+                    statusClass = 'rejected';
+                    statusText = 'مرفوض ❌';
+                }
+
+                html += `
+                    <div class="list-card">
+                        <div class="list-info">
+                            <h5>${l.leave_type_name || 'إجازة'} (${l.days_count} يوم)</h5>
+                            <p>${l.start_date} إلى ${l.end_date}</p>
+                        </div>
+                        <span class="badge-tag ${statusClass}">${statusText}</span>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+            if (fullContainer) fullContainer.innerHTML = html;
+        }
+
+        // Attendance Log
+        async function loadAttendanceLog() {
+            const container = document.getElementById('attendanceListContainer');
+            container.innerHTML = '<div style="text-align: center; color: var(--ios-subtext); padding: 30px;"><i class="fas fa-spinner fa-spin me-2"></i> جاري تحميل السجل...</div>';
+            
+            try {
+                const res = await fetch('/portal/api/attendance');
+                const data = await res.json();
+                if (!data.success || !data.records.length) {
+                    container.innerHTML = '<div style="text-align: center; color: var(--ios-subtext); padding: 30px;">لا توجد حركات مسجلة لهذا الشهر</div>';
+                    return;
+                }
+
+                let html = '';
+                data.records.forEach(r => {
+                    const isOk = (r.check_in !== '-');
+                    html += `
+                        <div class="list-card">
+                            <div class="list-info">
+                                <h5>${r.date}</h5>
+                                <p><i class="fas fa-sign-in-alt text-success me-1"></i> ${r.check_in} &nbsp;&nbsp;|&nbsp;&nbsp; <i class="fas fa-sign-out-alt text-danger me-1"></i> ${r.check_out}</p>
+                            </div>
+                            <span class="badge-tag ${isOk ? 'approved' : 'rejected'}">${r.status}</span>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            } catch (err) {
+                container.innerHTML = '<div style="text-align: center; color: var(--ios-red); padding: 20px;">تعذر تحميل السجل</div>';
+            }
+        }
+
+        // Team and Approvals (For Direct Managers)
+        async function loadTeamData() {
+            try {
+                // 1. Team Summary
+                const resSummary = await fetch('/portal/api/team-summary');
+                const dataSummary = await resSummary.json();
+                if (dataSummary.success) {
+                    document.getElementById('teamTotalCount').textContent = dataSummary.total_team;
+                    document.getElementById('teamPresentCount').textContent = dataSummary.present_today;
+                    document.getElementById('teamPendingCount').textContent = dataSummary.pending_approvals_count;
+                    
+                    const badge = document.getElementById('teamTabBadge');
+                    if (badge) {
+                        if (dataSummary.pending_approvals_count > 0) {
+                            badge.textContent = dataSummary.pending_approvals_count;
+                            badge.style.display = 'block';
+                        } else {
+                            badge.style.display = 'none';
+                        }
+                    }
+
+                    // Render Team List
+                    const membersCont = document.getElementById('teamMembersListContainer');
+                    if (!dataSummary.team_members.length) {
+                        membersCont.innerHTML = '<div style="text-align: center; color: var(--ios-subtext); padding: 20px;">لا يوجد موظفون تابعون لك حالياً</div>';
+                    } else {
+                        let html = '';
+                        dataSummary.team_members.forEach(m => {
+                            html += `
+                                <div class="team-member-card">
+                                    <div style="display: flex; align-items: center;">
+                                        <div class="team-avatar">${(m.name[0] || 'M').toUpperCase()}</div>
+                                        <div>
+                                            <h5 style="font-weight: 800; margin-bottom: 2px;">${m.name}</h5>
+                                            <p style="font-size: 0.75rem; color: var(--ios-subtext); font-weight: 600;">${m.position} • #${m.employee_number}</p>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span class="badge-tag ${m.is_present ? 'approved' : 'rejected'}">
+                                            ${m.is_present ? ('حاضر ' + m.first_punch) : 'غائب اليوم'}
+                                        </span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        membersCont.innerHTML = html;
+                    }
+                }
+
+                // 2. Team Approvals
+                const resApp = await fetch('/portal/api/team-approvals');
+                const dataApp = await resApp.json();
+                const appCont = document.getElementById('teamApprovalsContainer');
+                if (dataApp.success && dataApp.requests.length) {
+                    let html = '';
+                    dataApp.requests.forEach(r => {
+                        html += `
+                            <div class="list-card" id="req-card-${r.id}">
+                                <div class="list-info">
+                                    <h5>${r.employee_name} • ${r.leave_type_name}</h5>
+                                    <p>${r.start_date} إلى ${r.end_date} (${r.days_count} يوم)</p>
+                                    ${r.reason ? `<small style="color: var(--ios-subtext); display:block; margin-top:2px;">"${r.reason}"</small>` : ''}
+                                </div>
+                                <div class="approval-actions">
+                                    <button class="btn-approve" onclick="handleApproval(${r.id}, 'approve')">
+                                        <i class="fas fa-check me-1"></i> موافقة
+                                    </button>
+                                    <button class="btn-reject" onclick="handleApproval(${r.id}, 'reject')">
+                                        <i class="fas fa-times me-1"></i> رفض
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    appCont.innerHTML = html;
+                } else {
+                    appCont.innerHTML = '<div style="text-align: center; color: var(--ios-subtext); padding: 20px; font-weight: 600;">لا توجد طلبات معلقة تنتظر الاعتماد حالياً 🎉</div>';
+                }
+
+            } catch (err) {
+                console.error('Error loading team data:', err);
+            }
+        }
+
+        // ==============================================================
+        // HTML ALERT & TOAST SYSTEM (Replaces Native Browser alert())
+        // ==============================================================
+        let alertCallback = null;
+
+        function showPortalAlert(title, message, type = 'success', onConfirm = null) {
+            const overlay = document.getElementById('portalAlertOverlay');
+            const iconWrap = document.getElementById('portalAlertIcon');
+            const titleEl = document.getElementById('portalAlertTitle');
+            const msgEl = document.getElementById('portalAlertMsg');
+            const btnEl = document.getElementById('portalAlertBtn');
+
+            if (!overlay) return;
+
+            alertCallback = onConfirm;
+
+            titleEl.textContent = title || (type === 'success' ? 'تم بنجاح' : 'تنبيه');
+            msgEl.textContent = message || '';
+
+            // Set Type Styling
+            iconWrap.className = 'ios-alert-icon-wrap ' + type;
+            if (type === 'success') {
+                iconWrap.innerHTML = '<i class="fas fa-check"></i>';
+                btnEl.style.background = 'var(--ios-blue)';
+            } else if (type === 'error') {
+                iconWrap.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+                btnEl.style.background = 'var(--ios-red)';
+            } else {
+                iconWrap.innerHTML = '<i class="fas fa-info-circle"></i>';
+                btnEl.style.background = 'var(--ios-blue)';
+            }
+
+            overlay.style.display = 'flex';
+            setTimeout(() => {
+                overlay.classList.add('active');
+            }, 10);
+        }
+
+        function closePortalAlert(event) {
+            if (event && event.target && event.target !== document.getElementById('portalAlertOverlay') && !event.target.classList.contains('ios-alert-btn')) {
+                return;
+            }
+            const overlay = document.getElementById('portalAlertOverlay');
+            if (!overlay) return;
+
+            overlay.classList.remove('active');
+            setTimeout(() => {
+                overlay.style.display = 'none';
+                if (typeof alertCallback === 'function') {
+                    const cb = alertCallback;
+                    alertCallback = null;
+                    cb();
+                }
+            }, 200);
+        }
+
+        function showToast(message, type = 'success', title = '') {
+            const container = document.getElementById('iosToastContainer');
+            if (!container) return;
+
+            const toast = document.createElement('div');
+            toast.className = `ios-toast ${type}`;
+
+            let iconHtml = '<i class="fas fa-check"></i>';
+            if (type === 'error') iconHtml = '<i class="fas fa-times"></i>';
+            else if (type === 'info') iconHtml = '<i class="fas fa-info"></i>';
+
+            toast.innerHTML = `
+                <div class="ios-toast-icon">${iconHtml}</div>
+                <div class="ios-toast-content">
+                    ${title ? `<div class="ios-toast-title">${title}</div>` : ''}
+                    <div class="ios-toast-msg">${message}</div>
+                </div>
+            `;
+
+            toast.onclick = () => {
+                toast.classList.add('toast-exit');
+                setTimeout(() => toast.remove(), 280);
+            };
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.classList.add('toast-exit');
+                    setTimeout(() => toast.remove(), 280);
+                }
+            }, 3500);
+        }
+
+        // Intercept native alert() so any script calls render as stylish HTML!
+        window.alert = function(message) {
+            showPortalAlert('تنبيه', message, 'info');
+        };
+
+        async function handleApproval(requestId, action) {
+            const card = document.getElementById('req-card-' + requestId);
+            if (card) card.style.opacity = '0.5';
+
+            try {
+                const res = await fetch('/portal/api/approve-request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ request_id: requestId, action: action })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (card) {
+                        card.innerHTML = `<div style="padding: 8px; text-align: center; font-weight: 700; width: 100%; color: ${action === 'approve' ? 'var(--ios-green)' : 'var(--ios-red)'}">${data.message}</div>`;
+                        setTimeout(() => card.remove(), 1200);
+                    }
+                    showToast(data.message, action === 'approve' ? 'success' : 'error', 'اعتماد الطلب');
+                    loadTeamData(); // Refresh counter
+                } else {
+                    showPortalAlert('تعذر اتخاذ الإجراء', data.message || 'تعذر اتخاذ الإجراء المطلوب', 'error');
+                    if (card) card.style.opacity = '1';
+                }
+            } catch (e) {
+                showPortalAlert('خطأ بالاتصال', 'حدث خطأ في الاتصال، يرجى المحاولة لاحقاً', 'error');
+                if (card) card.style.opacity = '1';
+            }
+        }
+
+        // Submit Leave Form
+        async function submitLeave(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submitLeaveBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> جاري الإرسال...';
+
+            const formData = new FormData(document.getElementById('leaveForm'));
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const res = await fetch('/portal/api/request-leave', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const json = await res.json();
+                if (json.success) {
+                    closeModals();
+                    document.getElementById('leaveForm').reset();
+                    loadMyData();
+                    showPortalAlert('تم تقديم الطلب بنجاح', json.message, 'success');
+                } else {
+                    showPortalAlert('تعذر تقديم الطلب', json.message || 'حدث خطأ أثناء تقديم طلب الإجازة', 'error');
+                }
+            } catch (err) {
+                showPortalAlert('خطأ بالاتصال', 'تعذر إرسال الطلب، يرجى التحقق من الشبكة والمحاولة لاحقاً', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'إرسال الطلب';
+            }
+        }
+
+        // Submit Excuse Form
+        async function submitExcuse(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submitExcuseBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> جاري الإرسال...';
+
+            const formData = new FormData(document.getElementById('excuseForm'));
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const res = await fetch('/portal/api/request-excuse', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const json = await res.json();
+                if (json.success) {
+                    closeModals();
+                    document.getElementById('excuseForm').reset();
+                    showPortalAlert('تم تسجيل الاستئذان بنجاح', json.message, 'success');
+                } else {
+                    showPortalAlert('تنبيه', json.message || 'حدث خطأ أثناء تسجيل الاستئذان', 'error');
+                }
+            } catch (err) {
+                showPortalAlert('خطأ بالاتصال', 'تعذر إرسال طلب الاستئذان، يرجى المحاولة لاحقاً', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'إرسال الطلب';
+            }
+        }
+
+        // ==============================================================
+        // PORTAL MOBILE PUNCH (البصمة الذاتية)
+        // ==============================================================
+        let punchSettings = {
+            enabled: false,
+            geofence_enabled: false,
+            company_lat: null,
+            company_lon: null,
+            radius: 100,
+            cooldown_minutes: 5,
+            next_action: 'حضور'
+        };
+        let userCurrentPosition = null;
+        let isLocating = false;
+
+        function updatePunchClock() {
+            const clockEl = document.getElementById('punchLiveClock');
+            if (!clockEl) return;
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            clockEl.textContent = `${hours}:${minutes}:${seconds}`;
+        }
+
+        function calcHaversineMeters(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const toRad = (x) => x * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        function isGeofenceActive() {
+            return !!(punchSettings.geofence_enabled && punchSettings.company_lat && punchSettings.company_lon);
+        }
+
+        let currentPunchMode = 'check_in'; // 'check_in', 'presence', 'check_out'
+
+        function setPunchMode(mode) {
+            currentPunchMode = mode;
+
+            // Update segmented selector buttons
+            document.querySelectorAll('.punch-mode-btn').forEach(btn => btn.classList.remove('active'));
+            const activeBtn = document.getElementById('modeBtn_' + mode);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            // Update giant punch button appearance
+            const mainBtn = document.getElementById('mainPunchBtn');
+            const iconEl = document.getElementById('mainPunchIcon');
+            const btnText = document.getElementById('mainPunchBtnText');
+            const btnSub = document.getElementById('mainPunchBtnSub');
+
+            if (!mainBtn || !btnText) return;
+
+            mainBtn.classList.remove('btn-check-in', 'btn-presence', 'btn-check-out');
+
+            if (mode === 'presence') {
+                mainBtn.classList.add('btn-presence');
+                btnText.textContent = 'بصمة التواجد';
+                if (btnSub) btnSub.textContent = 'إثبات التواجد أثناء الدوام';
+                if (iconEl) iconEl.className = 'fas fa-user-check punch-fingerprint-icon';
+            } else if (mode === 'check_out') {
+                mainBtn.classList.add('btn-check-out');
+                btnText.textContent = 'تسجيل الانصراف';
+                if (btnSub) btnSub.textContent = 'نهاية الدوام اليومي';
+                if (iconEl) iconEl.className = 'fas fa-fingerprint punch-fingerprint-icon';
+            } else {
+                mainBtn.classList.add('btn-check-in');
+                btnText.textContent = 'تسجيل الحضور';
+                if (btnSub) btnSub.textContent = 'بدء الدوام اليومي';
+                if (iconEl) iconEl.className = 'fas fa-fingerprint punch-fingerprint-icon';
+            }
+        }
+
+        async function loadPunchStatus() {
+            const punchSection = document.getElementById('view-punch');
+            if (!punchSection) return;
+
+            try {
+                const res = await fetch('/portal/api/punch-status');
+                const data = await res.json();
+                if (!data.success) return;
+
+                punchSettings.enabled = data.enabled;
+                punchSettings.geofence_enabled = data.geofence_enabled;
+                punchSettings.company_lat = data.company_lat || data.company_latitude || null;
+                punchSettings.company_lon = data.company_lon || data.company_longitude || null;
+                punchSettings.radius = data.radius || data.geofence_radius_meters || 100;
+                punchSettings.cooldown_minutes = data.cooldown_minutes || 5;
+                punchSettings.next_action = data.next_action || 'حضور';
+
+                // Automatically select the recommended next punch mode
+                let recommendedMode = 'check_in';
+                if (data.next_action === 'انصراف') {
+                    recommendedMode = 'check_out';
+                } else if (data.next_action === 'تواجد') {
+                    recommendedMode = 'presence';
+                }
+                setPunchMode(recommendedMode);
+
+                // Update Punch Timeline
+                renderPunchTimeline(data.today_punches);
+
+            } catch (err) {
+                console.error('Error loading punch status:', err);
+            }
+        }
+
+        function renderPunchTimeline(punches) {
+            const container = document.getElementById('punchTimelineContainer');
+            const countBadge = document.getElementById('punchCountBadge');
+            if (!container) return;
+
+            if (!punches || punches.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: var(--ios-subtext); padding: 24px; font-weight: 600;">لا توجد حركات بصمة مسجلة لهذا اليوم حتى الآن</div>';
+                if (countBadge) countBadge.textContent = '0 حركات';
+                return;
+            }
+
+            if (countBadge) countBadge.textContent = punches.length + ' حركات';
+
+            let html = '';
+            punches.forEach(p => {
+                const isCheckIn = p.type === 'حضور';
+                const isPresence = p.type === 'تواجد';
+                
+                let iconColor = isCheckIn ? 'var(--ios-green)' : (isPresence ? 'var(--ios-blue)' : 'var(--ios-red)');
+                let bgLight = isCheckIn ? 'rgba(52, 199, 89, 0.12)' : (isPresence ? 'rgba(0, 122, 255, 0.12)' : 'rgba(255, 59, 48, 0.12)');
+                let iconClass = isCheckIn ? 'fa-sign-in-alt' : (isPresence ? 'fa-user-check' : 'fa-sign-out-alt');
+                let typeColor = isCheckIn ? 'approved' : (isPresence ? 'manager' : 'rejected');
+
+                html += `
+                    <div class="list-card" style="margin-bottom: 10px;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="width: 42px; height: 42px; border-radius: 14px; background: ${bgLight}; color: ${iconColor}; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+                                <i class="fas ${iconClass}"></i>
+                            </div>
+                            <div class="list-info">
+                                <h5 style="margin-bottom: 2px;">بصمة ${p.type}</h5>
+                                <p style="margin: 0; font-size: 0.76rem;">${p.source_display || 'البوابة الذاتية'} • ${p.note || 'نظامي'}</p>
+                            </div>
+                        </div>
+                        <div style="text-align: left;">
+                            <div style="font-weight: 800; font-size: 1.1rem; color: var(--ios-text); font-family: monospace;">${p.time}</div>
+                            <span class="badge-tag ${typeColor}" style="padding: 2px 8px; font-size: 0.7rem;">مسجلة</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function checkUserLocation(forceRefresh = false) {
+            const statusCard = document.getElementById('gpsStatusCard');
+            const radarWrap = document.getElementById('radarWrap');
+            const statusTitle = document.getElementById('gpsStatusTitle');
+            const statusDesc = document.getElementById('gpsStatusDesc');
+            const refreshIcon = document.getElementById('gpsRefreshIcon');
+            const mainBtn = document.getElementById('mainPunchBtn');
+
+            if (!statusCard) return;
+
+            // If geofence is NOT active (e.g. disabled or company coordinates not set yet)
+            if (!isGeofenceActive()) {
+                radarWrap.className = 'radar-wrap success';
+                statusCard.className = 'gps-status-card in-range';
+                statusTitle.textContent = 'نظام البصمة جاهز للتسجيل';
+                statusDesc.textContent = 'يمكنك النقر على زر البصمة للتسجيل مباشرة';
+                if (mainBtn) mainBtn.disabled = false;
+
+                // Grab coordinates in background if available
+                if (navigator.geolocation && !userCurrentPosition) {
+                    navigator.geolocation.getCurrentPosition(
+                        (p) => {
+                            userCurrentPosition = {
+                                latitude: p.coords.latitude,
+                                longitude: p.coords.longitude,
+                                accuracy: p.coords.accuracy || 10
+                            };
+                        },
+                        () => {},
+                        { timeout: 6000, maximumAge: 60000 }
+                    );
+                }
+                return;
+            }
+
+            if (!navigator.geolocation) {
+                radarWrap.className = 'radar-wrap danger';
+                statusCard.className = 'gps-status-card out-range';
+                statusTitle.textContent = 'الموقع غير مدعوم في المتصفح';
+                statusDesc.textContent = 'متصفحك لا يدعم نظام الـ GPS أو الموقع محظور';
+                if (mainBtn) mainBtn.disabled = true;
+                return;
+            }
+
+            if (refreshIcon) refreshIcon.classList.add('fa-spin');
+            isLocating = true;
+            statusTitle.textContent = 'جاري فحص الموقع الجغرافي (GPS)...';
+            statusDesc.textContent = 'يرجى السماح بالوصول للموقع لحساب المسافة بدقة';
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+                    isLocating = false;
+                    userCurrentPosition = {
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy || 10
+                    };
+
+                    const dist = Math.round(calcHaversineMeters(
+                        userCurrentPosition.latitude,
+                        userCurrentPosition.longitude,
+                        punchSettings.company_lat,
+                        punchSettings.company_lon
+                    ));
+
+                    const maxAllowed = punchSettings.radius + Math.min(Math.max(0, userCurrentPosition.accuracy), 30);
+
+                    if (dist <= maxAllowed) {
+                        radarWrap.className = 'radar-wrap success';
+                        statusCard.className = 'gps-status-card in-range';
+                        statusTitle.textContent = 'أنت الآن داخل نطاق العمل المعتمد ✅';
+                        statusDesc.textContent = `المسافة الحالية: ${dist}م (المسموح حتى: ${punchSettings.radius}م)`;
+                        if (mainBtn) mainBtn.disabled = false;
+                    } else {
+                        radarWrap.className = 'radar-wrap danger';
+                        statusCard.className = 'gps-status-card out-range';
+                        statusTitle.textContent = 'أنت خارج نطاق مقر العمل 📍';
+                        statusDesc.textContent = `المسافة الحالية: ${dist}م (المسموح حتى: ${punchSettings.radius}م)`;
+                        if (mainBtn) mainBtn.disabled = true;
+                    }
+                },
+                (err) => {
+                    if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+                    isLocating = false;
+                    radarWrap.className = 'radar-wrap danger';
+                    statusCard.className = 'gps-status-card out-range';
+                    let msg = 'تعذر الحصول على إحداثيات الموقع';
+                    if (err.code === 1) msg = 'تم رفض الإذن بالوصول للموقع. يرجى تفعيله من إعدادات المتصفح.';
+                    else if (err.code === 2) msg = 'تعذر التقاط إشارة GPS. تأكد من فتح الموقع في الهاتف.';
+                    else if (err.code === 3) msg = 'استغرق تحديد الموقع وقتاً طويلاً. اضغط زر التحديث.';
+                    statusTitle.textContent = 'تعذر تحديد الموقع';
+                    statusDesc.textContent = msg;
+                    if (mainBtn) mainBtn.disabled = true;
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+
+        function getPortalDeviceUUID() {
+            let id = localStorage.getItem('portal_device_uuid');
+            if (!id) {
+                id = 'dev-' + Math.random().toString(36).substring(2, 10) + '-' + Date.now().toString(36);
+                localStorage.setItem('portal_device_uuid', id);
+            }
+            return id;
+        }
+
+        async function executePunchRequest(pos) {
+            const mainBtn = document.getElementById('mainPunchBtn');
+            const iconEl = document.getElementById('mainPunchIcon');
+            const textEl = document.getElementById('mainPunchBtnText');
+
+            mainBtn.disabled = true;
+            if (iconEl) iconEl.className = 'fas fa-spinner fa-spin punch-fingerprint-icon';
+            if (textEl) textEl.textContent = 'جاري التحقق والتوثيق...';
+
+            try {
+                const payload = {
+                    punch_type: currentPunchMode,
+                    latitude: pos ? pos.latitude : null,
+                    longitude: pos ? pos.longitude : null,
+                    accuracy: pos ? pos.accuracy : null,
+                    timestamp: pos && pos.timestamp ? pos.timestamp : Date.now(),
+                    device_uuid: pos && pos.device_uuid ? pos.device_uuid : getPortalDeviceUUID()
+                };
+
+                const res = await fetch('/portal/api/punch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    showPortalAlert(
+                        `تم تسجيل بصمة ${data.punch_type} بنجاح ✅`,
+                        `تم توثيق بصمتك في تمام الساعة ${data.punch_time}.\nشكراً لالتزامك!`,
+                        'success'
+                    );
+                    showToast(`تم تسجيل بصمة ${data.punch_type} بنجاح (${data.punch_time})`, 'success', 'البصمة الذاتية');
+                    await loadPunchStatus();
+                    loadMyData();
+                } else {
+                    showPortalAlert('تعذر تسجيل البصمة', data.message || 'حدث خطأ أثناء معالجة البصمة', 'error');
+                }
+            } catch (err) {
+                console.error('Punch error:', err);
+                showPortalAlert('خطأ في الاتصال', 'تعذر الاتصال بالسيرفر لتسجيل البصمة، يرجى المحاولة لاحقاً', 'error');
+            } finally {
+                mainBtn.disabled = false;
+                setPunchMode(currentPunchMode);
+            }
+        }
+
+        async function doPortalPunch() {
+            const mainBtn = document.getElementById('mainPunchBtn');
+            const iconEl = document.getElementById('mainPunchIcon');
+            const textEl = document.getElementById('mainPunchBtnText');
+
+            if (!punchSettings.enabled) {
+                showPortalAlert('البصمة الذاتية معطلة', 'تسجيل البصمة الذاتية غير مفعّل وفق سياسة الشركة حالياً.', 'error');
+                return;
+            }
+
+            mainBtn.disabled = true;
+            if (iconEl) iconEl.className = 'fas fa-spinner fa-spin punch-fingerprint-icon';
+
+            // IF GEOFENCE IS ACTIVE: ALWAYS acquire a fresh, un-cached GPS reading at this exact moment!
+            if (isGeofenceActive()) {
+                if (!navigator.geolocation) {
+                    showPortalAlert('الموقع غير مدعوم', 'متصفحك لا يدعم نظام تحديد الموقع GPS.', 'error');
+                    mainBtn.disabled = false;
+                    setPunchMode(currentPunchMode);
+                    return;
+                }
+
+                if (textEl) textEl.textContent = 'جاري التحقق اللحظي من موقعك (GPS)...';
+
+                navigator.geolocation.getCurrentPosition(
+                    async (pos) => {
+                        const freshPos = {
+                            latitude: pos.coords.latitude,
+                            longitude: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy || 10,
+                            timestamp: pos.timestamp || Date.now(),
+                            device_uuid: getPortalDeviceUUID()
+                        };
+                        userCurrentPosition = freshPos;
+                        checkUserLocation();
+                        await executePunchRequest(freshPos);
+                    },
+                    (err) => {
+                        mainBtn.disabled = false;
+                        setPunchMode(currentPunchMode);
+
+                        let msg = 'يرجى السماح للمتصفح بالوصول لموقعك الجغرافي لتسجيل البصمة اللحظية.';
+                        if (err.code === 1) msg = 'تم رفض إذن الوصول للموقع. يرجى تفعيله من إعدادات المتصفح.';
+                        else if (err.code === 2) msg = 'تعذر التقاط إشارة GPS. تأكد من فتح الموقع في الهاتف.';
+                        else if (err.code === 3) msg = 'استغرق تحديد الموقع وقتاً طويلاً. يرجى إعادة المحاولة.';
+                        showPortalAlert('الموقع الجغرافي مطلوب', msg, 'error');
+                    },
+                    { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 }
+                );
+                return;
+            }
+
+            // If geofence is not required by policy:
+            if (textEl) textEl.textContent = 'جاري توثيق البصمة...';
+            const freshPayload = {
+                latitude: null,
+                longitude: null,
+                accuracy: null,
+                timestamp: Date.now(),
+                device_uuid: getPortalDeviceUUID()
+            };
+            await executePunchRequest(freshPayload);
+        }
+
+        // Clock ticker initialization
+        setInterval(updatePunchClock, 1000);
+        updatePunchClock();
+
+        // Service Worker registration for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/portal/sw.js')
+                    .then(reg => console.log('Portal PWA ServiceWorker registered'))
+                    .catch(err => console.log('PWA ServiceWorker error:', err));
+            });
+        }
+
+        // Initial Load
+        loadMyData();
+        {% if is_manager %}
+        loadTeamData();
+        {% endif %}
+    </script>
+</body>
+</html>

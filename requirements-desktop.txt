@@ -1,0 +1,9 @@
+# إضافات مُشغِّل سطح المكتب على ويندوز (launcher.py وbuild_app.py) فقط.
+#
+# تُثبَّت فوق requirements.txt عند بناء المثبِّت:
+#   pip install -r requirements.txt -r requirements-desktop.txt
+#
+# ولا تدخل صورة Docker: الحاوية بلا شاشة، وهذه مكتبات واجهة رسومية.
+customtkinter
+Pillow
+pystray

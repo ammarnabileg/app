@@ -16,9 +16,19 @@
 .stg-live { color: var(--ledger-dark); font-size: .78rem; font-weight: 600; }
 </style>
 <div class="container-fluid stg-page">
-    <div class="pt-3 pb-2 mb-3 border-bottom">
-        <div><h1 class="h2"><i class="fas fa-sliders-h me-2"></i>{{ _('header.system_settings') }}</h1>
-        <div class="report-desc">{{ _('x.settings_page_desc') }}</div></div>
+    <div class="pt-3 pb-2 mb-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h1 class="h2"><i class="fas fa-sliders-h me-2"></i>{{ _('header.system_settings') }}</h1>
+            <div class="report-desc">{{ _('x.settings_page_desc') }}</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('branch.branches_list') }}" class="btn btn-outline-primary fw-bold">
+                <i class="fas fa-code-branch me-1"></i> إدارة الفروع والـ GPS
+            </a>
+            <a href="{{ url_for('main.setup_wizard') }}" class="btn btn-outline-success fw-bold">
+                <i class="fas fa-wand-magic-sparkles me-1"></i> تشغيل معالج التهيئة السريع
+            </a>
+        </div>
     </div>
 
     <form method="POST" action="{{ url_for('main.update_settings') }}">
@@ -95,6 +105,85 @@
                         <div class="col-md-4"><label class="form-label">{{ _('label.attendance_grace_minutes') }}</label><input type="number" step="1" class="form-control" name="grace_late_minutes" value="{{ sal.get('grace_late_minutes', '10') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.grace_early_minutes') }}</label><input type="number" step="1" class="form-control" name="grace_early_minutes" value="{{ sal.get('grace_early_minutes', '5') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.early_departure_grace_minutes') }}</label><input type="number" step="1" class="form-control" name="early_departure_grace_minutes" value="{{ sal.get('early_departure_grace_minutes', '5') }}"></div>
                     </div>
                 </div>
+
+                <!-- بطاقة إعدادات بصمة بوابة الموظف الذاتية (Mobile GPS Attendance) -->
+                <div class="card border-primary" style="border-width: 2px;">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-mobile-screen-button text-primary me-2"></i>
+                            <strong>بصمة بوابة الموظف الذاتية (Mobile / GPS Punch)</strong>
+                        </div>
+                        <span class="badge bg-primary">جديد الحماية</span>
+                    </div>
+                    <div class="card-body row g-3">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch p-2 bg-light rounded border">
+                                <input class="form-check-input ms-0 me-2" type="checkbox" id="portalAttendanceSwitch" name="portal_attendance_enabled" value="1"
+                                       {% if sal.get('portal_attendance_enabled', '0') == '1' %}checked{% endif %}>
+                                <label class="form-check-label fw-bold" for="portalAttendanceSwitch">
+                                    تفعيل البصمة الذاتية من البوابة
+                                </label>
+                                <div class="form-text mt-1 text-muted" style="font-size: 0.78rem;">
+                                    عند الإيقاف، لن يتمكن الموظفون من تسجيل البصمة عبر هواتفهم وتقتصر على أجهزة البصمة المعتمدة.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="form-check form-switch p-2 bg-light rounded border">
+                                <input class="form-check-input ms-0 me-2" type="checkbox" id="geofenceSwitch" name="portal_attendance_geofence_enabled" value="1"
+                                       {% if sal.get('portal_attendance_geofence_enabled', '1') == '1' %}checked{% endif %}>
+                                <label class="form-check-label fw-bold" for="geofenceSwitch">
+                                    تفعيل الحماية بالنطاق الجغرافي (GPS)
+                                </label>
+                                <div class="form-text mt-1 text-muted" style="font-size: 0.78rem;">
+                                    منع البصمة إذا كان الموظف خارج النطاق الجغرافي لمقر الشركة.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12" id="portalLocationSettings">
+                            <div class="p-3 rounded" style="background: #f8f9fa; border: 1px dashed #ced4da;">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <label class="form-label mb-0 fw-bold"><i class="fas fa-map-marker-alt text-danger me-1"></i> إحداثيات مقر العمل والنطاق المسموح</label>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="captureCurrentLocation()">
+                                        <i class="fas fa-crosshairs me-1"></i> التقاط موقعي الحالي كمقر للشركة
+                                    </button>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-4">
+                                        <label class="small text-muted">خط العرض (Latitude)</label>
+                                        <input type="text" class="form-control form-control-sm" name="company_latitude" id="companyLatitude"
+                                               value="{{ sal.get('company_latitude', '') }}" placeholder="مثال: 29.3759">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="small text-muted">خط الطول (Longitude)</label>
+                                        <input type="text" class="form-control form-control-sm" name="company_longitude" id="companyLongitude"
+                                               value="{{ sal.get('company_longitude', '') }}" placeholder="مثال: 47.9774">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="small text-muted">نصف القطر المسموح (بالمتر)</label>
+                                        <input type="number" min="20" max="5000" step="10" class="form-control form-control-sm" name="geofence_radius_meters"
+                                               value="{{ sal.get('geofence_radius_meters', '150') }}">
+                                    </div>
+                                    <div class="col-md-6 mt-2">
+                                        <label class="small text-muted">الحد الأدنى للمدة بين البصمتين (بالدقائق)</label>
+                                        <input type="number" min="1" max="60" step="1" class="form-control form-control-sm" name="portal_attendance_cooldown_minutes"
+                                               value="{{ sal.get('portal_attendance_cooldown_minutes', '5') }}">
+                                        <div class="form-text text-muted" style="font-size: 0.75rem;">لمنع تكرار البصمة بالخطأ خلال فترة وجيزة.</div>
+                                    </div>
+                                    <div class="col-md-6 mt-2">
+                                        <label class="small text-muted">شبكة واي فاي / عناوين IP المعتمدة (اختياري)</label>
+                                        <input type="text" class="form-control form-control-sm" name="portal_attendance_allowed_ips"
+                                               value="{{ sal.get('portal_attendance_allowed_ips', '') }}" placeholder="مثال: 192.168.1.* أو 41.23.45.67">
+                                        <div class="form-text text-muted" style="font-size: 0.75rem;">لقفل البصمة على شبكة واي فاي الشركة فقط مع الـ GPS (حماية مضاعفة).</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-header"><i class="fas fa-business-time me-2"></i>{{ _('header.overtime_settings') }}</div>
                     <div class="card-body row g-3">
@@ -260,5 +349,23 @@ document.addEventListener('DOMContentLoaded', function () {
         psync();
     }
 });
+
+function captureCurrentLocation() {
+    if (!navigator.geolocation) {
+        alert('المتصفح لا يدعم تحديد الموقع الجغرافي');
+        return;
+    }
+    navigator.geolocation.getCurrentPosition(
+        function (pos) {
+            document.getElementById('companyLatitude').value = pos.coords.latitude.toFixed(6);
+            document.getElementById('companyLongitude').value = pos.coords.longitude.toFixed(6);
+            alert('تم التقاط إحداثيات موقعك الحالي بنجاح: ' + pos.coords.latitude.toFixed(6) + ', ' + pos.coords.longitude.toFixed(6));
+        },
+        function (err) {
+            alert('تعذر تحديد الموقع الجغرافي: ' + err.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
 </script>
 {% endblock %}

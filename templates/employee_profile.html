@@ -10,6 +10,54 @@
     <div id="epBody" class="text-muted">{{ _('x.eh_pick') }}</div>
 </div>
 
+<!-- Portal Reset Link Modal -->
+<div class="modal fade" id="portalLinkModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-primary">
+                    <i class="fas fa-key me-2 text-warning"></i>رابط تفعيل ودخول بوابة الموظف
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-3">
+                <div class="d-flex align-items-center gap-3 p-3 bg-light rounded-3 mb-3">
+                    <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.2rem;">
+                        <i class="fas fa-user-shield"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold fs-6" id="modalEmpName">—</div>
+                        <small class="text-muted">اسم المستخدم للدخول: <code class="fw-bold text-dark" id="modalUsername">—</code></small>
+                    </div>
+                </div>
+                
+                <p class="small text-muted mb-2">
+                    الرابط مخصص وآمن وصالح لمرة واحدة لمدة <b>48 ساعة</b>. يُمكن للموظف فتح الرابط على هاتفه وتعيين كلمة مروره والدخول فوراً لبوابة الموظف.
+                </p>
+                
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">رابط الدخول والتفعيل:</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control font-monospace form-control-sm" id="modalLinkInput" readonly>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="copyModalLink()">
+                            <i class="fas fa-copy me-1"></i> نسخ
+                        </button>
+                    </div>
+                    <div class="text-success small mt-1 fw-bold" id="modalCopySuccess" style="display:none;">
+                        <i class="fas fa-check-circle me-1"></i> تم نسخ الرابط بنجاح!
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <a href="#" target="_blank" class="btn btn-success w-100 py-2 fw-bold" id="modalWhatsappBtn">
+                    <i class="fab fa-whatsapp me-2 fs-5 align-middle"></i> إرسال الرابط عبر واتساب للموظف
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+
 <script>
     const EPT = {
         dept: {{ _('x.department')|tojson }},
@@ -261,6 +309,7 @@
                 if (!res.success) { box.innerHTML = esc(res.message || ''); return; }
                 const e = res.employee, b = res.leave_balance, eos = res.eos;
                 const ss = res.salary_structure;
+                const u = res.user_account;
                 const openLoans = (res.loans || []).filter(l => l.status === 'active');
                 const ol = { count: openLoans.length,
                              total: openLoans.reduce((s, l) => s + (l.remaining || 0), 0) };
@@ -286,6 +335,9 @@
                                 — <b>${esc(EPT.monthlyTotal)}: ${num(ss.monthly_total)}</b>
                             </div>` : ''}
                             <div class="mt-3 d-flex flex-wrap gap-2">
+                                <a class="btn btn-sm btn-outline-success" href="/employees/edit/${id}#account">
+                                    <i class="fas fa-user-shield me-1"></i>الصلاحيات ورابط الدخول
+                                </a>
                                 ${CAN_SALARY ? `<a class="btn btn-sm btn-outline-primary" target="_blank"
                                     href="${HIST_URL}?employee_id=${id}">
                                     <i class="fas fa-file-invoice-dollar me-1"></i>${esc(EPT.historyLink)}</a>` : ''}
@@ -311,6 +363,51 @@
                                 <div class="col-6 fs-5">${esc(EPT.balance)}: <b>${num(b.balance)}</b></div>
                             </div>
                         </div></div>
+                    </div>
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm rounded-3" style="background: linear-gradient(135deg, #f8faff 0%, #f0f4fd 100%); border-inline-start: 4px solid ${u ? (u.is_active ? '#198754' : '#dc3545') : '#ffc107'} !important;">
+                            <div class="card-body py-3">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center ${u ? (u.is_active ? 'bg-success text-white' : 'bg-danger text-white') : 'bg-warning text-dark'}" style="width:46px; height:46px; font-size:1.25rem;">
+                                            <i class="fas ${u ? 'fa-user-shield' : 'fa-user-plus'}"></i>
+                                        </div>
+                                        <div>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <h6 class="mb-0 fw-bold">حساب بوابة الموظف الذاتية (Portal Access)</h6>
+                                                ${u ? (u.is_active ? '<span class="badge bg-success"><i class="fas fa-check-circle me-1"></i>حساب نشط</span>'
+                                                                   : '<span class="badge bg-danger"><i class="fas fa-ban me-1"></i>معطّل</span>')
+                                                    : '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-circle me-1"></i>غير مفعل بعد</span>'}
+                                            </div>
+                                            <div class="small text-muted mt-1">
+                                                ${u ? `اسم الدخول: <code class="fw-bold text-dark px-1 bg-white rounded border">${esc(u.username)}</code> • الرتبة: <span class="badge bg-light text-dark border">${esc(u.role === 'admin' ? 'مدير عام' : (u.role === 'department_manager' ? 'مدير قسم' : 'موظف بوابة'))}</span> • الأدوار: <span class="text-secondary">${esc(u.roles_list || 'افتراضي')}</span>`
+                                                    : `لا يمتلك الموظف حساباً حالياً. يمكنك تفعيله فوراً بنقرة واحدة لإنشاء حسابه وتوليد رابط الدخول.`}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+                                        ${u ? `
+                                            <button type="button" class="btn btn-sm btn-primary shadow-sm" onclick="generatePortalLink(${id}, '${esc(e.arabic_name || e.name)}', '${esc(u.username)}')">
+                                                <i class="fas fa-key me-1"></i>توليد رابط كلمة المرور / واتساب
+                                            </button>
+                                            <button type="button" class="btn btn-sm ${u.is_active ? 'btn-outline-danger' : 'btn-outline-success'}" onclick="toggleAccountStatus(${id})">
+                                                <i class="fas ${u.is_active ? 'fa-ban' : 'fa-check'} me-1"></i>${u.is_active ? 'تعطيل الحساب' : 'تفعيل الحساب'}
+                                            </button>
+                                            <a class="btn btn-sm btn-outline-secondary" href="/employees/edit/${id}#account">
+                                                <i class="fas fa-sliders-h me-1"></i>الصلاحيات
+                                            </a>
+                                        ` : `
+                                            <button type="button" class="btn btn-sm btn-success shadow-sm px-3 fw-bold" onclick="generatePortalLink(${id}, '${esc(e.arabic_name || e.name)}', '${esc(e.employee_number)}')">
+                                                <i class="fas fa-magic me-1"></i>⚡ تفعيل الحساب وتوليد الرابط فوراً
+                                            </button>
+                                            <a class="btn btn-sm btn-outline-primary" href="/employees/edit/${id}#account">
+                                                <i class="fas fa-user-cog me-1"></i>تخصيص الصلاحيات يدوياً
+                                            </a>
+                                        `}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="col-12">
                         <div class="card"><div class="card-header d-flex align-items-center gap-2">
@@ -373,6 +470,58 @@
                 }
             });
     }
+    function generatePortalLink(empId, empName, username) {
+        document.getElementById('modalEmpName').textContent = empName || '';
+        document.getElementById('modalUsername').textContent = username || '';
+        document.getElementById('modalLinkInput').value = 'جاري التوليد...';
+        document.getElementById('modalCopySuccess').style.display = 'none';
+        
+        const modalEl = document.getElementById('portalLinkModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+
+        fetch(`/api/employees/${empId}/generate-reset-link`, { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    document.getElementById('modalLinkInput').value = res.link;
+                    document.getElementById('modalUsername').textContent = res.username;
+                    const encodedMsg = encodeURIComponent(res.whatsapp_msg);
+                    document.getElementById('modalWhatsappBtn').href = `https://api.whatsapp.com/send?text=${encodedMsg}`;
+                    // Reload profile to reflect new account status if it was just created
+                    epLoad();
+                } else {
+                    document.getElementById('modalLinkInput').value = 'خطأ: ' + (res.message || 'فشل توليد الرابط');
+                }
+            })
+            .catch(err => {
+                document.getElementById('modalLinkInput').value = 'فشل الاتصال بالسيرفر';
+            });
+    }
+
+    function copyModalLink() {
+        const inp = document.getElementById('modalLinkInput');
+        if (!inp.value || inp.value.startsWith('جاري') || inp.value.startsWith('خطأ') || inp.value.startsWith('فشل')) return;
+        navigator.clipboard.writeText(inp.value).then(() => {
+            const al = document.getElementById('modalCopySuccess');
+            al.style.display = 'block';
+            setTimeout(() => { al.style.display = 'none'; }, 3000);
+        });
+    }
+
+    function toggleAccountStatus(empId) {
+        if (!confirm('هل تريد تغيير حالة تفعيل حساب هذا الموظف؟')) return;
+        fetch(`/api/employees/${empId}/toggle-account-status`, { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    epLoad();
+                } else {
+                    alert(res.message || 'حدث خطأ');
+                }
+            });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         if (document.getElementById('epEmp').value) epLoad();
     });

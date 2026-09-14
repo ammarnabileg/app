@@ -1,0 +1,97 @@
+# ============================================================
+#  نشر المستأجرين على Coolify.
+#
+#  ملف مستقلّ عن docker-compose.yml، ولا يحلّ محلّه: ذاك للتركيب
+#  اليدوي على مضيف واحد، وهذا لـ Coolify. الفرق بينهما سطران لا
+#  أكثر، لكنّهما السطران اللذان يمنعان العميل الثاني من العمل.
+#
+#  ما حُذف ولماذا:
+#
+#   1. ports:
+#      الملف الأصلي ينشر "${WEB_PORT:-5000}:5000" و
+#      "${ADMS_PORT:-8081}:8081" على المضيف. مستأجران بلا ضبط
+#      يطلبان المنفذ نفسه، فيفشل الثاني بـ
+#      "port is already allocated" — تحقّقتُ من ذلك بـ
+#      `docker compose config` على نسختين: كلتاهما تُصدر
+#      published: "8081".
+#      وهنا لا حاجة إليها أصلًا: وسيط Coolify يصل الحاويات على
+#      شبكتها الداخلية ويوجّه بالدومين. ونشرُ المنفذ فوق ذلك يفتح
+#      مسارًا ثانيًا غير مشفَّر يتخطّى الوسيط وشهادته.
+#
+#   2. container_name:
+#      اسم الحاوية فريد على مستوى المضيف كلّه. تركُ التسمية
+#      لـ Coolify يجعل التصادم مستحيلًا بدل أن يعتمد على أن
+#      COMPANY مضبوط ومختلف في كل مرة.
+#
+#  ما بقي كما هو: البناء من المستودع، والتخزين المشترك بين الخدمات
+#  الثلاث، وفحوص الصحة، وترتيب الإقلاع.
+# ============================================================
+
+services:
+  hr_web:
+    build: .
+    restart: unless-stopped
+    # يبقى داخليًّا: الوسيط يصل إليه على شبكة Docker، ولا يُنشر
+    # على المضيف. Coolify يوجّه الدومين إلى هذا المنفذ.
+    expose:
+      - "5000"
+    volumes:
+      - hr_data:/app/data
+    environment:
+      - FLASK_ENV=production
+      - HR_DATA_DIR=/app/data
+      - APP_PORT=5000
+      - TZ=${TZ:-Asia/Kuwait}
+      - COMPANY_NAME=${COMPANY_NAME:-tenant}
+    command: python app.py
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/login"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+  hr_sync:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - hr_data:/app/data
+    environment:
+      - HR_DATA_DIR=/app/data
+      - TZ=${TZ:-Asia/Kuwait}
+      - COMPANY_NAME=${COMPANY_NAME:-tenant}
+    command: python fingerprint_sync.py
+    depends_on:
+      hr_web:
+        condition: service_healthy
+
+  hr_adms:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "8081"
+    volumes:
+      - hr_data:/app/data
+    environment:
+      - HR_DATA_DIR=/app/data
+      - ADMS_PORT=8081
+      - TZ=${TZ:-Asia/Kuwait}
+      - COMPANY_NAME=${COMPANY_NAME:-tenant}
+    command: python adms_server.py
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:8081/iclock/cdata?SN=healthcheck' -o /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+    depends_on:
+      hr_web:
+        condition: service_healthy
+
+volumes:
+  # تخزين واحد تتشاركه الخدمات الثلاث. Coolify يسبق اسمه بمعرّف
+  # التطبيق، فلكلّ مستأجر تخزينه الخاصّ دون إعداد إضافي.
+  #
+  # فيه قاعدة بيانات العميل (SQLite) ومعرّف التركيب .instance_id
+  # الذي يرتبط به ترخيصه. حذفه يمحو بياناته ويُبطل ترخيصه معًا.
+  hr_data:

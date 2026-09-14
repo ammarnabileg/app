@@ -31,7 +31,7 @@ def get_system_settings():
         return {}
 
 def get_currency_settings(conn):
-    """جلب إعدادات العملة من قاعدة البيانات"""
+    """جلب إعدادات العملة من قاعدة البيانات مع الضبط الافتراضي للكويت"""
     try:
         settings = conn.execute('''
             SELECT currency_symbol, currency_name 
@@ -41,18 +41,18 @@ def get_currency_settings(conn):
         
         if settings:
             return {
-                'symbol': settings['currency_symbol'] or '',
-                'name': settings['currency_name'] or ''
+                'symbol': settings['currency_symbol'] or 'د.ك',
+                'name': settings['currency_name'] or 'دينار كويتي'
             }
         else:
             return {
-                'symbol': '',
-                'name': ''
+                'symbol': 'د.ك',
+                'name': 'دينار كويتي'
             }
     except:
         return {
-            'symbol': '',
-            'name': ''
+            'symbol': 'د.ك',
+            'name': 'دينار كويتي'
         }
 
 def get_salary_settings_v2(conn):
@@ -145,3 +145,60 @@ def get_default_salary_data(days_worked, total_work_days, total_work_hours):
         'currency': {'symbol': 'د.ك', 'name': 'دينار كويتي'},
         'salary_settings': {}
     }
+
+def get_portal_attendance_settings(conn=None):
+    """جلب إعدادات البصمة الذاتية عبر البوابة وتحديد النطاق الجغرافي"""
+    if conn is None:
+        conn = get_db_connection()
+    try:
+        rows = conn.execute('''
+            SELECT setting_name, setting_value FROM salary_settings_v2
+            WHERE setting_name IN (
+                'portal_attendance_enabled', 'portal_attendance_geofence_enabled',
+                'company_latitude', 'company_longitude', 'geofence_radius_meters',
+                'portal_attendance_cooldown_minutes', 'portal_attendance_allowed_ips'
+            )
+        ''').fetchall()
+        d = {r['setting_name']: r['setting_value'] for r in rows}
+        
+        lat_val = d.get('company_latitude')
+        lon_val = d.get('company_longitude')
+        return {
+            'enabled': d.get('portal_attendance_enabled', '0') == '1',
+            'geofence_enabled': d.get('portal_attendance_geofence_enabled', '1') == '1',
+            'latitude': float(lat_val) if lat_val and lat_val.strip() else None,
+            'longitude': float(lon_val) if lon_val and lon_val.strip() else None,
+            'radius': float(d.get('geofence_radius_meters') or 150),
+            'cooldown_minutes': int(d.get('portal_attendance_cooldown_minutes') or 5),
+            'allowed_ips': (d.get('portal_attendance_allowed_ips') or '').strip()
+        }
+    except Exception as e:
+        print(f"Error reading portal attendance settings: {e}")
+        return {
+            'enabled': False,
+            'geofence_enabled': True,
+            'latitude': None,
+            'longitude': None,
+            'radius': 150,
+            'cooldown_minutes': 5,
+            'allowed_ips': ''
+        }
+
+def calculate_haversine_distance(lat1, lon1, lat2, lon2):
+    """
+    حساب المسافة الجغرافية بالكيلومترات/الأمتار بدقة عالية باستخدام معادلة Haversine
+    Returns distance in meters.
+    """
+    import math
+    R = 6371000  # نصف قطر الأرض بالمتر
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    
+    a = math.sin(delta_phi / 2.0) ** 2 + \
+        math.cos(phi1) * math.cos(phi2) * \
+        math.sin(delta_lambda / 2.0) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    
+    return R * c

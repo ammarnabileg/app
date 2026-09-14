@@ -1,3 +1,9 @@
+# متطلبات الخادم. هذا الملف وحده ما يُثبَّت داخل صورة Docker لكل مستأجر.
+#
+# مكتبات الواجهة الرسومية (customtkinter وPillow وpystray) ليست هنا عمدًا:
+# يحتاجها launcher.py على ويندوز فقط، وإدخالها هنا يحشو صورة كل عميل
+# بمكتبات رسومية لا تعمل أصلًا في حاوية بلا شاشة. مكانها
+# requirements-desktop.txt.
 Flask==2.3.3
 Werkzeug==2.3.7
 Jinja2==3.1.2
@@ -12,3 +18,7 @@ oracledb
 requests
 flask_babel
 pandas
+# خادم إنتاج بدل خادم التطوير المدمج في Flask
+waitress>=3.0.0
+# قوالب عقود Word
+docxtpl
