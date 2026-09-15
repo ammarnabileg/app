@@ -136,6 +136,8 @@ from routes.portal_routes import portal_bp
 app.register_blueprint(portal_bp)
 from routes.branch_routes import branch_bp
 app.register_blueprint(branch_bp)
+from routes.backup_routes import backup_bp
+app.register_blueprint(backup_bp)
 
 # --- Internationalization (i18n) Setup ---
 from flask_babel import Babel

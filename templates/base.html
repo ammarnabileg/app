@@ -979,6 +979,15 @@
                                         </a>
                                     </li>
                                     {% endif %}
+                                    {# النسخ الاحتياطي: للمسؤول وحده، والمسار نفسه يتحقّق
+                                       من ذلك ولا يكتفي بإخفاء الرابط. #}
+                                    {% if session.get('role') == 'admin' %}
+                                    <li class="nav-item">
+                                        <a class="nav-link py-2 text-dark" href="{{ url_for('backup.index') }}">
+                                            <i class="fas fa-database small me-2"></i>النسخ الاحتياطي
+                                        </a>
+                                    </li>
+                                    {% endif %}
                                 </ul>
                             </div>
                         </li>

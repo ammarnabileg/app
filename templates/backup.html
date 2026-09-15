@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}النسخ الاحتياطي والاستعادة{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1000px;">
+
+  <h3 class="mb-1">النسخ الاحتياطي والاستعادة</h3>
+  <p class="text-muted">
+    قاعدة النظام: {{ tables|length }} جدولًا، حجمها {{ db_size_h }}.
+  </p>
+
+  {# ============ ١) نسخة كاملة ============ #}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">١) نسخة كاملة — وهذه التي تُحتفظ بها</h5>
+      <p class="text-muted mb-3">
+        ملف واحد فيه كل شيء، يُؤخذ كلقطة متّسقة والنظام يعمل. لا تنسخ ملف
+        القاعدة يدويًّا وأنت مشغّل النظام: قد يُنسخ نصفُه قبل عملية
+        ونصفُه بعدها، ولا تكتشف ذلك إلا يوم تحتاجه.
+      </p>
+      <a href="{{ url_for('backup.download_db') }}" class="btn btn-primary">
+        <i class="fas fa-download"></i> نزّل نسخة كاملة (.db)
+      </a>
+      <p class="text-muted small mt-3 mb-0">
+        احفظها خارج هذا الجهاز — قرص خارجي أو تخزين سحابي. نسخةٌ على القرص
+        نفسه تضيع مع القرص.
+      </p>
+    </div>
+  </div>
+
+  {# ============ ٢) نسخة انتقائية ============ #}
+  <form method="POST" action="{{ url_for('backup.download_sql') }}" class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">٢) نسخة نصّية — لجداول بعينها</h5>
+      <p class="text-muted mb-3">
+        ملف <code>.sql</code> يمكن فتحه وقراءته. مفيد لنقل الموظفين وحدهم
+        إلى تركيب آخر، أو للاحتفاظ بجزء دون الباقي.
+      </p>
+
+      <div class="mb-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="bkSel('all')">تحديد الكل</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="bkSel('none')">إلغاء الكل</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="bkSel('data')">غير الفارغة فقط</button>
+      </div>
+
+      <div class="table-responsive border rounded mb-3" style="max-height: 340px; overflow-y: auto;">
+        <table class="table table-sm mb-0">
+          <thead class="thead-light">
+            <tr><th style="width:40px"></th><th>الجدول</th><th style="width:120px">الصفوف</th></tr>
+          </thead>
+          <tbody>
+            {% for t in tables %}
+            <tr class="{% if t.rows == 0 %}text-muted{% endif %}">
+              <td><input type="checkbox" name="tables[]" class="bk-t" value="{{ t.name }}"
+                         data-rows="{{ t.rows }}" checked></td>
+              <td><code dir="ltr">{{ t.name }}</code>
+                  {% if t.sensitive %}<span class="text-warning" title="بيانات حسّاسة">●</span>{% endif %}
+                  {% if t.bound %}<span class="badge badge-light">مرتبط بهذا الجهاز</span>{% endif %}
+              </td>
+              <td>{{ '{:,}'.format(t.rows) if t.rows >= 0 else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="form-inline">
+        <label class="mr-3"><input type="radio" name="mode" value="full" checked> البنية والبيانات</label>
+        <label class="mr-3"><input type="radio" name="mode" value="schema"> البنية فقط</label>
+        <button type="submit" class="btn btn-secondary">نزّل (.sql)</button>
+      </div>
+      <p class="text-muted small mt-2 mb-0">
+        <span class="text-warning">●</span> جداول فيها رواتب أو بيانات دخول.
+      </p>
+    </div>
+  </form>
+
+  {# ============ ٣) الاستعادة ============ #}
+  <div class="card mb-4 border-danger">
+    <div class="card-body">
+      <h5 class="card-title text-danger">٣) الاستعادة من ملف</h5>
+
+      {% if not inspected %}
+        <p class="text-muted mb-3">
+          ارفع ملف <code>.db</code> أو <code>.sql</code> ليُقرأ ويُعرض ما فيه.
+          لا يُنفَّذ منه شيء قبل أن تختار. ملفٌ عمره شهر يمحو شهرًا من
+          الحضور — والنظر فيه أولًا هو الفرق بين قرار ومقامرة.
+        </p>
+        <form method="POST" action="{{ url_for('backup.inspect') }}" enctype="multipart/form-data"
+              class="form-inline">
+          <input type="file" name="backupfile" accept=".db,.sql,.sqlite3" required class="form-control mr-2">
+          <button type="submit" class="btn btn-dark">افحص الملف</button>
+        </form>
+
+      {% else %}
+        <div class="alert alert-secondary">
+          <strong>{{ inspected.name }}</strong> —
+          {{ human_size(inspected.bytes) }} ·
+          {% if inspected.kind == 'db' %}ملف قاعدة كامل{% else %}ملف SQL، {{ inspected.statements }} جملة{% endif %} ·
+          {{ inspected.tables|length }} جدولًا
+        </div>
+
+        {% for w in inspected.warnings %}
+          <div class="alert alert-warning py-2">{{ w }}</div>
+        {% endfor %}
+
+        <form method="POST" action="{{ url_for('backup.restore') }}">
+          <div class="mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="bkSel('all','bk-r')">تحديد الكل</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="bkSel('none','bk-r')">إلغاء الكل</button>
+          </div>
+
+          <div class="table-responsive border rounded mb-3" style="max-height: 340px; overflow-y: auto;">
+            <table class="table table-sm mb-0">
+              <thead class="thead-light">
+                <tr><th style="width:40px"></th><th>الجدول في الملف</th>
+                    <th style="width:120px">صفوف فيه</th><th>ماذا سيحدث</th></tr>
+              </thead>
+              <tbody>
+                {% for t in inspected.tables %}
+                <tr>
+                  <td><input type="checkbox" name="tables" class="bk-r" value="{{ t.name }}"
+                             data-rows="{{ t.rows }}"></td>
+                  <td><code dir="ltr">{{ t.name }}</code>
+                      {% if t.sensitive %}<span class="text-warning">●</span>{% endif %}</td>
+                  <td>{{ '{:,}'.format(t.rows) if t.rows >= 0 else '—' }}</td>
+                  <td class="small text-danger">يُستبدل الجدول الحالي بالكامل</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="alert alert-danger">
+            <p class="mb-2"><strong>الاستعادة تستبدل الجداول المختارة بما في الملف.</strong></p>
+            <p class="mb-3 small">
+              تُؤخذ نسخة كاملة تلقائيًّا قبل التنفيذ وتُحفظ في مجلّد البيانات،
+              فالتراجع ممكن. ومع ذلك: نزّل نسخة من القسم الأول قبل أن تضغط.
+            </p>
+
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="keep_license" value="1"
+                     id="keepLic" checked>
+              <label class="form-check-label" for="keepLic">
+                لا تستعد بيانات الترخيص (مستحسن — ترخيص النسخة مربوط بجهازها،
+                واستعادته هنا تُبطل ترخيصك العامل)
+              </label>
+            </div>
+
+            <div class="form-inline">
+              <label class="mr-2">اكتب «استعادة» للتأكيد:</label>
+              <input type="text" name="confirm" required autocomplete="off"
+                     class="form-control form-control-sm mr-2" style="width:130px">
+              <button type="submit" class="btn btn-danger">نفّذ الاستعادة</button>
+            </div>
+          </div>
+        </form>
+
+        <form method="POST" action="{{ url_for('backup.discard') }}">
+          <button type="submit" class="btn btn-link btn-sm p-0">احذف الملف المرفوع وابدأ من جديد</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script nonce="{{ csp_nonce if csp_nonce is defined else '' }}">
+function bkSel(mode, cls) {
+    var boxes = document.querySelectorAll('.' + (cls || 'bk-t'));
+    Array.prototype.forEach.call(boxes, function (b) {
+        if (mode === 'all')       { b.checked = true; }
+        else if (mode === 'none') { b.checked = false; }
+        else if (mode === 'data') { b.checked = parseInt(b.getAttribute('data-rows') || '0', 10) > 0; }
+    });
+}
+</script>
+{% endblock %}
