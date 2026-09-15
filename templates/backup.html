@@ -21,6 +21,19 @@
       <a href="{{ url_for('backup.download_db') }}" class="btn btn-primary">
         <i class="fas fa-download"></i> نزّل نسخة كاملة (.db)
       </a>
+      {% if att_count %}
+      <a href="{{ url_for('backup.download_archive') }}" class="btn btn-success ms-2">
+        <i class="fas fa-file-zipper"></i> نزّل القاعدة ومعها الملفات (.zip)
+      </a>
+      <div class="alert alert-warning mt-3 mb-0 py-2 px-3 small">
+        <b>ملف .db وحده لا يكفي الآن.</b>
+        عندك {{ att_count }} صورة زيارة ({{ att_size_h }}) تعيش على القرص لا
+        داخل القاعدة. القاعدة تحفظ صفّ الزيارة — زمنها ومكانها وبصمة
+        صورتها — وتترك الصورة نفسها. فمن يستعيد من ملف <code>.db</code>
+        وحده يجد سجلًّا يشير إلى دليلٍ غير موجود. اختر
+        <b>القاعدة ومعها الملفات</b> إن كنت تحتفظ بنسخة الأرشيف.
+      </div>
+      {% endif %}
       <p class="text-muted small mt-3 mb-0">
         احفظها خارج هذا الجهاز — قرص خارجي أو تخزين سحابي. نسخةٌ على القرص
         نفسه تضيع مع القرص.

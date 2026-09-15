@@ -333,3 +333,113 @@ def test_auto_backup_filenames_cannot_escape_the_folder(db, tmp_path):
     for bad in ['../../../etc/passwd', '..%2f..%2fx.db', 'auto-../x.db',
                 'hr_system.db', '', None, 'auto-x.txt']:
         assert r._auto_path(bad) is None
+
+
+# ================================================== الأرشيف الكامل
+# القاعدة تحفظ صفّ زيارة المندوب — زمنها ومكانها وبصمة صورتها — والصورة
+# ملفٌّ على القرص. فنسخة القاعدة وحدها تحفظ الادّعاء وتترك الدليل.
+
+def _with_photos(tmp_path, n=3):
+    """قاعدة اختبار ومعها صور زيارات على القرص."""
+    import importlib
+    import os as _os
+
+    _os.environ['HR_DATA_DIR'] = str(tmp_path)
+    import utils.db as db
+    importlib.reload(db)
+    import utils.backup as b
+    importlib.reload(b)
+    db.init_db()
+
+    photos = tmp_path / 'field_photos' / '2026-09-15'
+    photos.mkdir(parents=True)
+    for i in range(n):
+        (photos / f'v{i}-in.jpg').write_bytes(b'\xff\xd8\xff' + bytes(500))
+    return b
+
+
+def test_the_archive_carries_the_photos_the_database_only_points_at(tmp_path):
+    import zipfile
+
+    b = _with_photos(tmp_path, n=3)
+    dest = str(tmp_path / 'arc.zip')
+    b.archive_zip(dest)
+
+    names = zipfile.ZipFile(dest).namelist()
+    assert 'hr_system.db' in names
+    assert sum(1 for n in names if n.startswith('field_photos/')) == 3
+
+
+def test_the_archived_database_is_a_valid_snapshot(tmp_path):
+    import sqlite3 as s3
+    import zipfile
+
+    b = _with_photos(tmp_path, n=1)
+    dest = str(tmp_path / 'arc.zip')
+    b.archive_zip(dest)
+
+    out = tmp_path / 'out'
+    out.mkdir()
+    zipfile.ZipFile(dest).extract('hr_system.db', str(out))
+    con = s3.connect(str(out / 'hr_system.db'))
+    try:
+        assert con.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+    finally:
+        con.close()
+
+
+def test_no_half_written_archive_is_left_behind(tmp_path):
+    import os as _os
+
+    b = _with_photos(tmp_path, n=2)
+    dest = str(tmp_path / 'arc.zip')
+    b.archive_zip(dest)
+
+    assert _os.path.exists(dest)
+    assert not _os.path.exists(dest + '.part')
+    assert not _os.path.exists(dest + '.db.part')
+
+
+def test_attachments_are_measured_before_they_are_written(tmp_path):
+    b = _with_photos(tmp_path, n=4)
+    size, count = b.attachments_size()
+
+    assert count == 4
+    assert size > 0
+
+
+def test_a_full_disk_is_caught_before_writing(tmp_path, monkeypatch):
+    b = _with_photos(tmp_path, n=1)
+    monkeypatch.setattr(b.shutil, 'disk_usage',
+                        lambda p: type('U', (), {'free': 1024})())
+
+    fits, free = b.archive_fits(10 * 1024 * 1024)
+    assert fits is False and free == 1024
+
+
+def test_an_unreadable_disk_does_not_block_the_archive(tmp_path, monkeypatch):
+    b = _with_photos(tmp_path, n=1)
+
+    def boom(_p):
+        raise OSError('no such device')
+
+    monkeypatch.setattr(b.shutil, 'disk_usage', boom)
+    assert b.archive_fits(1000)[0] is True
+
+
+def test_an_archive_without_photos_still_works(tmp_path):
+    import zipfile
+
+    import importlib
+    import os as _os
+    _os.environ['HR_DATA_DIR'] = str(tmp_path)
+    import utils.db as db
+    importlib.reload(db)
+    import utils.backup as b
+    importlib.reload(b)
+    db.init_db()
+
+    dest = str(tmp_path / 'arc.zip')
+    b.archive_zip(dest)
+    assert zipfile.ZipFile(dest).namelist() == ['hr_system.db']
+    assert b.attachments_size() == (0, 0)

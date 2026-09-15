@@ -38,11 +38,15 @@ def admin_required(f):
 @login_required
 @admin_required
 def index():
+    att_size, att_count = bk.attachments_size()
     return render_template(
         'backup.html',
         tables=bk.list_tables(),
         db_size=bk.database_size(),
         db_size_h=bk.human_size(bk.database_size()),
+        att_size=att_size,
+        att_size_h=bk.human_size(att_size),
+        att_count=att_count,
         inspected=session.get('backup_inspected'),
         human_size=bk.human_size,
         auto=bk.auto_settings(),
@@ -77,6 +81,48 @@ def download_db():
         mimetype='application/x-sqlite3',
         headers={
             'Content-Disposition': f'attachment; filename="{bk.default_name("db")}"',
+            'Content-Length': str(len(data)),
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+        })
+
+
+@backup_bp.route('/download/archive')
+@login_required
+@admin_required
+def download_archive():
+    """القاعدة ومعها الملفات التي تشير إليها.
+
+    صور زيارات المناديب تعيش على القرص لا في القاعدة. فنسخة القاعدة
+    وحدها تحفظ صفّ الزيارة — زمنها ومكانها وبصمة صورتها — وتترك
+    الصورة. ومن يفتحها بعد سنة يجد سجلًّا يشير إلى دليلٍ غير موجود.
+    """
+    os.makedirs(_UPLOAD_DIR, exist_ok=True)
+    tmp = os.path.join(_UPLOAD_DIR, f'arc-{os.getpid()}-{os.urandom(6).hex()}.zip')
+
+    att_bytes, _att_count = bk.attachments_size()
+    fits, free = bk.archive_fits(bk.database_size() + att_bytes)
+    if not fits:
+        flash(f'المساحة لا تكفي للأرشيف (المتاح {bk.human_size(free)}). '
+              'نزّل القاعدة وحدها، أو فرّغ مساحة.', 'error')
+        return redirect(url_for('backup.index'))
+
+    try:
+        bk.archive_zip(tmp)
+        with open(tmp, 'rb') as fh:
+            data = fh.read()
+    except Exception as e:                               # noqa: BLE001
+        flash(f'تعذّر بناء الأرشيف: {e}', 'error')
+        return redirect(url_for('backup.index'))
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+    return Response(
+        data,
+        mimetype='application/zip',
+        headers={
+            'Content-Disposition': f'attachment; filename="{bk.default_name("zip")}"',
             'Content-Length': str(len(data)),
             'Cache-Control': 'no-store',
             'X-Content-Type-Options': 'nosniff',

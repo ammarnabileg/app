@@ -369,6 +369,43 @@ def monitor():
                            is_admin=_is_admin())
 
 
+@field_bp.route('/field/setup')
+@login_required
+def setup():
+    """إدارة المحطات وخطة اليوم — لمسؤول النظام.
+
+    الصفحة تُعرض للمسؤول وحده، ومسارات الكتابة تتحقّق من ذلك بنفسها؛
+    إخفاء الشاشة ليس صلاحية.
+    """
+    if not _is_admin():
+        return render_template('field_setup.html', denied=True,
+                               employees=[], today=''), 403
+
+    conn = get_db_connection()
+    field.init_schema(conn)
+    employees = conn.execute(
+        'SELECT id, name, employee_number FROM employees WHERE is_active = 1 '
+        'ORDER BY name').fetchall()
+    return render_template('field_setup.html', denied=False,
+                           employees=[dict(e) for e in employees],
+                           today=datetime.now().strftime('%Y-%m-%d'))
+
+
+@field_bp.route('/api/field/station/<int:station_id>', methods=['DELETE'])
+@login_required
+def api_station_delete(station_id):
+    """تعطيل لا حذف: الزيارات المسجّلة تشير إلى المحطة، وحذفها يترك
+    تاريخًا بلا أسماء."""
+    denied = _admin_only()
+    if denied:
+        return denied
+
+    conn = get_db_connection()
+    conn.execute('UPDATE field_stations SET is_active = 0 WHERE id = ?', (station_id,))
+    conn.commit()
+    return jsonify({'success': True})
+
+
 @field_bp.route('/api/field/reps')
 @login_required
 def api_reps():

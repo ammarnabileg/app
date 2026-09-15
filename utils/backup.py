@@ -116,6 +116,78 @@ def default_name(ext):
     return f"hr-backup-{datetime.now().strftime('%Y-%m-%d-%H%M%S')}.{ext}"
 
 
+# -------------------------------------------------- الملفات خارج القاعدة
+
+def _attachment_dirs():
+    """مجلدات فيها ملفات لا تعيشُ في القاعدة.
+
+    صور زيارات المناديب مثالها: القاعدة تحمل بصمة كل صورة ومكانها
+    وزمنها، والصورة نفسها ملفٌّ على القرص. فنسخةٌ للقاعدة وحدها تحفظ
+    الادّعاء وتترك الدليل — وهو أسوأ من الاثنين معًا، لأن من يفتحها
+    يظنّ أنه نسخ كل شيء.
+    """
+    base = _data_dir()
+    return [('field_photos', os.path.join(base, 'field_photos'))]
+
+
+def attachments_size():
+    total, count = 0, 0
+    for _label, path in _attachment_dirs():
+        for root, _dirs, files in os.walk(path):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                    count += 1
+                except OSError:
+                    pass
+    return total, count
+
+
+def archive_zip(dest_path, with_attachments=True):
+    """أرشيف كامل: لقطة القاعدة + الملفات المرتبطة بها.
+
+    اللقطة لا الملف الحيّ — للسبب نفسه في snapshot_file.
+    """
+    import zipfile
+
+    tmp_db = dest_path + '.db.part'
+    snapshot_file(tmp_db)
+
+    tmp_zip = dest_path + '.part'
+    try:
+        with zipfile.ZipFile(tmp_zip, 'w', zipfile.ZIP_DEFLATED,
+                             allowZip64=True) as z:
+            z.write(tmp_db, 'hr_system.db')
+            if with_attachments:
+                for label, path in _attachment_dirs():
+                    for root, _dirs, files in os.walk(path):
+                        for f in files:
+                            full = os.path.join(root, f)
+                            rel = os.path.join(label, os.path.relpath(full, path))
+                            try:
+                                z.write(full, rel.replace(os.sep, '/'))
+                            except OSError:
+                                continue      # ملف اختفى أثناء النسخ
+        os.replace(tmp_zip, dest_path)        # لا أرشيف نصفه
+    finally:
+        for p in (tmp_db, tmp_zip):
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+    return dest_path
+
+
+def archive_fits(needed_bytes):
+    """(يتّسع؟، المتاح). القرص الممتلئ يقطع الكتابة في منتصفها."""
+    try:
+        free = shutil.disk_usage(_data_dir()).free
+    except (OSError, NameError):
+        return True, 0
+    return free > needed_bytes * 1.2 + (50 * 1024 * 1024), free
+
+
 def dump_sql(tables=None, with_data=True):
     """يولّد نسخة SQL نصيّة، جدولًا جدولًا.
 

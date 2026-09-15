@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}المحطات وخطة المناديب{% endblock %}
+
+{% block content %}
+{% if denied %}
+  <div class="alert alert-danger">هذه الصفحة لمسؤول النظام.</div>
+{% else %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  .fs-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  @media (max-width:980px){.fs-grid{grid-template-columns:1fr}}
+  #fsMap{height:340px;border-radius:12px;border:1px solid #e3e6ea}
+  .st-row{border:1px solid #e3e6ea;border-radius:10px;padding:9px 12px;margin-bottom:7px;
+    display:flex;gap:10px;align-items:center;background:#fff}
+  .st-row.off{opacity:.55}
+  .st-row .grow{flex:1;min-width:0}
+  .st-row b{display:block;font-size:.93rem}
+  .st-row small{color:#6c757d;font-size:.77rem}
+  .pick{border:1px solid #e3e6ea;border-radius:10px;padding:8px 11px;margin-bottom:6px;
+    display:flex;align-items:center;gap:9px;background:#fff;cursor:pointer}
+  .pick.on{border-color:#0d6efd;background:#f3f8ff}
+  .pick .ord{width:24px;height:24px;border-radius:50%;background:#eef1f4;flex:0 0 24px;
+    display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700}
+  .pick.on .ord{background:#0d6efd;color:#fff}
+  .hint{font-size:.8rem;color:#6c757d}
+</style>
+
+<h3 class="mb-3">المحطات وخطة المناديب</h3>
+
+<ul class="nav nav-tabs mb-3" id="fsTabs">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
+      data-bs-target="#tabStations" type="button">المحطات</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+      data-bs-target="#tabPlan" type="button">خطة اليوم</button></li>
+</ul>
+
+<div class="tab-content">
+  <!-- ------------------------------------------------------ المحطات -->
+  <div class="tab-pane fade show active" id="tabStations">
+    <div class="fs-grid">
+      <div>
+        <div class="card"><div class="card-body">
+          <h6 class="mb-3" id="stFormTitle">محطة جديدة</h6>
+          <input type="hidden" id="stId">
+          <div class="mb-2">
+            <label class="form-label small mb-1">اسم المحطة *</label>
+            <input class="form-control form-control-sm" id="stName" maxlength="120">
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col"><label class="form-label small mb-1">العميل</label>
+              <input class="form-control form-control-sm" id="stCustomer" maxlength="120"></div>
+            <div class="col"><label class="form-label small mb-1">العنوان</label>
+              <input class="form-control form-control-sm" id="stAddress" maxlength="200"></div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col"><label class="form-label small mb-1">خط العرض *</label>
+              <input class="form-control form-control-sm" id="stLat" inputmode="decimal"></div>
+            <div class="col"><label class="form-label small mb-1">خط الطول *</label>
+              <input class="form-control form-control-sm" id="stLon" inputmode="decimal"></div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label small mb-1">نطاق القبول (متر)</label>
+              <input class="form-control form-control-sm" id="stRadius" value="100" inputmode="numeric">
+              <div class="hint">داخل هذا النطاق يُقبل تسجيل الزيارة.</div>
+            </div>
+            <div class="col">
+              <label class="form-label small mb-1">أقلّ وقوف (دقيقة)</label>
+              <input class="form-control form-control-sm" id="stMin" value="0" inputmode="numeric">
+              <div class="hint">صفر = بلا حدّ أدنى.</div>
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-primary btn-sm" id="stSave">حفظ</button>
+            <button class="btn btn-outline-secondary btn-sm" id="stClear">محطة جديدة</button>
+          </div>
+        </div></div>
+
+        <div class="hint mt-2">
+          اضغط على الخريطة لتضع الإحداثيات، أو اسحب العلامة لضبطها.
+        </div>
+        <div id="fsMap" class="mt-2"></div>
+      </div>
+
+      <div>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">المحطات المعرَّفة</h6>
+          <span class="text-muted small" id="stCount"></span>
+        </div>
+        <div id="stList"><div class="text-muted small">…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- --------------------------------------------------- خطة اليوم -->
+  <div class="tab-pane fade" id="tabPlan">
+    <div class="row g-2 mb-3">
+      <div class="col-sm-4">
+        <label class="form-label small mb-1">المندوب</label>
+        <select class="form-select form-select-sm" id="plEmp">
+          <option value="">— اختر —</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}">{{ e.name }}{% if e.employee_number %}
+            ({{ e.employee_number }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label small mb-1">التاريخ</label>
+        <input type="date" class="form-control form-control-sm" id="plDate" value="{{ today }}">
+      </div>
+      <div class="col-sm-5 d-flex align-items-end gap-2">
+        <button class="btn btn-primary btn-sm" id="plSave">حفظ الخطة</button>
+        <button class="btn btn-outline-secondary btn-sm" id="plCopy">نسخ خطة أمس</button>
+        <span class="text-muted small" id="plCount"></span>
+      </div>
+    </div>
+
+    <div class="hint mb-2">
+      اضغط المحطة لإضافتها أو إزالتها. الترتيب هو ترتيب الضغط، وهو ما
+      يظهر للمندوب في شاشته. والحفظ <b>يستبدل</b> خطة اليوم كاملةً.
+    </div>
+    <div id="plList"><div class="text-muted small">اختر مندوبًا أولًا.</div></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (i) { return document.getElementById(i); };
+  var stations = [], picked = [], map, marker, ring;
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+  function note(msg, ok) {
+    var el = document.createElement('div');
+    el.className = 'alert alert-' + (ok === false ? 'danger' : 'success') +
+      ' py-2 px-3 position-fixed';
+    el.style.cssText = 'bottom:16px;inset-inline-start:16px;z-index:3000;font-size:.86rem';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(function () { el.remove(); }, 4000);
+  }
+
+  // ------------------------------------------------------- الخريطة
+
+  function initMap() {
+    map = L.map('fsMap').setView([29.3759, 47.9774], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    map.on('click', function (e) { place(e.latlng.lat, e.latlng.lng); });
+  }
+
+  function place(lat, lon) {
+    $('stLat').value = lat.toFixed(6);
+    $('stLon').value = lon.toFixed(6);
+    if (!marker) {
+      marker = L.marker([lat, lon], { draggable: true }).addTo(map);
+      marker.on('dragend', function () {
+        var p = marker.getLatLng();
+        place(p.lat, p.lng);
+      });
+    } else {
+      marker.setLatLng([lat, lon]);
+    }
+    drawRing();
+  }
+
+  function drawRing() {
+    var lat = parseFloat($('stLat').value), lon = parseFloat($('stLon').value);
+    var r = parseInt($('stRadius').value, 10) || 100;
+    if (isNaN(lat) || isNaN(lon)) { return; }
+    if (ring) { map.removeLayer(ring); }
+    // النطاق يُرى لا يُتخيَّل: مئة متر في حيّ مزدحم تغطّي مبانيَ عدة.
+    ring = L.circle([lat, lon], { radius: r, color: '#0d6efd', fillOpacity: .1 }).addTo(map);
+  }
+  $('stRadius').addEventListener('input', drawRing);
+
+  // -------------------------------------------------------- المحطات
+
+  function loadStations() {
+    return fetch('/api/field/stations').then(function (r) { return r.json(); })
+      .then(function (j) {
+        stations = j.stations || [];
+        paintStations();
+        paintPicker();
+      });
+  }
+
+  function paintStations() {
+    var host = $('stList');
+    $('stCount').textContent = stations.length + ' محطة';
+    if (!stations.length) {
+      host.innerHTML = '<div class="text-muted small">لا محطات بعد.</div>';
+      return;
+    }
+    host.innerHTML = '';
+    stations.forEach(function (s) {
+      var el = document.createElement('div');
+      el.className = 'st-row' + (s.is_active ? '' : ' off');
+      el.innerHTML =
+        '<div class="grow"><b>' + esc(s.name) + '</b><small>' +
+        (s.customer_name ? esc(s.customer_name) + ' · ' : '') +
+        'نطاق ' + s.radius_meters + 'م' +
+        (s.min_minutes ? ' · وقوف ' + s.min_minutes + ' د' : '') +
+        (s.is_active ? '' : ' · معطَّلة') + '</small></div>' +
+        '<button class="btn btn-sm btn-outline-primary" data-a="edit">تعديل</button>' +
+        (s.is_active ? '<button class="btn btn-sm btn-outline-danger" data-a="off">تعطيل</button>' : '');
+
+      el.querySelectorAll('button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (b.dataset.a === 'edit') { edit(s); } else { disable(s); }
+        });
+      });
+      host.appendChild(el);
+    });
+  }
+
+  function edit(s) {
+    $('stFormTitle').textContent = 'تعديل: ' + s.name;
+    $('stId').value = s.id;
+    $('stName').value = s.name || '';
+    $('stCustomer').value = s.customer_name || '';
+    $('stAddress').value = s.address || '';
+    $('stRadius').value = s.radius_meters || 100;
+    $('stMin').value = s.min_minutes || 0;
+    place(s.latitude, s.longitude);
+    map.setView([s.latitude, s.longitude], 16);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function disable(s) {
+    if (!confirm('تعطيل «' + s.name + '»؟ تبقى الزيارات المسجّلة كما هي.')) { return; }
+    fetch('/api/field/station/' + s.id, { method: 'DELETE' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        note(j.success ? 'عُطّلت المحطة' : (j.message || 'تعذّر'), j.success);
+        loadStations();
+      });
+  }
+
+  $('stClear').addEventListener('click', function () {
+    $('stFormTitle').textContent = 'محطة جديدة';
+    ['stId', 'stName', 'stCustomer', 'stAddress', 'stLat', 'stLon'].forEach(
+      function (i) { $(i).value = ''; });
+    $('stRadius').value = 100;
+    $('stMin').value = 0;
+    if (marker) { map.removeLayer(marker); marker = null; }
+    if (ring) { map.removeLayer(ring); ring = null; }
+  });
+
+  $('stSave').addEventListener('click', function () {
+    var body = {
+      id: $('stId').value || null,
+      name: $('stName').value.trim(),
+      customer_name: $('stCustomer').value.trim(),
+      address: $('stAddress').value.trim(),
+      latitude: $('stLat').value,
+      longitude: $('stLon').value,
+      radius_meters: $('stRadius').value,
+      min_minutes: $('stMin').value,
+      is_active: 1
+    };
+    if (!body.name || !body.latitude || !body.longitude) {
+      return note('الاسم والإحداثيات مطلوبة — اضغط على الخريطة', false);
+    }
+    fetch('/api/field/stations', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      note(j.success ? 'حُفظت المحطة' : (j.message || 'تعذّر الحفظ'), j.success);
+      if (j.success) { $('stClear').click(); loadStations(); }
+    });
+  });
+
+  // ------------------------------------------------------ خطة اليوم
+
+  function paintPicker() {
+    var host = $('plList');
+    if (!$('plEmp').value) {
+      host.innerHTML = '<div class="text-muted small">اختر مندوبًا أولًا.</div>';
+      return;
+    }
+    var active = stations.filter(function (s) { return s.is_active; });
+    if (!active.length) {
+      host.innerHTML = '<div class="text-muted small">عرّف محطةً واحدة على الأقل.</div>';
+      return;
+    }
+    host.innerHTML = '';
+    active.forEach(function (s) {
+      var idx = picked.indexOf(s.id);
+      var el = document.createElement('div');
+      el.className = 'pick' + (idx >= 0 ? ' on' : '');
+      el.innerHTML = '<div class="ord">' + (idx >= 0 ? idx + 1 : '+') + '</div>' +
+        '<div class="grow"><b>' + esc(s.name) + '</b>' +
+        (s.customer_name ? ' <span class="text-muted small">' +
+          esc(s.customer_name) + '</span>' : '') + '</div>';
+      el.addEventListener('click', function () {
+        var i = picked.indexOf(s.id);
+        if (i >= 0) { picked.splice(i, 1); } else { picked.push(s.id); }
+        paintPicker();
+      });
+      host.appendChild(el);
+    });
+    $('plCount').textContent = picked.length + ' محطة مختارة';
+  }
+
+  function loadPlan() {
+    var emp = $('plEmp').value, d = $('plDate').value;
+    picked = [];
+    if (!emp) { return paintPicker(); }
+    fetch('/api/field/assignments?employee_id=' + emp + '&date=' + encodeURIComponent(d))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        picked = (j.plan || []).map(function (p) { return p.station_id; });
+        paintPicker();
+      });
+  }
+
+  $('plEmp').addEventListener('change', loadPlan);
+  $('plDate').addEventListener('change', loadPlan);
+
+  $('plSave').addEventListener('click', function () {
+    var emp = $('plEmp').value;
+    if (!emp) { return note('اختر مندوبًا', false); }
+    fetch('/api/field/assignments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: parseInt(emp, 10),
+                             visit_date: $('plDate').value, station_ids: picked })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      note(j.success ? 'حُفظت خطة ' + $('plDate').value + ' (' + j.count + ' محطة)'
+                     : (j.message || 'تعذّر'), j.success);
+    });
+  });
+
+  $('plCopy').addEventListener('click', function () {
+    var emp = $('plEmp').value;
+    if (!emp) { return note('اختر مندوبًا', false); }
+    var d = new Date($('plDate').value);
+    d.setDate(d.getDate() - 1);
+    var y = d.toISOString().slice(0, 10);
+    fetch('/api/field/assignments?employee_id=' + emp + '&date=' + y)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var got = (j.plan || []).map(function (p) { return p.station_id; });
+        if (!got.length) { return note('لا خطة في ' + y, false); }
+        picked = got;
+        paintPicker();
+        note('نُسخت ' + got.length + ' محطة من ' + y + ' — اضغط «حفظ الخطة»');
+      });
+  });
+
+  initMap();
+  loadStations();
+})();
+</script>
+{% endif %}
+{% endblock %}
