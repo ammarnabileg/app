@@ -45,6 +45,8 @@ def index():
         db_size_h=bk.human_size(bk.database_size()),
         inspected=session.get('backup_inspected'),
         human_size=bk.human_size,
+        auto=bk.auto_settings(),
+        auto_list=bk.list_auto_backups(),
     )
 
 
@@ -185,4 +187,81 @@ def discard():
     if info and os.path.exists(info.get('path', '')):
         os.remove(info['path'])
     flash('حُذف الملف المرفوع.', 'success')
+    return redirect(url_for('backup.index'))
+
+
+# -------------------------------------------------------- النسخ التلقائي
+
+@backup_bp.route('/auto/save', methods=['POST'])
+@login_required
+@admin_required
+def auto_save():
+    try:
+        bk.save_auto_settings(
+            enabled=request.form.get('enabled') == '1',
+            keep=int(request.form.get('keep') or 7),
+            hours=int(request.form.get('hours') or 24),
+        )
+        flash('حُفظت إعدادات النسخ التلقائي.', 'success')
+    except (TypeError, ValueError):
+        flash('قيم غير صحيحة.', 'error')
+    return redirect(url_for('backup.index'))
+
+
+@backup_bp.route('/auto/run', methods=['POST'])
+@login_required
+@admin_required
+def auto_run():
+    """نسخة الآن، بلا انتظار الموعد — للتأكّد أن الآلية تعمل أصلًا."""
+    ok, msg = bk.run_auto_backup(force=True)
+    flash(f'أُخذت نسخة: {msg}' if ok else f'تعذّرت النسخة: {msg}',
+          'success' if ok else 'error')
+    return redirect(url_for('backup.index'))
+
+
+def _auto_path(name):
+    """مسار نسخة تلقائية بعد التأكّد أن الاسم اسمٌ لا مسار.
+
+    اسم ملف يصل من الطلب هو الطريق المعتاد لقراءة ملفٍ خارج المجلّد
+    المقصود، بنقطتين وشرطة مائلة متكرّرتين.
+    """
+    safe = secure_filename(name or '')
+    if not safe or not safe.endswith('.db') or not safe.startswith('auto-'):
+        return None
+    path = os.path.join(bk.auto_dir(), safe)
+    # التحقّق بالمسار المطلق أيضًا: secure_filename وحدها عقدٌ ضمنيّ.
+    if os.path.dirname(os.path.abspath(path)) != os.path.abspath(bk.auto_dir()):
+        return None
+    return path if os.path.isfile(path) else None
+
+
+@backup_bp.route('/auto/get/<name>')
+@login_required
+@admin_required
+def auto_get(name):
+    path = _auto_path(name)
+    if not path:
+        flash('نسخة غير موجودة.', 'error')
+        return redirect(url_for('backup.index'))
+
+    with open(path, 'rb') as fh:
+        data = fh.read()
+
+    return Response(data, mimetype='application/x-sqlite3', headers={
+        'Content-Disposition': f'attachment; filename="{os.path.basename(path)}"',
+        'Content-Length': str(len(data)),
+        'Cache-Control': 'no-store',
+    })
+
+
+@backup_bp.route('/auto/delete', methods=['POST'])
+@login_required
+@admin_required
+def auto_delete():
+    path = _auto_path(request.form.get('name'))
+    if not path:
+        flash('نسخة غير موجودة.', 'error')
+    else:
+        os.remove(path)
+        flash('حُذفت النسخة.', 'success')
     return redirect(url_for('backup.index'))

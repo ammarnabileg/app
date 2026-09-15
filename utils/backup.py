@@ -473,3 +473,161 @@ def _restore_from_db(conn, path, wanted):
         conn.execute("DETACH DATABASE src")
 
     return ran, skipped, errors
+
+
+# =====================================================================
+#  النسخ التلقائي
+# =====================================================================
+#
+# أداةُ نسخٍ لا يضغطها أحد ليست أداة. العميل يعِد نفسه بأن ينسخ أسبوعيًّا،
+# ثم يتذكّر ذلك يوم يفقد البيانات. فالنسخ يجري من تلقائه، والقديم يُحذف
+# من تلقائه أيضًا — وإلا امتلأ القرص وتوقّف النظام لسببٍ هو «الحماية».
+
+AUTO_DIR_NAME = 'backups'
+
+_DEFAULTS = {
+    'backup_auto_enabled': '1',
+    'backup_auto_keep': '7',        # كم نسخة تُحفظ
+    'backup_auto_hours': '24',      # كل كم ساعة
+}
+
+
+def auto_settings():
+    """إعدادات النسخ التلقائي، بقيَم سليمة دائمًا."""
+    from utils.db import get_setting
+
+    out = {}
+    for k, d in _DEFAULTS.items():
+        try:
+            out[k] = get_setting(k, d)
+        except Exception:
+            out[k] = d
+
+    try:
+        keep = int(out['backup_auto_keep'])
+    except (TypeError, ValueError):
+        keep = 7
+    try:
+        hours = int(out['backup_auto_hours'])
+    except (TypeError, ValueError):
+        hours = 24
+
+    return {
+        # أي قيمة غير '1' تعني إيقافًا: إعدادٌ تالف يوقف النسخ ولا
+        # يُشغّله بلا حساب.
+        'enabled': str(out['backup_auto_enabled']) == '1',
+        # حدّان: صفر نسخ يعني حذف كل شيء، ومئة نسخة تملأ القرص.
+        'keep': max(1, min(keep, 60)),
+        'hours': max(1, min(hours, 24 * 30)),
+    }
+
+
+def save_auto_settings(enabled, keep, hours):
+    from utils.db import set_setting
+
+    set_setting('backup_auto_enabled', '1' if enabled else '0')
+    set_setting('backup_auto_keep', str(max(1, min(int(keep), 60))))
+    set_setting('backup_auto_hours', str(max(1, min(int(hours), 24 * 30))))
+
+
+def auto_dir():
+    d = os.path.join(_data_dir(), AUTO_DIR_NAME)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def list_auto_backups():
+    """النسخ التلقائية الموجودة، الأحدث أولًا."""
+    d = auto_dir()
+    out = []
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return out
+
+    for n in names:
+        if not n.endswith('.db'):
+            continue
+        p = os.path.join(d, n)
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        out.append({
+            'name': n,
+            'bytes': st.st_size,
+            'size_h': human_size(st.st_size),
+            'when': datetime.fromtimestamp(st.st_mtime).strftime('%Y-%m-%d %H:%M'),
+            'mtime': st.st_mtime,
+        })
+
+    out.sort(key=lambda x: x['mtime'], reverse=True)
+    return out
+
+
+def _prune(keep):
+    """يحذف ما زاد على العدد المطلوب، الأقدم أولًا."""
+    removed = 0
+    for item in list_auto_backups()[keep:]:
+        try:
+            os.remove(os.path.join(auto_dir(), item['name']))
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def auto_backup_due():
+    """هل حان موعد النسخة التالية؟"""
+    cfg = auto_settings()
+    if not cfg['enabled']:
+        return False
+
+    latest = list_auto_backups()
+    if not latest:
+        return True
+
+    age_hours = (datetime.now().timestamp() - latest[0]['mtime']) / 3600.0
+    return age_hours >= cfg['hours']
+
+
+def run_auto_backup(force=False):
+    """يأخذ نسخة تلقائية إن حان موعدها، ويحذف الزائد.
+
+    لا يرمي أبدًا: يُنادى من خيط خلفي، واستثناءٌ فيه يقتل الخيط بصمت
+    فتتوقّف النسخ كلّها دون أن يلاحظ أحد.
+
+    يُرجِع (تمّ؟, رسالة).
+    """
+    try:
+        cfg = auto_settings()
+        if not force and not cfg['enabled']:
+            return False, 'النسخ التلقائي متوقّف'
+        if not force and not auto_backup_due():
+            return False, 'لم يحن الموعد بعد'
+
+        name = f"auto-{datetime.now():%Y-%m-%d-%H%M%S}.db"
+        path = os.path.join(auto_dir(), name)
+        snapshot_file(path)
+
+        # التحقّق بعد الكتابة: ملفٌ ناقص يبدو نسخةً ويخذل صاحبه يوم
+        # الحاجة. أفضل أن يُحذف الآن ويُعاد.
+        try:
+            con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+            try:
+                ok = con.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+            finally:
+                con.close()
+        except sqlite3.Error:
+            ok = False
+
+        if not ok:
+            os.remove(path)
+            return False, 'خرجت النسخة تالفة ولم تُحفظ'
+
+        pruned = _prune(cfg['keep'])
+        return True, f'{name} (حُذف {pruned} قديمة)' if pruned else name
+
+    except Exception as e:                              # noqa: BLE001
+        print(f'[backup] تعذّرت النسخة التلقائية: {e}')
+        return False, str(e)

@@ -259,3 +259,77 @@ def test_bad_table_names_are_refused(db, tmp_path):
 
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-v']))
+
+
+# ------------------------------------------------------ النسخ التلقائي
+
+def test_auto_backup_takes_a_valid_copy_and_prunes(db):
+    bk = db['bk']
+    bk.save_auto_settings(True, keep=2, hours=24)
+
+    made = []
+    for _ in range(4):
+        ok, msg = bk.run_auto_backup(force=True)
+        assert ok, msg
+        made.append(msg)
+        import time
+        time.sleep(1.1)          # الأسماء بالثانية
+
+    kept = bk.list_auto_backups()
+    assert len(kept) == 2, 'لم يُحذف القديم — القرص يمتلئ يومًا'
+
+    # وما بقي نسخٌ تُفتح فعلًا، لا ملفات بالاسم.
+    p = os.path.join(bk.auto_dir(), kept[0]['name'])
+    con = sqlite3.connect(p)
+    try:
+        assert con.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+        assert con.execute('SELECT v FROM probe_a WHERE id=1').fetchone()[0] == 'أصلي-أ'
+    finally:
+        con.close()
+
+
+def test_auto_backup_respects_the_schedule(db):
+    bk = db['bk']
+    bk.save_auto_settings(True, keep=5, hours=24)
+
+    ok, _ = bk.run_auto_backup(force=True)
+    assert ok
+    assert bk.auto_backup_due() is False          # أُخذت للتوّ
+
+    ok, msg = bk.run_auto_backup()                # بلا force
+    assert ok is False and 'الموعد' in msg
+
+
+def test_auto_backup_off_means_off(db):
+    bk = db['bk']
+    bk.save_auto_settings(False, keep=5, hours=1)
+
+    assert bk.auto_backup_due() is False
+    ok, msg = bk.run_auto_backup()
+    assert ok is False and 'متوقّف' in msg
+
+
+def test_settings_are_bounded(db):
+    bk = db['bk']
+    bk.save_auto_settings(True, keep=9999, hours=99999)
+    cfg = bk.auto_settings()
+
+    # صفر نسخ يعني حذف كل شيء، وألف نسخة تملأ القرص.
+    assert 1 <= cfg['keep'] <= 60
+    assert 1 <= cfg['hours'] <= 24 * 30
+
+
+def test_a_corrupt_setting_stops_backups_rather_than_guessing(db):
+    from utils.db import set_setting
+
+    set_setting('backup_auto_enabled', 'نعم-ربما')
+    assert db['bk'].auto_settings()['enabled'] is False
+
+
+def test_auto_backup_filenames_cannot_escape_the_folder(db, tmp_path):
+    """اسم ملف يصل من الطلب هو الطريق المعتاد لقراءة ما ليس لك."""
+    import routes.backup_routes as r
+
+    for bad in ['../../../etc/passwd', '..%2f..%2fx.db', 'auto-../x.db',
+                'hr_system.db', '', None, 'auto-x.txt']:
+        assert r._auto_path(bad) is None

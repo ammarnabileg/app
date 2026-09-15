@@ -28,6 +28,28 @@ import time
 import threading
 import sys
 
+def background_backup_worker():
+    """النسخ التلقائي. خيط مستقلّ عن فاحص الترخيص.
+
+    مستقلّ عن قصد: الفاحص ينام دقيقتين بين دوراته، وربطُ النسخ به يجعل
+    وتيرة النسخ رهينةَ إعداداتِ شيء آخر. وهذا الخيط ينام ساعة ويسأل
+    الخدمة إن كان الموعد قد حان — فالقرار في مكان واحد.
+    """
+    time.sleep(90)          # لا يُزاحم الإقلاع
+
+    while True:
+        try:
+            from utils.backup import run_auto_backup
+            ok, msg = run_auto_backup()
+            if ok:
+                print(f'[backup] نسخة تلقائية: {msg}')
+        except Exception as e:
+            # لا يُسمح لخطأ بقتل الخيط: خيطٌ مات يعني نسخًا توقّفت بصمت،
+            # ولا يُكتشف ذلك إلا يوم الحاجة إلى نسخة.
+            print(f'[backup] خطأ في الخيط الخلفي: {e}')
+        time.sleep(3600)
+
+
 def background_license_checker():
     """
     Periodically checks license status online (every 2 minutes).
@@ -318,6 +340,9 @@ def main():
     # Start Background License Checker
     checker_thread = threading.Thread(target=background_license_checker, daemon=True)
     checker_thread.start()
+
+    backup_thread = threading.Thread(target=background_backup_worker, daemon=True)
+    backup_thread.start()
 
     try:
         print(f"تشغيل خادم HR System على http://{host}:{port} (debug={debug})")

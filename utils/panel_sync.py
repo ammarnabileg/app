@@ -36,23 +36,23 @@ def _panel_admin_username():
 
 
 def _synced_username(conn):
-    """آخر اسم مستخدم زامنّاه، لنتعرّف على الصفّ بعد تغيير الاسم."""
+    """آخر اسم مستخدم زامنّاه، لنتعرّف على الصفّ بعد تغيير الاسم.
+
+    في app_settings لا في جدول خاص: جدول إعدادات ثانٍ يعني مكانين
+    يُبحث فيهما عن الإعداد نفسه.
+    """
     try:
-        row = conn.execute(
-            "SELECT value FROM system_settings_kv WHERE key = 'panel_admin_username'"
-        ).fetchone()
-        return row[0] if row else None
-    except sqlite3.Error:
+        from utils.db import get_setting
+        return get_setting('panel_admin_username') or None
+    except Exception:
         return None
 
 
 def _remember_username(conn, username):
     try:
-        conn.execute("""CREATE TABLE IF NOT EXISTS system_settings_kv (
-                            key TEXT PRIMARY KEY, value TEXT)""")
-        conn.execute("INSERT OR REPLACE INTO system_settings_kv (key, value) VALUES (?, ?)",
-                     ('panel_admin_username', username))
-    except sqlite3.Error as e:
+        from utils.db import set_setting
+        set_setting('panel_admin_username', username)
+    except Exception as e:
         print(f'[sync] تعذّر حفظ اسم الحساب المزامَن: {e}')
 
 
@@ -102,8 +102,13 @@ def apply_admin_sync(payload):
 
         conn.execute("UPDATE users SET username = ?, password = ? WHERE id = ?",
                      (new_user, new_hash, user_id))
-        _remember_username(conn, new_user)
         conn.commit()
+
+        # بعد الإيداع لا قبله: set_setting تفتح اتصالًا آخر، وكتابتُه
+        # بينما هذا الاتصال يحمل معاملةً مفتوحة تفشل بـ"database is
+        # locked" — وتفشل صامتةً، فيضيع تتبّع الاسم ولا يُلاحظ ذلك إلا
+        # عند تغيير الاسم مرّتين.
+        _remember_username(conn, new_user)
         print('[sync] حُدِّثت بيانات دخول الحساب المرتبط بالموقع.')
         return True
 
