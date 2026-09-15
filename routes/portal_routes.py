@@ -94,21 +94,27 @@ def dashboard():
     from utils.settings_utils import get_portal_attendance_settings
     portal_att = get_portal_attendance_settings(conn)
 
-    # «مندوب» تعريفٌ من الواقع لا خانة إضافية: من أُسنِدت له منطقة.
-    # ووحدة المناديب اختيارية، فإن كانت مطفأة فلا أحد مندوب.
+    # «مندوب» حقلٌ صريح في ملف الموظف (work_mode)، لا استنتاجٌ من كونه
+    # أُسنِدت له منطقة: المندوب الذي عُيّن اليوم ولم تُرسم منطقته بعد
+    # مندوبٌ أيضًا. ووحدة المناديب اختيارية، فإن كانت مطفأة فلا أحد
+    # مندوب مهما قال الحقل.
     is_field_rep = False
+    office_punch = True
     try:
         from utils import field as _field
-        if emp_id and _field.module_enabled(conn):
-            _field.init_schema(conn)
-            is_field_rep = bool(_field.territories_of(conn, emp_id))
+        if emp_id:
+            office_punch = _field.punches_at_office(conn, emp_id)
+            if _field.module_enabled(conn):
+                is_field_rep = _field.is_field_rep(conn, emp_id)
     except Exception:
         is_field_rep = False
+        office_punch = True
 
     return render_template(
         'portal/index.html',
         employee=employee,
         is_field_rep=is_field_rep,
+        office_punch=office_punch,
         is_manager=is_manager,
         subordinates_count=subordinates_count,
         leave_types=leave_types,

@@ -1136,6 +1136,11 @@ def init_db():
         ('users', 'managed_department_id', 'INTEGER'),
         ('users', 'employee_id', 'INTEGER'),
         ('employees', 'manager_id', 'INTEGER'),
+        # نمط العمل: 'office' يبصم في المكتب، 'field' مندوب له رحلة
+        # ومحطات، 'both' الاثنان. والافتراض 'office' لأنه حال أكثر
+        # الموظفين — ولأن الترقية لا يجوز أن تُحوّل موظفًا إلى مندوب
+        # يُتتبَّع موقعه دون أن يقرّر أحد ذلك.
+        ('employees', 'work_mode', "TEXT DEFAULT 'office'"),
         ('employees', 'national_id', 'TEXT'),
         ('employees', 'national_id_issue_date', 'DATE'),
         ('employees', 'national_id_expiry_date', 'DATE'),

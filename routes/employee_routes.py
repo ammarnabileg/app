@@ -456,6 +456,13 @@ def edit_employee(id):
                 bank_iban, bank_swift, social_security_number, tax_id, education_level, university, graduation_year,
                 id
             ))
+            # نمط العمل يُكتب على حدة لا داخل الجملة الطويلة أعلاه:
+            # إضافة عمود إلى قائمة من ثلاثين قيمة موضعية بابُ خطأٍ صامت
+            # يضع قيمةً في عمود جارها.
+            _wm = (request.form.get('work_mode') or '').strip()
+            if _wm in ('office', 'field', 'both'):
+                conn.execute('UPDATE employees SET work_mode = ? WHERE id = ?', (_wm, id))
+
             try:
                 from utils.payroll_engine import log_employee_changes
                 _after = conn.execute('SELECT * FROM employees WHERE id = ?',

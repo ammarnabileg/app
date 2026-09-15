@@ -240,6 +240,64 @@ def set_module_enabled(conn, on):
     conn.commit()
 
 
+WORK_MODES = {
+    'office': 'يبصم في المكتب',
+    'field': 'مندوب ميداني',
+    'both': 'الاثنان معًا',
+}
+
+
+def work_mode(conn, employee_id):
+    """نمط عمل الموظف. 'office' عند الغياب أو التلف.
+
+    الافتراض 'office' لا 'field': الترقية لا يجوز أن تُحوّل موظفًا إلى
+    مندوب يُتتبَّع موقعه دون أن يقرّر أحد ذلك.
+    """
+    try:
+        row = conn.execute('SELECT work_mode FROM employees WHERE id = ?',
+                           (employee_id,)).fetchone()
+    except Exception:
+        return 'office'
+    if not row:
+        return 'office'
+    mode = (row[0] if not hasattr(row, 'keys') else row['work_mode']) or 'office'
+    return mode if mode in WORK_MODES else 'office'
+
+
+def is_field_rep(conn, employee_id):
+    """أهو مندوب؟ — من الحقل الصريح، لا من كونه أُسنِدت له منطقة.
+
+    كان التعريف ضمنيًّا: «من له منطقة». وهذا يفشل في ثلاث حالات
+    حقيقية — مندوبٌ عُيّن اليوم ولم تُرسم منطقته بعد، ومندوبٌ سُحبت
+    منطقته مؤقّتًا، ومن ينظر إلى ملف الموظف فلا يجد ما يقول إنه مندوب
+    أصلًا. والتعريف الضمني لا يُضبط لأنه لا يُرى.
+    """
+    return work_mode(conn, employee_id) in ('field', 'both')
+
+
+def punches_at_office(conn, employee_id):
+    return work_mode(conn, employee_id) in ('office', 'both')
+
+
+def field_reps(conn):
+    """الموظفون المعرَّفون مناديبَ — لقوائم الإسناد."""
+    try:
+        rows = conn.execute('''
+            SELECT id, name, employee_number, work_mode FROM employees
+            WHERE is_active = 1 AND work_mode IN ('field', 'both')
+            ORDER BY name''').fetchall()
+    except Exception:
+        return []
+    return [dict(r) for r in rows]
+
+
+def set_work_mode(conn, employee_id, mode):
+    if mode not in WORK_MODES:
+        raise ValueError('نمط عمل غير معروف')
+    conn.execute('UPDATE employees SET work_mode = ? WHERE id = ?', (mode, employee_id))
+    conn.commit()
+
+
 def module_footprint(conn):
     """ما الذي يوجد من بيانات الوحدة — ليُعرف ما يُخفى عند الإطفاء.
 

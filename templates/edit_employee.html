@@ -348,6 +348,20 @@
                                     <label class="form-label">{{ _('x.branch') }}</label>
                                     <input type="text" class="form-control" name="branch_location" value="{{ employee.branch_location or '' }}">
                                 </div>
+                                {# نمط العمل: هو ما يقرّر ما يراه الموظف في بوابته. #}
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">نمط العمل</label>
+                                    {% set wm = employee.work_mode or 'office' %}
+                                    <select class="form-select" name="work_mode">
+                                        <option value="office" {% if wm == 'office' %}selected{% endif %}>يبصم في المكتب</option>
+                                        <option value="field" {% if wm == 'field' %}selected{% endif %}>مندوب ميداني</option>
+                                        <option value="both" {% if wm == 'both' %}selected{% endif %}>الاثنان معًا</option>
+                                    </select>
+                                    <div class="form-text" style="font-size:.76rem">
+                                        المندوب يرى «رحلة اليوم» ومحطاته. وتغييره إلى «مندوب»
+                                        يعني تتبّع موقعه أثناء الرحلة.
+                                    </div>
+                                </div>
                                 <div class="col-md-4 mb-3">
                                     <label class="form-label">{{ _('x.work_email') }}</label>
                                     <input type="email" class="form-control" name="work_email" value="{{ employee.work_email or '' }}">

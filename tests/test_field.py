@@ -715,3 +715,100 @@ def test_the_footprint_counts_what_would_be_hidden(tmp_path):
     fp = field.module_footprint(con)
     assert fp['stations'] == 2
     assert set(fp) == {'stations', 'territories', 'trips', 'visits', 'photos'}
+
+
+# ==================================== من هو المندوب؟ — حقلٌ صريح
+# كان التعريف ضمنيًّا: «من أُسنِدت له منطقة». وهو يفشل في حالات حقيقية،
+# والأهمّ أنه لا يُضبط لأنه لا يُرى.
+
+def _employee(con, eid, name, mode=None):
+    cols = 'id, name, employee_number, department, position, hire_date, salary, is_active'
+    vals = (eid, name, f'E{eid:03d}', 'عام', 'موظف', '2024-01-01', 500, 1)
+    if mode is None:
+        con.execute(f'INSERT INTO employees ({cols}) VALUES (?,?,?,?,?,?,?,?)', vals)
+    else:
+        con.execute(f'INSERT INTO employees ({cols}, work_mode) VALUES (?,?,?,?,?,?,?,?,?)',
+                    vals + (mode,))
+    con.commit()
+
+
+def test_a_new_employee_is_an_office_worker(tmp_path):
+    """الترقية لا يجوز أن تُحوّل موظفًا إلى مندوب يُتتبَّع موقعه."""
+    con = _conn(tmp_path)
+    _employee(con, 51, 'موظف مكتب')
+
+    assert field.work_mode(con, 51) == 'office'
+    assert field.is_field_rep(con, 51) is False
+    assert field.punches_at_office(con, 51) is True
+
+
+def test_a_field_rep_is_recognised(tmp_path):
+    con = _conn(tmp_path)
+    _employee(con, 52, 'مندوب', mode='field')
+
+    assert field.is_field_rep(con, 52) is True
+    assert field.punches_at_office(con, 52) is False
+
+
+def test_both_modes_together(tmp_path):
+    con = _conn(tmp_path)
+    _employee(con, 53, 'الاثنان', mode='both')
+
+    assert field.is_field_rep(con, 53) is True
+    assert field.punches_at_office(con, 53) is True
+
+
+def test_a_rep_without_a_territory_is_still_a_rep(tmp_path):
+    """بيت القصيد في ترك التعريف الضمني.
+
+    مندوبٌ عُيّن اليوم ولم تُرسم منطقته بعد مندوبٌ أيضًا — وبالتعريف
+    القديم كان يُعدّ موظف مكتب فلا يرى شاشة رحلته.
+    """
+    con = _conn(tmp_path)
+    _employee(con, 54, 'مندوب جديد', mode='field')
+
+    assert field.territories_of(con, 54) == []
+    assert field.is_field_rep(con, 54) is True
+
+
+def test_an_unknown_or_broken_mode_reads_as_office(tmp_path):
+    con = _conn(tmp_path)
+    _employee(con, 55, 'قيمة تالفة', mode='حارس-ليلي')
+
+    assert field.work_mode(con, 55) == 'office'
+    assert field.is_field_rep(con, 55) is False
+
+    # وموظف غير موجود أصلًا
+    assert field.work_mode(con, 9999) == 'office'
+    assert field.is_field_rep(con, 9999) is False
+
+
+def test_setting_a_mode_rejects_what_it_does_not_know(tmp_path):
+    con = _conn(tmp_path)
+    _employee(con, 56, 'موظف')
+
+    field.set_work_mode(con, 56, 'field')
+    assert field.work_mode(con, 56) == 'field'
+
+    for bad in ('FIELD', 'مندوب', '', None, 'admin'):
+        try:
+            field.set_work_mode(con, 56, bad)
+            assert False, f'قُبل {bad!r}'
+        except ValueError:
+            pass
+    assert field.work_mode(con, 56) == 'field', 'تغيّر رغم الرفض'
+
+
+def test_the_rep_list_holds_reps_only(tmp_path):
+    con = _conn(tmp_path)
+    _employee(con, 61, 'مكتب')
+    _employee(con, 62, 'مندوب', mode='field')
+    _employee(con, 63, 'الاثنان', mode='both')
+    _employee(con, 64, 'مندوب موقوف', mode='field')
+    con.execute('UPDATE employees SET is_active = 0 WHERE id = 64')
+    con.commit()
+
+    names = [r['name'] for r in field.field_reps(con)]
+    assert 'مندوب' in names and 'الاثنان' in names
+    assert 'مكتب' not in names
+    assert 'مندوب موقوف' not in names, 'ظهر موظف موقوف في قائمة الإسناد'

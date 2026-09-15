@@ -29,6 +29,8 @@
 
 <ul class="nav nav-tabs mb-3" id="fsTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
+      data-bs-target="#tabWho" type="button">من هو المندوب؟</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
       data-bs-target="#tabTerr" type="button">المناطق</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
       data-bs-target="#tabStations" type="button">المحطات</button></li>
@@ -39,8 +41,30 @@
 </ul>
 
 <div class="tab-content">
+  <!-- --------------------------------------------- من هو المندوب؟ -->
+  <div class="tab-pane fade show active" id="tabWho">
+    <div class="alert alert-info py-2 px-3 small">
+      <b>نمط العمل حقلٌ في ملف الموظف.</b>
+      وهو ما يقرّر ما يراه: المندوب يرى «رحلة اليوم» ومحطاته، وموظف
+      المكتب يرى بصمته الذاتية، و«الاثنان معًا» لمن يفعل الأمرين.
+      ويمكن ضبطه من هنا أو من ملف الموظف نفسه — والمكانان يكتبان
+      الحقل نفسه.
+    </div>
+
+    <div class="row g-2 mb-2">
+      <div class="col-sm-6">
+        <input class="form-control form-control-sm" id="whoSearch"
+               placeholder="ابحث باسم الموظف أو رقمه…">
+      </div>
+      <div class="col-sm-6 text-muted small d-flex align-items-center">
+        <span id="whoCount"></span>
+      </div>
+    </div>
+    <div id="whoList"></div>
+  </div>
+
   <!-- ------------------------------------------------------ المناطق -->
-  <div class="tab-pane fade show active" id="tabTerr">
+  <div class="tab-pane fade" id="tabTerr">
     <div class="fs-grid">
       <div>
         <div class="card"><div class="card-body">
@@ -60,10 +84,14 @@
             <div class="col-8">
               <label class="form-label small mb-1">المناديب المسنَدون</label>
               <select class="form-select form-select-sm" id="trMembers" multiple size="4">
-                {% for e in employees %}
+                {% for e in reps %}
                 <option value="{{ e.id }}">{{ e.name }}</option>
                 {% endfor %}
               </select>
+              {% if not reps %}
+              <div class="hint text-danger">لا مناديب معرَّفون — حدّدهم من
+                تبويب «من هو المندوب؟» أولًا.</div>
+              {% endif %}
             </div>
           </div>
           <div class="d-flex gap-2 flex-wrap">
@@ -166,7 +194,7 @@
         <label class="form-label small mb-1">المندوب</label>
         <select class="form-select form-select-sm" id="scEmp">
           <option value="">— اختر —</option>
-          {% for e in employees %}
+          {% for e in reps %}
           <option value="{{ e.id }}">{{ e.name }}</option>
           {% endfor %}
         </select>
@@ -210,7 +238,7 @@
         <label class="form-label small mb-1">المندوب</label>
         <select class="form-select form-select-sm" id="plEmp">
           <option value="">— اختر —</option>
-          {% for e in employees %}
+          {% for e in reps %}
           <option value="{{ e.id }}">{{ e.name }}{% if e.employee_number %}
             ({{ e.employee_number }}){% endif %}</option>
           {% endfor %}
@@ -764,6 +792,78 @@
         });
       });
   });
+
+  // =========================================== من هو المندوب؟
+
+  var people = {{ all_employees | tojson }};
+  var MODES = {{ modes | tojson }};
+
+  function paintWho() {
+    var q = ($('whoSearch').value || '').trim();
+    var host = $('whoList');
+    var shown = people.filter(function (p) {
+      return !q || (p.name || '').indexOf(q) >= 0 ||
+             String(p.employee_number || '').indexOf(q) >= 0;
+    });
+    var reps = people.filter(function (p) {
+      return p.work_mode === 'field' || p.work_mode === 'both';
+    }).length;
+    $('whoCount').textContent = reps + ' مندوب من ' + people.length + ' موظف';
+
+    host.innerHTML = '';
+    shown.slice(0, 200).forEach(function (p) {
+      var el = document.createElement('div');
+      el.className = 'st-row';
+      var opts = Object.keys(MODES).map(function (k) {
+        return '<option value="' + k + '"' +
+          ((p.work_mode || 'office') === k ? ' selected' : '') + '>' +
+          esc(MODES[k]) + '</option>';
+      }).join('');
+      el.innerHTML = '<div class="grow"><b>' + esc(p.name) + '</b><small>' +
+        esc(p.employee_number || '') + '</small></div>' +
+        '<select class="form-select form-select-sm" style="width:auto">' + opts + '</select>';
+
+      el.querySelector('select').addEventListener('change', function (e) {
+        var mode = e.target.value;
+        fetch('/api/field/work-mode', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employee_id: p.id, work_mode: mode })
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          if (!j.success) { return note(j.message || 'تعذّر', false); }
+          p.work_mode = mode;
+          note(esc(p.name) + ': ' + MODES[mode]);
+          paintWho();
+          // القوائم الأخرى تتغيّر معها فورًا
+          refreshRepPickers();
+        });
+      });
+      host.appendChild(el);
+    });
+  }
+
+  function refreshRepPickers() {
+    var reps = people.filter(function (p) {
+      return p.work_mode === 'field' || p.work_mode === 'both';
+    });
+    [['trMembers', true], ['scEmp', false], ['plEmp', false]].forEach(function (pair) {
+      var sel = $(pair[0]);
+      if (!sel) { return; }
+      var keep = pair[1]
+        ? Array.prototype.filter.call(sel.options, function (o) { return o.selected; })
+            .map(function (o) { return o.value; })
+        : [sel.value];
+      sel.innerHTML = pair[1] ? '' : '<option value="">— اختر —</option>';
+      reps.forEach(function (r) {
+        var o = document.createElement('option');
+        o.value = r.id; o.textContent = r.name;
+        if (keep.indexOf(String(r.id)) >= 0) { o.selected = true; }
+        sel.appendChild(o);
+      });
+    });
+  }
+
+  $('whoSearch').addEventListener('input', paintWho);
+  paintWho();
 
   initMap();
   initTerrMap();

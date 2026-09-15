@@ -94,6 +94,11 @@ def trip_screen():
     conn = get_db_connection()
     field.init_schema(conn)
 
+    # شاشة الرحلة لمن عُرِّف مندوبًا. وغيره لا يُقال له «ممنوع» بل
+    # يُقال له إن حسابه ليس مندوبًا — فالفرق بينهما هو ما يفعله بعدها.
+    if emp_id and not field.is_field_rep(conn, emp_id):
+        return render_template('field_not_rep.html'), 403
+
     employee = None
     if emp_id:
         employee = conn.execute(
@@ -413,11 +418,14 @@ def setup():
 
     conn = get_db_connection()
     field.init_schema(conn)
-    employees = conn.execute(
-        'SELECT id, name, employee_number FROM employees WHERE is_active = 1 '
-        'ORDER BY name').fetchall()
+    # قوائم الإسناد تعرض المناديب وحدهم: إسناد منطقة إلى موظف مكتب
+    # خطأٌ يُكتشف بعد أسبوع حين لا يظهر في شاشة المتابعة.
     return render_template('field_setup.html', denied=False,
-                           employees=[dict(e) for e in employees],
+                           reps=field.field_reps(conn),
+                           all_employees=[dict(e) for e in conn.execute(
+                               'SELECT id, name, employee_number, work_mode '
+                               'FROM employees WHERE is_active = 1 ORDER BY name')],
+                           modes=field.WORK_MODES,
                            today=datetime.now().strftime('%Y-%m-%d'))
 
 
@@ -917,3 +925,36 @@ def api_assignments():
 
     return jsonify({'success': True, 'count': len(stations),
                     'plan': field.day_plan(conn, emp, visit_date)})
+
+
+@field_bp.route('/api/field/work-mode', methods=['POST'])
+@login_required
+@module_required
+def api_work_mode():
+    """نمط عمل موظف: مكتب، أو مندوب، أو الاثنان.
+
+    وهو ما يقرّر ما يراه — لا صلاحيةَ أمنية، فلا يُفتح به شيء مغلق.
+    لكنه يُكتب بيد المسؤول وحده: من يجعل نفسه مندوبًا يفتح على نفسه
+    تتبّع موقعه، ومن يجعل غيره كذلك يفتحه على غيره.
+    """
+    denied = _admin_only()
+    if denied:
+        return denied
+
+    d = request.get_json(silent=True) or {}
+    emp = d.get('employee_id')
+    mode = d.get('work_mode')
+    if not emp:
+        return jsonify({'success': False, 'message': 'الموظف مطلوب'}), 400
+
+    conn = get_db_connection()
+    if not conn.execute('SELECT 1 FROM employees WHERE id = ?', (emp,)).fetchone():
+        return jsonify({'success': False, 'message': 'موظف غير معروف'}), 404
+
+    try:
+        field.set_work_mode(conn, emp, mode)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+    return jsonify({'success': True, 'work_mode': mode,
+                    'label': field.WORK_MODES[mode]})

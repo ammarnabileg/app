@@ -1126,7 +1126,7 @@
                 </div>
             </div>
 
-            {% if portal_att and portal_att.enabled %}
+            {% if portal_att and portal_att.enabled and office_punch %}
             <!-- Quick Punch Banner on Today Screen -->
             <div class="quick-punch-banner" onclick="switchTab('tab-punch')">
                 <div style="display: flex; align-items: center; gap: 14px;">
@@ -1207,7 +1207,15 @@
         <!-- VIEW: PUNCH / MOBILE ATTENDANCE (البصمة الذاتية)              -->
         <!-- ============================================================== -->
         <section id="view-punch" class="portal-view">
-            {% if not portal_att or not portal_att.enabled %}
+            {% if not office_punch %}
+            <div class="card-ios" style="text-align:center;padding:42px 20px;background:var(--ios-card-solid);border-radius:24px;box-shadow:var(--ios-shadow);border:1px solid var(--ios-border);margin-top:10px;">
+                <i class="fas fa-route" style="font-size:2rem;color:var(--ios-subtext);margin-bottom:12px"></i>
+                <h3 style="font-weight:800;font-size:1.2rem;margin-bottom:8px;color:var(--ios-text);">أنت مندوب ميداني</h3>
+                <p style="color:var(--ios-subtext);font-size:.88rem;margin:0">
+                    حضورك يُسجَّل من زيارات محطاتك في «رحلة اليوم»، لا من بصمة المكتب.
+                </p>
+            </div>
+            {% elif not portal_att or not portal_att.enabled %}
             <!-- حالة التعطيل من الإعدادات -->
             <div class="card-ios" style="text-align: center; padding: 42px 20px; background: var(--ios-card-solid); border-radius: 24px; box-shadow: var(--ios-shadow); border: 1px solid var(--ios-border); margin-top: 10px;">
                 <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(255, 59, 48, 0.12); color: var(--ios-red); display: flex; align-items: center; justify-content: center; font-size: 2.2rem; margin: 0 auto 18px auto;">
@@ -1551,10 +1559,20 @@
             <span>اليوم</span>
         </div>
 
+        {# المندوب الخالص لا يبصم في المكتب، فلا تبويب بصمة له. #}
+        {% if office_punch %}
         <div class="tab-item" onclick="switchTab('tab-punch')" id="btn-tab-punch">
             <i class="fas fa-fingerprint"></i>
             <span>البصمة</span>
         </div>
+        {% endif %}
+
+        {% if is_field_rep %}
+        <div class="tab-item" onclick="location.href='/portal/trip'">
+            <i class="fas fa-route"></i>
+            <span>الرحلة</span>
+        </div>
+        {% endif %}
         
         {% if is_manager %}
         <div class="tab-item" onclick="switchTab('tab-team')" id="btn-tab-team">
