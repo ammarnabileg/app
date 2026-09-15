@@ -598,6 +598,19 @@ def check_online_license_secure(key):
                 is_valid = True
                 msg = res_json.get('message', 'Valid')
                 
+                # الرمز الموقَّع: يُحفَظ ليُتحقَّق منه دون اتصال.
+                #
+                # كان الخادم يصدره مع كل تحقق ناجح، والعميل يقرؤه في ثلاثة
+                # مواضع — ولا يكتبه في أيّها. فكانت آلية العمل دون اتصال
+                # كلّها معطّلة: يُصدَر الرمز، ويُرمى، ثم يُقرأ فلا يوجد.
+                tok = res_json.get('license_token')
+                if tok:
+                    try:
+                        from utils.db import set_setting
+                        set_setting('license_token', str(tok))
+                    except Exception as e:
+                        print(f"[License] تعذّر حفظ الرمز الموقَّع: {e}")
+
                 # Update max_devices limit based on license API return
                 if 'max_devices' in res_json:
                     try:
@@ -662,6 +675,37 @@ def check_online_license_secure(key):
         # العميل الذي يعمل داخل شبكة مغلقة فعلًا لا يتأثر خلال المهلة، وبعدها
         # يحتاج اتصالًا واحدًا — وهو أصلًا يتصل كل ساعة حين تسمح الشبكة.
         print(f"License Server Warning: {e}")
+
+        # الرخصة الموقَّعة أولًا، قبل عدّ الأيام.
+        #
+        # هذا ما يجعل التركيب المعزول ممكنًا أصلًا. الرمز موقَّع بمفتاحنا
+        # الخاص، ومربوط بهذا الجهاز، ويحمل تاريخ انتهائه بنفسه — فلا
+        # يستطيع العميل تزويره ولا تمديده. والتحقّق منه لا يحتاج شبكة.
+        #
+        # وعدّ الأيام كان يُقفل على من يعمل داخل شبكة مغلقة بعد أربعة عشر
+        # يومًا، ومن ركّب دون اتصال أصلًا يُقفل عليه من اليوم الأول — وكلاهما
+        # دفع ثمن نسخته. الاتصال يلزم للتجديد لا للتشغيل.
+        try:
+            from utils.db import get_setting
+            from utils.license_verify import verify_license_token
+            tok = get_setting('license_token')
+            if tok:
+                # hwid يُسنَد قبل نداء الشبكة، لكن استثناءً أبكر يتركه
+                # غير معرَّف — و NameError هنا يعني قفلًا على عميل رخصته
+                # سليمة.
+                try:
+                    bound_hwid = hwid
+                except NameError:
+                    bound_hwid = get_system_hwid()
+                r = verify_license_token(tok, current_hwid=bound_hwid)
+                if r['ok']:
+                    return True, f"رخصة موقَّعة سارية دون اتصال ({r['days_left']} يومًا)"
+                # رمز موجود لكنه سقط (انتهى أو لجهاز آخر): لا يُرقَّى إلى
+                # مهلة الأيام، وإلا صار إتلافه وسيلةً لكسب أسبوعين.
+                return False, f"الرخصة الموقَّعة غير صالحة: {r['reason']}"
+        except Exception as ex:
+            print(f"[License] تعذّر فحص الرخصة الموقَّعة: {ex}")
+
         try:
             ok_since = _days_since_last_ok(conn)
         except Exception:
