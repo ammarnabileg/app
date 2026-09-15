@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}متابعة المناديب{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  .fm-grid{display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start}
+  @media (max-width:900px){.fm-grid{grid-template-columns:1fr}}
+  #fmMap{height:min(72vh,640px);border-radius:14px;border:1px solid #e3e6ea}
+  .rep{border:1px solid #e3e6ea;border-radius:12px;padding:10px 12px;margin-bottom:8px;
+    cursor:pointer;background:#fff}
+  .rep.on{border-color:#0d6efd;box-shadow:0 0 0 2px rgba(13,110,253,.12)}
+  .rep h6{margin:0 0 3px;font-size:.95rem}
+  .rep .meta{font-size:.78rem;color:#6c757d}
+  .pill{display:inline-block;font-size:.72rem;padding:1px 8px;border-radius:999px;
+    background:#eef1f4;color:#495057;margin-inline-start:4px}
+  .pill.good{background:#e4f6ec;color:#1c7a4a}
+  .pill.warn{background:#fff3e0;color:#9a6100}
+  .pill.bad{background:#fdeaea;color:#a12626}
+  .visit{border:1px solid #e3e6ea;border-radius:12px;padding:10px;margin-bottom:8px}
+  .shots{display:flex;gap:8px;margin-top:8px}
+  .shots img{width:50%;border-radius:8px;border:1px solid #dee2e6;cursor:zoom-in}
+  .legend{font-size:.76rem;color:#6c757d;margin-top:8px;line-height:1.9}
+  .legend i{display:inline-block;width:22px;height:3px;vertical-align:middle;
+    margin-inline-end:5px}
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="mb-0">متابعة المناديب</h3>
+  <div class="d-flex gap-2">
+    <input type="date" id="fmDate" class="form-control form-control-sm" value="{{ today }}">
+    <button class="btn btn-sm btn-outline-secondary" id="fmReload">تحديث</button>
+  </div>
+</div>
+
+<div class="fm-grid">
+  <div>
+    <div id="fmReps"><div class="text-muted small">…</div></div>
+    <div class="legend">
+      <i style="background:#0d6efd"></i> سير متّصل<br>
+      <i style="background:#adb5bd;border-top:2px dashed #6c757d;height:0"></i>
+      فجوة — الشاشة كانت مقفلة أو الشبكة منقطعة<br>
+      <i style="background:#dc3545"></i> قفزة — مسافة لا تُقطع في زمنها
+    </div>
+  </div>
+
+  <div>
+    <div id="fmMap"></div>
+    <div id="fmStats" class="small text-muted mt-2"></div>
+    <div id="fmVisits" class="mt-3"></div>
+  </div>
+</div>
+
+<div class="modal fade" id="shotModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content"><div class="modal-body p-0">
+      <img id="shotBig" style="width:100%;border-radius:8px" alt="">
+    </div></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var map, layer, current = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function initMap() {
+    map = L.map('fmMap').setView([29.3759, 47.9774], 11);   // الكويت
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '© OpenStreetMap'
+    }).addTo(map);
+    layer = L.layerGroup().addTo(map);
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function loadReps() {
+    var d = $('fmDate').value;
+    fetch('/api/field/reps?date=' + encodeURIComponent(d))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var host = $('fmReps');
+        if (!j.success || !j.reps.length) {
+          host.innerHTML = '<div class="text-muted small">لا مناديب في هذا اليوم.</div>';
+          return;
+        }
+        host.innerHTML = '';
+        j.reps.forEach(function (rep) {
+          var s = rep.summary;
+          var cls = s.stations_total && s.stations_done === s.stations_total ? 'good'
+                  : (s.stations_done ? 'warn' : 'bad');
+          var el = document.createElement('div');
+          el.className = 'rep' + (current === rep.employee_id ? ' on' : '');
+          el.innerHTML =
+            '<h6>' + esc(rep.name) +
+            '<span class="pill ' + cls + '">' + s.stations_done + '/' +
+            s.stations_total + '</span></h6>' +
+            '<div class="meta">' +
+            (rep.started_at ? 'بدأ ' + esc(rep.started_at.slice(11, 16)) : 'لم يبدأ') +
+            (rep.ended_at ? ' · أنهى ' + esc(rep.ended_at.slice(11, 16)) : '') +
+            ' · ' + rep.points + ' نقطة</div>';
+          el.addEventListener('click', function () { showRep(rep.employee_id); });
+          host.appendChild(el);
+        });
+      });
+  }
+
+  function showRep(empId) {
+    current = empId;
+    loadReps();
+    var d = $('fmDate').value;
+
+    fetch('/api/field/rep/' + empId + '?date=' + encodeURIComponent(d))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        layer.clearLayers();
+        if (!j.success) { $('fmStats').textContent = j.message || ''; return; }
+
+        var bounds = [];
+
+        (j.segments || []).forEach(function (seg) {
+          if (seg.points.length < 2) { return; }
+          var style = seg.kind === 'move'
+            ? { color: '#0d6efd', weight: 4, opacity: .85 }
+            : (seg.kind === 'gap'
+               ? { color: '#6c757d', weight: 3, dashArray: '7,9', opacity: .8 }
+               : { color: '#dc3545', weight: 3, dashArray: '2,7' });
+          var line = L.polyline(seg.points, style).addTo(layer);
+          if (seg.kind === 'gap') {
+            line.bindTooltip('انقطاع ' + Math.round(seg.seconds / 60) +
+                             ' دقيقة — ' + seg.meters + ' م');
+          } else if (seg.kind === 'jump') {
+            line.bindTooltip('قفزة بسرعة ' + seg.kmh + ' كم/س');
+          }
+          seg.points.forEach(function (p) { bounds.push(p); });
+        });
+
+        // المحطات: دائرة النطاق كما هي معرَّفة، فيرى المدير لِمَ قُبل
+        // أو رُفض تسجيل.
+        (j.plan || []).forEach(function (st) {
+          L.circle([st.latitude, st.longitude], {
+            radius: st.radius_meters || 100,
+            color: st.state === 'done' ? '#2ea56a'
+                 : (st.state === 'inside' ? '#f0a13a' : '#adb5bd'),
+            fillOpacity: .12, weight: 1
+          }).addTo(layer).bindTooltip(st.name + ' · ' +
+            (st.state === 'done' ? 'زُيرت' :
+             st.state === 'inside' ? 'بالداخل الآن' : 'لم تُزَر'));
+          bounds.push([st.latitude, st.longitude]);
+        });
+
+        (j.visits || []).forEach(function (v, i) {
+          if (v.check_in_lat == null) { return; }
+          L.marker([v.check_in_lat, v.check_in_lon]).addTo(layer)
+            .bindPopup('<b>' + esc(v.station_name) + '</b><br>دخول ' +
+                       esc((v.check_in_at || '').slice(11, 16)) +
+                       (v.check_out_at ? '<br>خروج ' + esc(v.check_out_at.slice(11, 16)) : ''));
+        });
+
+        if (bounds.length) { map.fitBounds(bounds, { padding: [30, 30] }); }
+
+        var st = j.stats, sm = j.summary;
+        $('fmStats').innerHTML =
+          '<b>' + (st.distance_meters / 1000).toFixed(1) + ' كم</b> · ' +
+          st.points + ' نقطة · ' +
+          (st.gaps ? '<span class="pill warn">' + st.gaps + ' انقطاع</span>' : '') +
+          (st.jumps ? '<span class="pill bad">' + st.jumps + ' قفزة</span>' : '') +
+          (sm.missed.length ? ' · لم تُزَر: ' + esc(sm.missed.join('، ')) : '');
+
+        paintVisits(j.visits || []);
+      });
+  }
+
+  function paintVisits(visits) {
+    var host = $('fmVisits');
+    if (!visits.length) {
+      host.innerHTML = '<div class="text-muted small">لا زيارات مسجّلة.</div>';
+      return;
+    }
+    host.innerHTML = '';
+    visits.forEach(function (v) {
+      var el = document.createElement('div');
+      el.className = 'visit';
+      var shots = (v.photos || []).map(function (p) {
+        var flag = p.had_exif
+          ? '<span class="pill bad">مصدر غير الكاميرا</span>' : '';
+        return '<figure class="m-0" style="width:50%">' +
+          '<img src="/api/field/photo/' + p.id + '" loading="lazy" alt="">' +
+          '<figcaption class="small text-muted mt-1">' +
+          (p.kind === 'in' ? 'دخول' : 'خروج') + ' · دقّة ' +
+          Math.round(p.accuracy || 0) + 'م · بُعد ' +
+          Math.round(p.distance_meters || 0) + 'م ' + flag +
+          '</figcaption></figure>';
+      }).join('');
+
+      el.innerHTML =
+        '<div class="d-flex justify-content-between align-items-start">' +
+        '<div><b>' + esc(v.station_name) + '</b>' +
+        (v.customer_name ? ' <span class="text-muted small">' +
+          esc(v.customer_name) + '</span>' : '') +
+        '<div class="small text-muted">' +
+        esc((v.check_in_at || '').slice(11, 16)) +
+        (v.check_out_at ? ' → ' + esc(v.check_out_at.slice(11, 16)) : ' → مفتوحة') +
+        (v.minutes != null ? ' · ' + v.minutes + ' دقيقة' : '') + '</div></div></div>' +
+        '<div class="shots">' + shots + '</div>';
+
+      el.querySelectorAll('img').forEach(function (img) {
+        img.addEventListener('click', function () {
+          $('shotBig').src = img.src;
+          new bootstrap.Modal($('shotModal')).show();
+        });
+      });
+      host.appendChild(el);
+    });
+  }
+
+  $('fmReload').addEventListener('click', loadReps);
+  $('fmDate').addEventListener('change', function () {
+    current = null;
+    layer && layer.clearLayers();
+    $('fmVisits').innerHTML = '';
+    $('fmStats').innerHTML = '';
+    loadReps();
+  });
+
+  initMap();
+  loadReps();
+})();
+</script>
+{% endblock %}

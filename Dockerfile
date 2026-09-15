@@ -34,9 +34,14 @@ FROM python:3.11-slim
 #         ويعمل بتوقيت UTC — وساعة النظام مصدر طوابع الحضور، فانزياحها
 #         يزيح الأجر مباشرةً.
 # curl:   لفحص الصحة أدناه.
+# fonts-dejavu-core: خط ختم صور زيارات المناديب. الصورة الأساسية بلا
+#         خطوط إطلاقًا. واختير DejaVu لا خطوط نوتو العربية لأن نسخ
+#         دبيان منها مقتطعة: تصل الحروف لكنها بلا شَرطة ولا نقطة وسطى
+#         ولا شَرطة مائلة، فيخرج التاريخ «2026□09□15».
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tzdata \
         curl \
+        fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

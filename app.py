@@ -161,6 +161,9 @@ app.register_blueprint(branch_bp)
 from routes.backup_routes import backup_bp
 app.register_blueprint(backup_bp)
 
+from routes.field_routes import field_bp
+app.register_blueprint(field_bp)
+
 # --- Internationalization (i18n) Setup ---
 from flask_babel import Babel
 

@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>رحلة اليوم | بوابة الموظف</title>
+
+    <link rel="manifest" href="/static/portal/manifest.json">
+    <meta name="theme-color" content="#0d6efd">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="رحلة اليوم">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+    <style>
+      body{font-family:'Tajawal',system-ui,sans-serif;background:#F2F2F7;margin:0;
+        padding-top:env(safe-area-inset-top,0px)}
+    </style>
+</head>
+<body>
+<style>
+  .trip-wrap{max-width:640px;margin:0 auto;padding:12px}
+  .trip-hero{background:linear-gradient(135deg,#0d6efd,#0a58ca);color:#fff;
+    border-radius:18px;padding:18px;margin-bottom:14px}
+  .trip-hero h2{font-size:1.15rem;margin:0 0 4px}
+  .trip-stat{display:flex;gap:18px;margin-top:12px;font-size:.85rem;opacity:.95}
+  .trip-stat b{display:block;font-size:1.3rem}
+  .station{background:#fff;border:1px solid #e6e8eb;border-radius:14px;
+    padding:14px;margin-bottom:10px;display:flex;gap:12px;align-items:center}
+  .station.done{border-color:#c7ebd4;background:#f4fbf6}
+  .station.inside{border-color:#ffe2b0;background:#fffaf0}
+  .st-dot{width:34px;height:34px;border-radius:50%;flex:0 0 34px;display:flex;
+    align-items:center;justify-content:center;font-weight:700;background:#eef1f4}
+  .station.done .st-dot{background:#2ea56a;color:#fff}
+  .station.inside .st-dot{background:#f0a13a;color:#fff}
+  .st-body{flex:1;min-width:0}
+  .st-body h4{margin:0;font-size:.98rem}
+  .st-body small{color:#6c757d}
+  .cam-sheet{position:fixed;inset:0;background:#000;z-index:2000;display:none;
+    flex-direction:column}
+  .cam-sheet.on{display:flex}
+  .cam-sheet video{flex:1;width:100%;object-fit:cover;background:#000}
+  .cam-bar{padding:14px;display:flex;gap:12px;align-items:center;justify-content:center;
+    background:#000;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  .shutter{width:68px;height:68px;border-radius:50%;background:#fff;border:5px solid #999}
+  .cam-note{color:#fff;font-size:.8rem;text-align:center;padding:6px 14px;background:#111}
+  #tripBadge{position:fixed;bottom:0;inset-inline:0;background:#111;color:#fff;
+    font-size:.78rem;padding:8px 14px;text-align:center;z-index:900;
+    padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+  .warn{background:#fff4f4;border:1px solid #f3c9c9;color:#8a1f1f;border-radius:12px;
+    padding:10px 12px;font-size:.84rem;margin-bottom:12px}
+</style>
+
+<div class="trip-wrap">
+  <div class="trip-hero">
+    <h2>رحلة اليوم — {{ today }}</h2>
+    <div id="tripState">لم تبدأ بعد</div>
+    <div class="trip-stat">
+      <div><b id="sDone">0</b> محطة مُنجزة</div>
+      <div><b id="sTotal">0</b> في الخطة</div>
+      <div><b id="sPoints">0</b> نقطة مسار</div>
+    </div>
+  </div>
+
+  <div class="warn" id="wakeWarn" style="display:none">
+    أبقِ هذه الشاشة مفتوحة أثناء الرحلة. المتصفح يتوقّف عن قراءة الموقع حين
+    تُقفل الشاشة، وما ينقطع يظهر لمديرك <b>فجوةً معلَّمة</b> في خط السير.
+  </div>
+
+  <button id="btnStart" class="btn btn-primary w-100 mb-2 py-3">ابدأ الرحلة</button>
+  <button id="btnStop" class="btn btn-outline-danger w-100 mb-3" style="display:none">
+    أنهِ الرحلة
+  </button>
+
+  <h5 class="mb-2">محطات اليوم</h5>
+  <div id="stations"><div class="text-muted small">…</div></div>
+</div>
+
+<div id="tripBadge" style="display:none"></div>
+
+<div class="cam-sheet" id="cam">
+  <div class="cam-note" id="camTitle">التقط الصورة من مكان المحطة</div>
+  <video id="camView" playsinline autoplay muted></video>
+  <div class="cam-bar">
+    <button class="btn btn-light" id="camCancel">إلغاء</button>
+    <button class="shutter" id="camShot" aria-label="التقاط"></button>
+    <span style="width:64px"></span>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var tripId = null, plan = [], watchId = null, wakeLock = null;
+  var buffer = [], lastFix = null, flushTimer = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function toast(msg, ok) {
+    var b = $('tripBadge');
+    b.style.display = 'block';
+    b.style.background = ok === false ? '#8a1f1f' : '#111';
+    b.textContent = msg;
+    clearTimeout(b._t);
+    b._t = setTimeout(function () { b.style.display = 'none'; }, 5000);
+  }
+
+  // ---------------------------------------------------------- الموقع
+
+  function onFix(pos) {
+    var c = pos.coords;
+    lastFix = {
+      lat: c.latitude, lon: c.longitude, accuracy: c.accuracy,
+      speed: c.speed, heading: c.heading,
+      at: new Date(pos.timestamp).toISOString().slice(0, 19).replace('T', ' ')
+    };
+    buffer.push(lastFix);
+    $('sPoints').textContent = (parseInt($('sPoints').textContent, 10) || 0) + 1;
+  }
+
+  function onFixError(err) {
+    toast('تعذّرت قراءة الموقع: ' + (err.message || err.code), false);
+  }
+
+  function startWatch() {
+    if (!navigator.geolocation) { toast('هذا الجهاز لا يدعم تحديد الموقع', false); return; }
+    watchId = navigator.geolocation.watchPosition(onFix, onFixError, {
+      enableHighAccuracy: true, maximumAge: 0, timeout: 20000
+    });
+    // الدفع على دفعات لا نقطةً نقطة: شبكة المندوب متقطّعة، والدفعة
+    // تصل كاملةً أو تُعاد كاملةً.
+    flushTimer = setInterval(flush, 20000);
+  }
+
+  function stopWatch() {
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+    if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+  }
+
+  function flush() {
+    if (!tripId || !buffer.length) { return Promise.resolve(); }
+    var batch = buffer.slice();
+    return fetch('/portal/api/field/track', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trip_id: tripId, points: batch })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        // لا تُحذف النقاط إلا بعد أن يؤكّد الخادم استلامها: الحذف عند
+        // الإرسال يفقد دفعةً كاملة كلّما انقطعت الشبكة لحظة.
+        if (j && j.success) { buffer.splice(0, batch.length); }
+      })
+      .catch(function () { /* تبقى في الذاكرة للدفعة التالية */ });
+  }
+
+  // ------------------------------------------------- إبقاء الشاشة حيّة
+
+  function keepAwake() {
+    if (!('wakeLock' in navigator)) {
+      $('wakeWarn').style.display = 'block';
+      return;
+    }
+    navigator.wakeLock.request('screen').then(function (l) {
+      wakeLock = l;
+      l.addEventListener('release', function () { wakeLock = null; });
+    }).catch(function () { $('wakeWarn').style.display = 'block'; });
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && tripId) {
+      if (!wakeLock) { keepAwake(); }
+      flush();
+    }
+  });
+
+  // ---------------------------------------------------------- الكاميرا
+  // getUserMedia لا <input type=file>: لا زرّ «اختر ملفًا» ولا وصول
+  // للمعرض. والخادم يرفض ما يحمل EXIF لأن canvas لا يُخرجه.
+
+  var stream = null, pendingShot = null;
+
+  function openCamera(title) {
+    return new Promise(function (resolve, reject) {
+      $('camTitle').textContent = title;
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
+        audio: false
+      }).then(function (s) {
+        stream = s;
+        $('camView').srcObject = s;
+        $('cam').classList.add('on');
+        pendingShot = { resolve: resolve, reject: reject };
+      }).catch(function (e) {
+        reject(new Error('تعذّر فتح الكاميرا: ' + (e.message || e.name)));
+      });
+    });
+  }
+
+  function closeCamera() {
+    $('cam').classList.remove('on');
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+  }
+
+  $('camCancel').addEventListener('click', function () {
+    if (pendingShot) { pendingShot.reject(new Error('أُلغي الالتقاط')); pendingShot = null; }
+    closeCamera();
+  });
+
+  $('camShot').addEventListener('click', function () {
+    var v = $('camView');
+    if (!v.videoWidth) { return; }
+    var c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    c.toBlob(function (blob) {
+      var p = pendingShot; pendingShot = null;
+      closeCamera();
+      if (p) { p.resolve(blob); }
+    }, 'image/jpeg', 0.85);
+  });
+
+  // ---------------------------------------------------------- الزيارة
+
+  function freshFix() {
+    return new Promise(function (resolve, reject) {
+      if (!navigator.geolocation) { return reject(new Error('لا خدمة موقع')); }
+      navigator.geolocation.getCurrentPosition(function (p) {
+        resolve({ lat: p.coords.latitude, lon: p.coords.longitude,
+                  accuracy: p.coords.accuracy });
+      }, function (e) { reject(new Error('تعذّر تحديد موقعك: ' + e.message)); },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    });
+  }
+
+  function visitStep(station, kind) {
+    var fix, token;
+    return freshFix().then(function (f) {
+      fix = f;
+      // الرمز يُطلب الآن لا عند فتح الصفحة: عمره قصير عمدًا.
+      return fetch('/portal/api/field/token', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ station_id: station.station_id, kind: kind })
+      }).then(function (r) { return r.json(); });
+    }).then(function (j) {
+      if (!j.success) { throw new Error(j.message); }
+      token = j.token;
+      return openCamera((kind === 'in' ? 'صورة الدخول — ' : 'صورة الخروج — ') + station.name);
+    }).then(function (blob) {
+      var fd = new FormData();
+      fd.append('photo', blob, 'shot.jpg');
+      fd.append('token', token);
+      fd.append('latitude', fix.lat);
+      fd.append('longitude', fix.lon);
+      fd.append('accuracy', fix.accuracy || 0);
+      if (kind === 'in') {
+        fd.append('station_id', station.station_id);
+        fd.append('trip_id', tripId || '');
+      } else {
+        fd.append('visit_id', station.visit_id);
+      }
+      return fetch('/portal/api/field/' + (kind === 'in' ? 'check-in' : 'check-out'),
+                   { method: 'POST', body: fd }).then(function (r) { return r.json(); });
+    }).then(function (j) {
+      toast(j.message, j.success);
+      if (j.success) { return refreshPlan(); }
+    }).catch(function (e) {
+      closeCamera();
+      toast(e.message || 'تعذّر إتمام الخطوة', false);
+    });
+  }
+
+  // ----------------------------------------------------------- العرض
+
+  function paint() {
+    var host = $('stations');
+    if (!plan.length) {
+      host.innerHTML = '<div class="text-muted small">لا محطات مسنَدة لك اليوم.</div>';
+      return;
+    }
+    host.innerHTML = '';
+    plan.forEach(function (s, i) {
+      var el = document.createElement('div');
+      el.className = 'station ' + s.state;
+      var label = s.state === 'done' ? '✓' : (i + 1);
+      var sub = s.customer_name ? s.customer_name : (s.address || '');
+      var btn = '';
+      if (s.state === 'pending') {
+        btn = '<button class="btn btn-sm btn-primary" data-k="in">دخول</button>';
+      } else if (s.state === 'inside') {
+        btn = '<button class="btn btn-sm btn-warning" data-k="out">خروج</button>';
+      }
+      el.innerHTML = '<div class="st-dot">' + label + '</div>' +
+        '<div class="st-body"><h4></h4><small></small></div><div>' + btn + '</div>';
+      el.querySelector('h4').textContent = s.name;
+      el.querySelector('small').textContent =
+        sub + (s.min_minutes ? ' · وقوف ' + s.min_minutes + ' دقيقة' : '');
+
+      var b = el.querySelector('button');
+      if (b) {
+        b.addEventListener('click', function () {
+          b.disabled = true;
+          visitStep(s, b.dataset.k).then(function () { b.disabled = false; });
+        });
+      }
+      host.appendChild(el);
+    });
+  }
+
+  function applySummary(sum) {
+    if (!sum) { return; }
+    $('sDone').textContent = sum.stations_done;
+    $('sTotal').textContent = sum.stations_total;
+  }
+
+  function refreshPlan() {
+    return fetch('/portal/api/field/plan').then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.success) { plan = j.plan || []; applySummary(j.summary); paint(); }
+      });
+  }
+
+  // ----------------------------------------------------------- البدء
+
+  $('btnStart').addEventListener('click', function () {
+    fetch('/portal/api/field/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_uuid: deviceId() })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.success) { return toast(j.message, false); }
+      tripId = j.trip_id;
+      plan = j.plan || [];
+      applySummary(j.summary);
+      paint();
+      $('btnStart').style.display = 'none';
+      $('btnStop').style.display = 'block';
+      $('tripState').textContent = j.resumed ? 'الرحلة مستأنَفة' : 'الرحلة جارية';
+      startWatch();
+      keepAwake();
+      toast('الرحلة بدأت — أبقِ الشاشة مفتوحة');
+    });
+  });
+
+  $('btnStop').addEventListener('click', function () {
+    flush().then(function () {
+      return fetch('/portal/api/field/stop', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip_id: tripId, reason: 'manual' })
+      }).then(function (r) { return r.json(); });
+    }).then(function (j) {
+      stopWatch();
+      if (wakeLock) { wakeLock.release(); wakeLock = null; }
+      tripId = null;
+      $('btnStart').style.display = 'block';
+      $('btnStop').style.display = 'none';
+      $('tripState').textContent = 'انتهت الرحلة';
+      applySummary(j && j.summary);
+      if (j && j.summary && j.summary.missed && j.summary.missed.length) {
+        toast('لم تُزَر: ' + j.summary.missed.join('، '), false);
+      }
+    });
+  });
+
+  function deviceId() {
+    try {
+      var k = localStorage.getItem('onz_device');
+      if (!k) {
+        k = (crypto.randomUUID ? crypto.randomUUID()
+             : String(Date.now()) + Math.random());
+        localStorage.setItem('onz_device', k);
+      }
+      return k;
+    } catch (e) { return ''; }
+  }
+
+  // آخر فرصة لدفع ما في الذاكرة قبل أن تُغلق الصفحة.
+  window.addEventListener('pagehide', function () {
+    if (tripId && buffer.length && navigator.sendBeacon) {
+      navigator.sendBeacon('/portal/api/field/track', new Blob(
+        [JSON.stringify({ trip_id: tripId, points: buffer })],
+        { type: 'application/json' }));
+    }
+  });
+
+  refreshPlan();
+})();
+</script>
+</body>
+</html>
