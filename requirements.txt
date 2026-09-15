@@ -22,3 +22,6 @@ pandas
 waitress>=3.0.0
 # قوالب عقود Word
 docxtpl
+# التحقّق من بصمات bcrypt الآتية من لوحة onz.one ('$2y$')؛
+# werkzeug لا تفهم هذه الصيغة.
+bcrypt>=4.0.0

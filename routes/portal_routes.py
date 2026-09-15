@@ -9,8 +9,18 @@ from utils.leave_utils import calculate_leave_balance, save_leave_balance, calcu
 
 portal_bp = Blueprint('portal', __name__, url_prefix='/portal')
 
-def get_portal_employee_id():
-    """Helper to resolve the current logged-in employee ID."""
+def get_portal_employee_id(for_write=False):
+    """رقم الموظف صاحب الجلسة الحالية.
+
+    `for_write=True` لكل مسار يكتب باسم الموظف — طلب إجازة أو استئذان أو
+    بصمة. والفرق كله في سقوط المسؤول:
+
+    مسؤول النظام لا سجلّ موظف له عادةً، فكان يسقط إلى «أول موظف نشط»
+    ليستعرض شكل البوابة. هذا مقبول للقراءة، وخطأ في الكتابة: مسؤول يفتح
+    البوابة ويضغط «تسجيل حضور» كان يُسجّل حضورًا باسم موظفٍ لم يحضر —
+    ولا شيء في الشاشة يقول إنه يتصرّف نيابةً عن أحد. وسجلّ الحضور مصدرُ
+    الأجر.
+    """
     emp_id = session.get('employee_id')
     if emp_id:
         return emp_id
@@ -22,9 +32,9 @@ def get_portal_employee_id():
     if row and row['employee_id']:
         session['employee_id'] = row['employee_id']
         return row['employee_id']
-    
-    # Fallback for admin previewing portal: pick first active employee
-    if row and row['role'] == 'admin':
+
+    # استعراض المسؤول: للقراءة فقط.
+    if row and row['role'] == 'admin' and not for_write:
         first_emp = conn.execute("SELECT id FROM employees WHERE is_active = 1 LIMIT 1").fetchone()
         if first_emp:
             return first_emp['id']
@@ -227,7 +237,7 @@ def api_attendance():
 @portal_bp.route('/api/request-leave', methods=['POST'])
 @login_required
 def api_request_leave():
-    emp_id = get_portal_employee_id()
+    emp_id = get_portal_employee_id(for_write=True)
     if not emp_id:
         return jsonify({'success': False, 'message': 'حساب الموظف غير محدد'}), 400
     
@@ -278,7 +288,7 @@ def api_request_leave():
 @portal_bp.route('/api/request-excuse', methods=['POST'])
 @login_required
 def api_request_excuse():
-    emp_id = get_portal_employee_id()
+    emp_id = get_portal_employee_id(for_write=True)
     if not emp_id:
         return jsonify({'success': False, 'message': 'حساب الموظف غير محدد'}), 400
     
@@ -436,9 +446,22 @@ def api_approve_request():
     if not req:
         return jsonify({'success': False, 'message': 'طلب الإجازة غير موجود'}), 404
     
-    # Permission check: must be direct manager or admin
-    if not is_admin and req['manager_id'] != emp_id:
-        return jsonify({'success': False, 'message': 'لا تملك صلاحية اعتماد هذا الطلب'}), 403
+    # الصلاحية: مدير مباشر أو مسؤول نظام.
+    #
+    # الشرطان الأولان ليسا احتياطًا زائدًا، بل هما الثغرة نفسها: الفحص
+    # كان `req['manager_id'] != emp_id` وحده، وفي بايثون `None != None`
+    # تساوي False. فحسابٌ غير مرتبط بموظف (emp_id = None) كان يعتمد أي
+    # طلب لموظف لا مدير مُسنَد له (manager_id = None) — وهذان حالان
+    # شائعان لا نادران. جرّبتُه: الطلب انتقل من pending إلى approved.
+    if not is_admin:
+        if not emp_id:
+            return jsonify({'success': False,
+                            'message': 'حسابك غير مرتبط بموظف، فلا يمكن اعتماد الطلبات'}), 403
+        if not req['manager_id']:
+            return jsonify({'success': False,
+                            'message': 'لا مدير مُسنَد لهذا الموظف — الاعتماد لمسؤول النظام'}), 403
+        if req['manager_id'] != emp_id:
+            return jsonify({'success': False, 'message': 'لا تملك صلاحية اعتماد هذا الطلب'}), 403
     
     new_status = 'approved' if action == 'approve' else 'rejected'
     conn.execute("UPDATE leave_requests SET status = ? WHERE id = ?", (new_status, req_id))
@@ -561,7 +584,7 @@ def api_punch_status():
 @login_required
 def api_punch():
     import math
-    emp_id = get_portal_employee_id()
+    emp_id = get_portal_employee_id(for_write=True)
     if not emp_id:
         return jsonify({'success': False, 'message': 'حساب الموظف غير محدد'}), 400
         

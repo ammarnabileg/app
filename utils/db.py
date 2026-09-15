@@ -824,13 +824,32 @@ def init_db():
 
 
     
-    # Insert default user
-    # Insert default user
+    # حساب المدير الأول.
+    #
+    # حين تجهّز لوحة onz.one مستأجرًا فإنها تمرّر هنا اسم المستخدم الذي
+    # سجّل به العميل وبصمة كلمة مروره كما هي مخزَّنة عندها، فيدخل العميل
+    # نظامه بنفس ما يدخل به الموقع. والبصمة لا الكلمة: الكلمة الصريحة لا
+    # تخرج من اللوحة إطلاقًا، وbcrypt من PHP مفهومة هنا عبر
+    # utils/passwords.verify_password.
+    #
+    # وبغياب المتغيّرين — تركيب يدوي أو تطوير محلّي — يبقى السلوك القديم
+    # كما هو: admin/admin123.
+    #
+    # INSERT OR IGNORE: يُنشأ مرة واحدة عند أول إقلاع فقط. مستأجر قائم لا
+    # تُعاد كتابة كلمة مدير به لو أُعيد نشره، وإلا لأبطل كل نشر تصحيحيّ
+    # كلمةَ مرور غيّرها العميل بنفسه.
+    import os
     from werkzeug.security import generate_password_hash
-    admin_pw_hash = generate_password_hash('admin123')
-    
-    cursor.execute('INSERT OR IGNORE INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)', 
-                   ('admin', admin_pw_hash, 'مدير النظام', 'admin'))
+
+    admin_user = (os.environ.get('HR_ADMIN_USERNAME') or 'admin').strip() or 'admin'
+    admin_hash = (os.environ.get('HR_ADMIN_PASSWORD_HASH') or '').strip()
+    admin_name = (os.environ.get('HR_ADMIN_FULLNAME') or 'مدير النظام').strip() or 'مدير النظام'
+
+    if not admin_hash:
+        admin_hash = generate_password_hash('admin123')
+
+    cursor.execute('INSERT OR IGNORE INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
+                   (admin_user, admin_hash, admin_name, 'admin'))
     
     # Insert default system settings (Kuwait Default)
     cursor.execute('''

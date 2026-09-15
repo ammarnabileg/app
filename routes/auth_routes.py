@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_babel import gettext
 from werkzeug.security import check_password_hash, generate_password_hash
 from utils.db import get_db_connection
+from utils.passwords import verify_password
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -19,11 +20,12 @@ def login():
         # Verify password (supports hash with fallback for plain text + auto upgrade)
         is_authenticated = False
         if user and user['password']:
-            try:
-                if check_password_hash(user['password'], password):
-                    is_authenticated = True
-            except Exception:
-                pass
+            # verify_password لا check_password_hash: حساب المدير الذي
+            # تُنشئه لوحة onz.one يحمل بصمة bcrypt من PHP ('$2y$')،
+            # وcheck_password_hash لا تفهمها — فكان العميل يكتب كلمته
+            # الصحيحة ويُردّ.
+            if verify_password(user['password'], password):
+                is_authenticated = True
             
             # Fallback if stored as plain text
             if not is_authenticated and user['password'] == password:
