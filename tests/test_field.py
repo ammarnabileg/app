@@ -339,3 +339,99 @@ def test_haversine_matches_a_known_distance():
 if __name__ == '__main__':
     import pytest
     raise SystemExit(pytest.main([__file__, '-v']))
+
+
+# ===================================================== المناطق والمحطات
+# المحطة تتبع منطقة، والمنطقة تُسنَد إلى مندوب. فالسؤال «هل خرج عن
+# منطقته؟» صار له جواب، و«محطة ليست في منطقته» صار له منع.
+
+from utils import geo as _geo
+
+SQUARE = [(29.30, 47.95), (29.30, 48.05), (29.40, 48.05), (29.40, 47.95)]
+FAR = [(30.30, 48.95), (30.30, 49.05), (30.40, 49.05), (30.40, 48.95)]
+
+
+def _territory(con, tid, name, poly, members=()):
+    con.execute('INSERT INTO field_territories (id, name, polygon) VALUES (?, ?, ?)',
+                (tid, name, _geo.dumps_polygon(poly)))
+    for e in members:
+        con.execute('''INSERT INTO field_territory_members (territory_id, employee_id)
+                       VALUES (?, ?)''', (tid, e))
+
+
+def test_a_rep_gets_only_his_own_territories(tmp_path):
+    con = _conn(tmp_path)
+    _territory(con, 1, 'السالمية', SQUARE, members=[7])
+    _territory(con, 2, 'الجهراء', FAR, members=[8])
+    con.commit()
+
+    mine = field.territories_of(con, 7)
+    assert [t['name'] for t in mine] == ['السالمية']
+    assert mine[0]['points'] == SQUARE
+
+
+def test_a_disabled_territory_leaves_the_rep(tmp_path):
+    con = _conn(tmp_path)
+    _territory(con, 1, 'معطَّلة', SQUARE, members=[7])
+    con.execute('UPDATE field_territories SET is_active = 0 WHERE id = 1')
+    con.commit()
+
+    assert field.territories_of(con, 7) == []
+
+
+def test_a_broken_polygon_does_not_drop_the_others(tmp_path):
+    """مضلَّع تالف في صفٍّ واحد لا يُعمي المندوب عن باقي مناطقه."""
+    con = _conn(tmp_path)
+    _territory(con, 1, 'سليمة', SQUARE, members=[7])
+    con.execute('''INSERT INTO field_territories (id, name, polygon)
+                   VALUES (2, 'تالفة', 'not-json')''')
+    con.execute('''INSERT INTO field_territory_members (territory_id, employee_id)
+                   VALUES (2, 7)''')
+    con.commit()
+
+    assert [t['name'] for t in field.territories_of(con, 7)] == ['سليمة']
+
+
+def test_a_station_finds_its_territory_by_where_it_sits(tmp_path):
+    """من يضع دبّوسًا داخل مضلَّع السالمية يقصد السالمية."""
+    con = _conn(tmp_path)
+    _territory(con, 1, 'السالمية', SQUARE)
+    con.commit()
+
+    found = field.station_territory(con, 29.35, 48.00)
+    assert found and found['name'] == 'السالمية'
+    assert field.station_territory(con, 29.90, 48.90) is None
+
+
+def test_leaving_the_assigned_territory_is_measured(tmp_path):
+    con = _conn(tmp_path)
+    _territory(con, 1, 'السالمية', SQUARE, members=[7])
+    con.commit()
+
+    track = [(29.35, 48.00), (29.36, 48.01), (29.90, 48.60), (29.91, 48.61)]
+    out, ratio = field.outside_own_territory(con, 7, track)
+    assert out == 2 and ratio == 0.5
+
+
+def test_a_rep_covering_two_areas_may_pass_between_them(tmp_path):
+    """من يغطّي منطقتين يمرّ بينهما.
+
+    القياس «خارج كلّ مناطقه» لا «خارج واحدة منها» — وإلا عُدّ كل من
+    يغطّي أكثر من منطقة مخالفًا نصف يومه.
+    """
+    con = _conn(tmp_path)
+    _territory(con, 1, 'أولى', SQUARE, members=[7])
+    _territory(con, 2, 'ثانية', FAR, members=[7])
+    con.commit()
+
+    inside_both = [(29.35, 48.00), (30.35, 49.00)]
+    assert field.outside_own_territory(con, 7, inside_both)[0] == 0
+
+
+def test_a_rep_without_a_territory_is_not_called_a_breach(tmp_path):
+    """غياب الإسناد خطأ إداري، لا مخالفة من الموظف."""
+    con = _conn(tmp_path)
+    con.commit()
+
+    out, ratio = field.outside_own_territory(con, 7, [(29.35, 48.0), (40.0, 60.0)])
+    assert out == 0 and ratio == 0.0

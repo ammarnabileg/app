@@ -40,7 +40,9 @@
       <i style="background:#0d6efd"></i> سير متّصل<br>
       <i style="background:#adb5bd;border-top:2px dashed #6c757d;height:0"></i>
       فجوة — الشاشة كانت مقفلة أو الشبكة منقطعة<br>
-      <i style="background:#dc3545"></i> قفزة — مسافة لا تُقطع في زمنها
+      <i style="background:#dc3545"></i> قفزة — مسافة لا تُقطع في زمنها<br>
+      <i style="background:transparent;border:1px dashed #0d6efd;height:10px"></i>
+      حدود المنطقة المُسنَدة
     </div>
   </div>
 
@@ -125,6 +127,15 @@
 
         var bounds = [];
 
+        // المنطقة أولًا لتكون تحت الخط لا فوقه.
+        (j.territories || []).forEach(function (t) {
+          if (!t.points || t.points.length < 3) { return; }
+          L.polygon(t.points, { color: t.color || '#0d6efd', weight: 2,
+                                fillOpacity: .06, dashArray: '4,4' })
+           .addTo(layer).bindTooltip('منطقة: ' + t.name);
+          t.points.forEach(function (p) { bounds.push(p); });
+        });
+
         (j.segments || []).forEach(function (seg) {
           if (seg.points.length < 2) { return; }
           var style = seg.kind === 'move'
@@ -172,10 +183,22 @@
           st.points + ' نقطة · ' +
           (st.gaps ? '<span class="pill warn">' + st.gaps + ' انقطاع</span>' : '') +
           (st.jumps ? '<span class="pill bad">' + st.jumps + ' قفزة</span>' : '') +
+          outsideBadge(j) +
           (sm.missed.length ? ' · لم تُزَر: ' + esc(sm.missed.join('، ')) : '');
 
         paintVisits(j.visits || []);
       });
+  }
+
+  function outsideBadge(j) {
+    var o = j.outside || {};
+    if (!j.territories || !j.territories.length) {
+      return ' <span class="pill">لا منطقة مُسنَدة</span>';
+    }
+    if (!o.points) { return ' <span class="pill good">داخل منطقته</span>'; }
+    // نسبة لا عددًا مجرّدًا: عشر نقاط من ألف غير عشر من عشرين.
+    return ' <span class="pill warn">خارج منطقته ' +
+           Math.round((o.ratio || 0) * 100) + '٪ من المسار</span>';
   }
 
   function paintVisits(visits) {

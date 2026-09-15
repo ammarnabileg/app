@@ -62,6 +62,25 @@ _chosen_font = {}
 # ------------------------------------------------------------- المخطَّط
 
 SCHEMA = [
+    # المنطقة: مضلَّع من عدة نقاط. المحطة تقع داخلها، والمندوب يُسنَد
+    # إليها — فيصير «خرج عن منطقته» سؤالًا له جواب.
+    '''CREATE TABLE IF NOT EXISTS field_territories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        polygon TEXT NOT NULL,
+        color TEXT DEFAULT '#0d6efd',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        notes TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''',
+    # موظف واحد قد يغطّي أكثر من منطقة، والمنطقة قد يتقاسمها اثنان.
+    '''CREATE TABLE IF NOT EXISTS field_territory_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        territory_id INTEGER NOT NULL,
+        employee_id INTEGER NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (territory_id, employee_id)
+    )''',
     '''CREATE TABLE IF NOT EXISTS field_stations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -151,11 +170,86 @@ SCHEMA = [
 ]
 
 
+# أعمدة أُضيفت بعد أن صارت قواعد عند عملاء. ALTER يفشل إن وُجد العمود،
+# فيُتجاهَل خطؤه وحده — لا كل خطأ.
+_ADDED_COLUMNS = [
+    ('field_stations', 'territory_id', 'INTEGER'),
+]
+
+
 def init_schema(conn=None):
     conn = conn or get_db_connection()
     for stmt in SCHEMA:
         conn.execute(stmt)
+
+    for table, col, decl in _ADDED_COLUMNS:
+        cols = [r[1] for r in conn.execute(f'PRAGMA table_info({table})')]
+        if col not in cols:
+            conn.execute(f'ALTER TABLE {table} ADD COLUMN {col} {decl}')
+
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_ftm_emp '
+                 'ON field_territory_members (employee_id)')
     conn.commit()
+
+
+# ------------------------------------------------------------ المناطق
+
+def territories_of(conn, employee_id):
+    """مناطق موظف، ومضلَّع كلٍّ مفكوكًا."""
+    from utils import geo
+
+    rows = conn.execute('''
+        SELECT t.* FROM field_territories t
+        JOIN field_territory_members m ON m.territory_id = t.id
+        WHERE m.employee_id = ? AND t.is_active = 1
+        ORDER BY t.name
+    ''', (employee_id,)).fetchall()
+
+    out = []
+    for r in rows:
+        pts, _why = geo.parse_polygon(r['polygon'])
+        if not pts:
+            continue          # مضلَّع تالف لا يُسقط البقيّة
+        d = dict(r)
+        d['points'] = pts
+        out.append(d)
+    return out
+
+
+def station_territory(conn, lat, lon):
+    """أوّل منطقة نشطة تقع فيها هذه النقطة، أو None."""
+    from utils import geo
+
+    for r in conn.execute(
+            'SELECT id, name, polygon FROM field_territories WHERE is_active = 1'):
+        pts, _ = geo.parse_polygon(r['polygon'])
+        if pts and geo.contains(pts, lat, lon):
+            return dict(r)
+    return None
+
+
+def outside_own_territory(conn, employee_id, track, margin_meters=60):
+    """نقاط المسار الواقعة خارج كل مناطق الموظف.
+
+    خارج **كلّ** مناطقه لا خارج واحدة: من يغطّي منطقتين يمرّ بينهما.
+    ومن لا منطقة له لا يُقاس عليه شيء — فالنتيجة صفر لا «كلّه خارج»،
+    لأن غياب الإسناد ليس مخالفةً من الموظف.
+    """
+    from utils import geo
+
+    terrs = territories_of(conn, employee_id)
+    if not terrs or not track:
+        return 0, 0.0
+
+    out = 0
+    for t in track:
+        lat, lon = t[0], t[1]
+        if any(geo.contains(x['points'], lat, lon) for x in terrs):
+            continue
+        near = min(geo.distance_to_edge(x['points'], lat, lon) for x in terrs)
+        if near is not None and near > margin_meters:
+            out += 1
+    return out, round(out / len(track), 3)
 
 
 # --------------------------------------------------------------- المسافة

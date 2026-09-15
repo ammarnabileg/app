@@ -29,14 +29,71 @@
 
 <ul class="nav nav-tabs mb-3" id="fsTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
+      data-bs-target="#tabTerr" type="button">المناطق</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
       data-bs-target="#tabStations" type="button">المحطات</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
       data-bs-target="#tabPlan" type="button">خطة اليوم</button></li>
 </ul>
 
 <div class="tab-content">
+  <!-- ------------------------------------------------------ المناطق -->
+  <div class="tab-pane fade show active" id="tabTerr">
+    <div class="fs-grid">
+      <div>
+        <div class="card"><div class="card-body">
+          <h6 class="mb-3" id="trFormTitle">منطقة جديدة</h6>
+          <input type="hidden" id="trId">
+          <div class="mb-2">
+            <label class="form-label small mb-1">اسم المنطقة *</label>
+            <input class="form-control form-control-sm" id="trName" maxlength="120"
+                   placeholder="السالمية — القطاع الشمالي">
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-4">
+              <label class="form-label small mb-1">اللون</label>
+              <input type="color" class="form-control form-control-sm form-control-color"
+                     id="trColor" value="#0d6efd">
+            </div>
+            <div class="col-8">
+              <label class="form-label small mb-1">المناديب المسنَدون</label>
+              <select class="form-select form-select-sm" id="trMembers" multiple size="4">
+                {% for e in employees %}
+                <option value="{{ e.id }}">{{ e.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-primary btn-sm" id="trSave">حفظ المنطقة</button>
+            <button class="btn btn-outline-secondary btn-sm" id="trNew">منطقة جديدة</button>
+            <button class="btn btn-outline-warning btn-sm" id="trUndo">تراجع عن نقطة</button>
+            <span class="align-self-center small text-muted" id="trInfo"></span>
+          </div>
+        </div></div>
+
+        <div class="hint mt-2">
+          اضغط على الخريطة نقطةً نقطة لترسم حدود المنطقة — على حدود
+          الشوارع كما هي. <b>ثلاث نقاط على الأقل.</b> والحيّ ليس دائرة:
+          دائرةٌ تسع السالمية تبتلع شارعًا من غيرها، ودائرةٌ لا تبتلعه
+          تترك ثلث الحيّ خارجها.
+        </div>
+        <div id="trMap" class="mt-2" style="height:360px;border-radius:12px;
+             border:1px solid #e3e6ea"></div>
+      </div>
+
+      <div>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">المناطق المعرَّفة</h6>
+          <span class="text-muted small" id="trCount"></span>
+        </div>
+        <div id="trList"><div class="text-muted small">…</div></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ------------------------------------------------------ المحطات -->
-  <div class="tab-pane fade show active" id="tabStations">
+  <div class="tab-pane fade" id="tabStations">
     <div class="fs-grid">
       <div>
         <div class="card"><div class="card-body">
@@ -57,6 +114,14 @@
               <input class="form-control form-control-sm" id="stLat" inputmode="decimal"></div>
             <div class="col"><label class="form-label small mb-1">خط الطول *</label>
               <input class="form-control form-control-sm" id="stLon" inputmode="decimal"></div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-1">المنطقة</label>
+            <select class="form-select form-select-sm" id="stTerr">
+              <option value="">— تُستنتَج من موقع الدبّوس —</option>
+            </select>
+            <div class="hint">من يضع دبّوسًا داخل مضلَّع السالمية يقصد
+              السالمية؛ الاختيار هنا لتجاوز ذلك عند الحاجة.</div>
           </div>
           <div class="row g-2 mb-2">
             <div class="col">
@@ -130,6 +195,7 @@
   'use strict';
   var $ = function (i) { return document.getElementById(i); };
   var stations = [], picked = [], map, marker, ring;
+  var territories = [], draft = [], trMap, trDraft, trLayer;
 
   function esc(s) {
     var d = document.createElement('div');
@@ -285,10 +351,9 @@
       host.innerHTML = '<div class="text-muted small">اختر مندوبًا أولًا.</div>';
       return;
     }
-    var active = stations.filter(function (s) { return s.is_active; });
+    var active = planStations;
     if (!active.length) {
-      host.innerHTML = '<div class="text-muted small">عرّف محطةً واحدة على الأقل.</div>';
-      return;
+      return;          // الرسالة كُتبت في loadPlan
     }
     host.innerHTML = '';
     active.forEach(function (s) {
@@ -298,7 +363,9 @@
       el.innerHTML = '<div class="ord">' + (idx >= 0 ? idx + 1 : '+') + '</div>' +
         '<div class="grow"><b>' + esc(s.name) + '</b>' +
         (s.customer_name ? ' <span class="text-muted small">' +
-          esc(s.customer_name) + '</span>' : '') + '</div>';
+          esc(s.customer_name) + '</span>' : '') +
+        (s.territory_name ? '<br><span class="text-muted" style="font-size:.74rem">' +
+          esc(s.territory_name) + '</span>' : '') + '</div>';
       el.addEventListener('click', function () {
         var i = picked.indexOf(s.id);
         if (i >= 0) { picked.splice(i, 1); } else { picked.push(s.id); }
@@ -309,10 +376,25 @@
     $('plCount').textContent = picked.length + ' محطة مختارة';
   }
 
+  var planStations = [];
+
   function loadPlan() {
     var emp = $('plEmp').value, d = $('plDate').value;
     picked = [];
-    if (!emp) { return paintPicker(); }
+    if (!emp) { planStations = []; return paintPicker(); }
+
+    // محطات مناطقه وحدها: ما لا يستطيع زيارته لا يُعرض ليُسنَد إليه.
+    fetch('/api/field/stations?employee_id=' + emp)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        planStations = (j.stations || []).filter(function (s) { return s.is_active; });
+        if (!planStations.length) {
+          $('plList').innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">' +
+            (j.message || 'لا محطات في مناطق هذا المندوب') +
+            ' — أسنِد له منطقة من تبويب «المناطق» أولًا.</div>';
+        }
+      });
+
     fetch('/api/field/assignments?employee_id=' + emp + '&date=' + encodeURIComponent(d))
       .then(function (r) { return r.json(); })
       .then(function (j) {
@@ -354,7 +436,157 @@
       });
   });
 
+  // ==================================================== المناطق
+
+  function initTerrMap() {
+    trMap = L.map('trMap').setView([29.3759, 47.9774], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(trMap);
+    trLayer = L.layerGroup().addTo(trMap);
+    trMap.on('click', function (e) {
+      draft.push([e.latlng.lat, e.latlng.lng]);
+      paintDraft();
+    });
+    // الخريطة تُرسم قبل أن يُفتح تبويبها، فتخرج رمادية حتى يُعاد قياسها.
+    document.querySelector('[data-bs-target="#tabTerr"]')
+      .addEventListener('shown.bs.tab', function () { trMap.invalidateSize(); });
+  }
+
+  function paintDraft() {
+    if (trDraft) { trMap.removeLayer(trDraft); trDraft = null; }
+    var info = $('trInfo');
+    if (!draft.length) { info.textContent = ''; return; }
+
+    if (draft.length < 3) {
+      trDraft = L.polyline(draft, { color: $('trColor').value, dashArray: '5,6' })
+                 .addTo(trMap);
+      info.textContent = draft.length + ' نقطة — تحتاج ٣ على الأقل';
+      return;
+    }
+    trDraft = L.polygon(draft, { color: $('trColor').value, fillOpacity: .15 })
+               .addTo(trMap);
+    info.textContent = draft.length + ' نقطة';
+  }
+
+  $('trColor').addEventListener('input', paintDraft);
+  $('trUndo').addEventListener('click', function () { draft.pop(); paintDraft(); });
+  $('trNew').addEventListener('click', function () {
+    draft = [];
+    $('trId').value = ''; $('trName').value = '';
+    $('trFormTitle').textContent = 'منطقة جديدة';
+    Array.prototype.forEach.call($('trMembers').options,
+      function (o) { o.selected = false; });
+    paintDraft();
+  });
+
+  function loadTerritories() {
+    return fetch('/api/field/territories').then(function (r) { return r.json(); })
+      .then(function (j) {
+        territories = j.territories || [];
+        paintTerritories();
+        fillTerritorySelect();
+      });
+  }
+
+  function fillTerritorySelect() {
+    var sel = $('stTerr');
+    var keep = sel.value;
+    sel.innerHTML = '<option value="">— تُستنتَج من موقع الدبّوس —</option>';
+    territories.filter(function (t) { return t.is_active; }).forEach(function (t) {
+      var o = document.createElement('option');
+      o.value = t.id; o.textContent = t.name;
+      sel.appendChild(o);
+    });
+    sel.value = keep;
+  }
+
+  function paintTerritories() {
+    var host = $('trList');
+    $('trCount').textContent = territories.length + ' منطقة';
+    trLayer.clearLayers();
+
+    if (!territories.length) {
+      host.innerHTML = '<div class="text-muted small">لا مناطق بعد.</div>';
+      return;
+    }
+    host.innerHTML = '';
+    territories.forEach(function (t) {
+      if (t.points && t.points.length > 2) {
+        L.polygon(t.points, { color: t.color || '#0d6efd', fillOpacity: .08,
+                              weight: 2 }).addTo(trLayer)
+         .bindTooltip(t.name + ' · ' + t.station_count + ' محطة');
+      }
+      var el = document.createElement('div');
+      el.className = 'st-row' + (t.is_active ? '' : ' off');
+      var who = (t.members || []).map(function (m) { return esc(m.name); }).join('، ');
+      el.innerHTML =
+        '<span style="width:12px;height:12px;border-radius:3px;flex:0 0 12px;' +
+        'background:' + esc(t.color || '#0d6efd') + '"></span>' +
+        '<div class="grow"><b>' + esc(t.name) + '</b><small>' +
+        t.area_km2 + ' كم² · ' + t.station_count + ' محطة · ' +
+        (who || '<span class="text-danger">لا مندوب مُسنَد</span>') +
+        (t.is_active ? '' : ' · معطَّلة') + '</small></div>' +
+        '<button class="btn btn-sm btn-outline-primary" data-a="edit">تعديل</button>' +
+        (t.is_active ? '<button class="btn btn-sm btn-outline-danger" data-a="off">تعطيل</button>' : '');
+
+      el.querySelectorAll('button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (b.dataset.a === 'edit') { editTerr(t); } else { offTerr(t); }
+        });
+      });
+      host.appendChild(el);
+    });
+  }
+
+  function editTerr(t) {
+    $('trFormTitle').textContent = 'تعديل: ' + t.name;
+    $('trId').value = t.id;
+    $('trName').value = t.name;
+    $('trColor').value = t.color || '#0d6efd';
+    var ids = (t.members || []).map(function (m) { return String(m.id); });
+    Array.prototype.forEach.call($('trMembers').options, function (o) {
+      o.selected = ids.indexOf(o.value) >= 0;
+    });
+    draft = (t.points || []).slice();
+    paintDraft();
+    if (draft.length) { trMap.fitBounds(draft, { padding: [30, 30] }); }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function offTerr(t) {
+    if (!confirm('تعطيل «' + t.name + '»؟')) { return; }
+    fetch('/api/field/territory/' + t.id, { method: 'DELETE' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        note(j.success ? 'عُطّلت المنطقة' : (j.message || 'تعذّر'), j.success);
+        loadTerritories();
+      });
+  }
+
+  $('trSave').addEventListener('click', function () {
+    var name = $('trName').value.trim();
+    if (!name) { return note('اسم المنطقة مطلوب', false); }
+    if (draft.length < 3) { return note('ارسم ٣ نقاط على الأقل على الخريطة', false); }
+
+    var members = Array.prototype.filter.call($('trMembers').options,
+        function (o) { return o.selected; })
+      .map(function (o) { return parseInt(o.value, 10); });
+
+    fetch('/api/field/territories', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: $('trId').value || null, name: name,
+                             color: $('trColor').value, points: draft,
+                             member_ids: members, is_active: 1 })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      note(j.success ? 'حُفظت المنطقة (' + j.area_km2 + ' كم²)'
+                     : (j.message || 'تعذّر الحفظ'), j.success);
+      if (j.success) { $('trNew').click(); loadTerritories(); loadStations(); }
+    });
+  });
+
   initMap();
+  initTerrMap();
+  loadTerritories();
   loadStations();
 })();
 </script>

@@ -391,6 +391,86 @@ def setup():
                            today=datetime.now().strftime('%Y-%m-%d'))
 
 
+@field_bp.route('/api/field/territories', methods=['GET', 'POST'])
+@login_required
+def api_territories():
+    """المناطق: مضلَّع من عدة نقاط، ومن يغطّيها من المناديب."""
+    from utils import geo
+
+    conn = get_db_connection()
+    field.init_schema(conn)
+
+    if request.method == 'GET':
+        rows = conn.execute(
+            'SELECT * FROM field_territories ORDER BY is_active DESC, name').fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            pts, _ = geo.parse_polygon(r['polygon'])
+            d['points'] = pts or []
+            d['area_km2'] = round(geo.area_km2(pts), 2) if pts else 0
+            d['members'] = [dict(m) for m in conn.execute('''
+                SELECT e.id, e.name FROM field_territory_members m
+                JOIN employees e ON e.id = m.employee_id
+                WHERE m.territory_id = ? ORDER BY e.name''', (r['id'],))]
+            d['station_count'] = conn.execute(
+                'SELECT COUNT(*) FROM field_stations WHERE territory_id = ? AND is_active = 1',
+                (r['id'],)).fetchone()[0]
+            out.append(d)
+        return jsonify({'success': True, 'territories': out})
+
+    denied = _admin_only()
+    if denied:
+        return denied
+
+    d = request.get_json(silent=True) or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'message': 'اسم المنطقة مطلوب'}), 400
+
+    pts, why = geo.parse_polygon(d.get('points'))
+    if not pts:
+        return jsonify({'success': False, 'message': why}), 400
+
+    color = (d.get('color') or '#0d6efd')[:9]
+    cur = conn.cursor()
+    if d.get('id'):
+        cur.execute('''UPDATE field_territories SET name=?, polygon=?, color=?,
+                       is_active=?, notes=? WHERE id=?''',
+                    (name, geo.dumps_polygon(pts), color,
+                     1 if d.get('is_active', 1) else 0, d.get('notes'), d['id']))
+        tid = int(d['id'])
+    else:
+        cur.execute('''INSERT INTO field_territories (name, polygon, color, notes)
+                       VALUES (?, ?, ?, ?)''',
+                    (name, geo.dumps_polygon(pts), color, d.get('notes')))
+        tid = cur.lastrowid
+
+    if isinstance(d.get('member_ids'), list):
+        # الإسناد يُستبدل لا يُضاف إليه: الإضافة تُبقي مندوبًا نُقل عنها.
+        conn.execute('DELETE FROM field_territory_members WHERE territory_id = ?', (tid,))
+        for emp in d['member_ids'][:200]:
+            conn.execute('''INSERT OR IGNORE INTO field_territory_members
+                            (territory_id, employee_id) VALUES (?, ?)''', (tid, emp))
+
+    conn.commit()
+    return jsonify({'success': True, 'territory_id': tid,
+                    'area_km2': round(geo.area_km2(pts), 2)})
+
+
+@field_bp.route('/api/field/territory/<int:territory_id>', methods=['DELETE'])
+@login_required
+def api_territory_delete(territory_id):
+    """تعطيل لا حذف — كالمحطات، للسبب نفسه."""
+    denied = _admin_only()
+    if denied:
+        return denied
+    conn = get_db_connection()
+    conn.execute('UPDATE field_territories SET is_active = 0 WHERE id = ?', (territory_id,))
+    conn.commit()
+    return jsonify({'success': True})
+
+
 @field_bp.route('/api/field/station/<int:station_id>', methods=['DELETE'])
 @login_required
 def api_station_delete(station_id):
@@ -499,8 +579,15 @@ def api_rep_day(employee_id):
             d['minutes'] = int((b - a).total_seconds() / 60) if a and b else None
         visit_list.append(d)
 
+    track = [(p['latitude'], p['longitude']) for p in pts]
+    out_n, out_ratio = field.outside_own_territory(conn, employee_id, track)
+    terrs = field.territories_of(conn, employee_id)
+
     return jsonify({
         'success': True, 'date': day, 'employee_id': employee_id,
+        'territories': [{'id': t['id'], 'name': t['name'], 'color': t['color'],
+                         'points': t['points']} for t in terrs],
+        'outside': {'points': out_n, 'ratio': out_ratio},
         'segments': [{
             'kind': s['kind'],
             'points': [[p['lat'], p['lon']] for p in s['points']],
@@ -558,8 +645,27 @@ def api_stations():
     field.init_schema(conn)
 
     if request.method == 'GET':
-        rows = conn.execute(
-            'SELECT * FROM field_stations ORDER BY is_active DESC, name ASC').fetchall()
+        # ?employee_id= يعطي محطات مناطقه وحدها: الخطة تُبنى مما يخصّه،
+        # لا من كل محطة في الشركة.
+        emp = request.args.get('employee_id', type=int)
+        if emp:
+            terrs = [t['id'] for t in field.territories_of(conn, emp)]
+            if not terrs:
+                return jsonify({'success': True, 'stations': [],
+                                'message': 'لا منطقة مُسنَدة لهذا المندوب'})
+            marks = ','.join('?' * len(terrs))
+            rows = conn.execute(
+                f'''SELECT s.*, t.name AS territory_name, t.color AS territory_color
+                    FROM field_stations s
+                    LEFT JOIN field_territories t ON t.id = s.territory_id
+                    WHERE s.territory_id IN ({marks})
+                    ORDER BY s.is_active DESC, s.name''', terrs).fetchall()
+        else:
+            rows = conn.execute(
+                '''SELECT s.*, t.name AS territory_name, t.color AS territory_color
+                   FROM field_stations s
+                   LEFT JOIN field_territories t ON t.id = s.territory_id
+                   ORDER BY s.is_active DESC, s.name''').fetchall()
         return jsonify({'success': True, 'stations': [dict(r) for r in rows]})
 
     denied = _admin_only()
@@ -577,28 +683,39 @@ def api_stations():
     radius = int(_f(d.get('radius_meters')) or 100)
     radius = max(20, min(radius, 5000))
 
+    # المنطقة: إمّا يختارها المستخدم، أو تُستنتَج من موقع المحطة نفسه.
+    # والاستنتاج هو الحالة الغالبة: من يضع دبّوسًا داخل مضلَّع السالمية
+    # يقصد السالمية، ولا معنى لأن يُسأل عنها ثانيةً.
+    territory_id = d.get('territory_id')
+    if territory_id in (None, '', 0, '0'):
+        found = field.station_territory(conn, lat, lon)
+        territory_id = found['id'] if found else None
+    else:
+        territory_id = int(territory_id)
+
     cur = conn.cursor()
     if d.get('id'):
         cur.execute('''
             UPDATE field_stations SET name=?, customer_name=?, address=?, latitude=?,
-                   longitude=?, radius_meters=?, min_minutes=?, is_active=?, notes=?
+                   longitude=?, radius_meters=?, min_minutes=?, is_active=?, notes=?,
+                   territory_id=?
             WHERE id=?
         ''', (name, d.get('customer_name'), d.get('address'), lat, lon, radius,
               int(_f(d.get('min_minutes')) or 0),
-              1 if d.get('is_active', 1) else 0, d.get('notes'), d['id']))
+              1 if d.get('is_active', 1) else 0, d.get('notes'), territory_id, d['id']))
         sid = d['id']
     else:
         cur.execute('''
             INSERT INTO field_stations
                 (name, customer_name, address, latitude, longitude, radius_meters,
-                 min_minutes, is_active, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 min_minutes, is_active, notes, territory_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (name, d.get('customer_name'), d.get('address'), lat, lon, radius,
               int(_f(d.get('min_minutes')) or 0),
-              1 if d.get('is_active', 1) else 0, d.get('notes')))
+              1 if d.get('is_active', 1) else 0, d.get('notes'), territory_id))
         sid = cur.lastrowid
     conn.commit()
-    return jsonify({'success': True, 'station_id': sid})
+    return jsonify({'success': True, 'station_id': sid, 'territory_id': territory_id})
 
 
 @field_bp.route('/api/field/assignments', methods=['GET', 'POST'])
@@ -636,6 +753,21 @@ def api_assignments():
 
     if not emp or not isinstance(stations, list):
         return jsonify({'success': False, 'message': 'الموظف والمحطات مطلوبة'}), 400
+
+    # محطة خارج مناطق المندوب لا تُسنَد إليه: الخطة التي لا يستطيع
+    # تنفيذها تظهر في آخر اليوم «تخلّفًا» وهي ليست منه.
+    terrs = {t['id'] for t in field.territories_of(conn, emp)}
+    if terrs and stations:
+        marks = ','.join('?' * len(stations))
+        rows = conn.execute(
+            f'SELECT id, name, territory_id FROM field_stations WHERE id IN ({marks})',
+            list(stations)).fetchall()
+        stray = [r['name'] for r in rows if r['territory_id'] not in terrs]
+        if stray:
+            return jsonify({
+                'success': False,
+                'message': 'محطات خارج مناطق هذا المندوب: ' + '، '.join(stray[:5])
+            }), 400
 
     # الخطة تُستبدل لا تُضاف إليها: الإضافة تترك محطات يومٍ ملغًى قائمة.
     conn.execute('DELETE FROM field_assignments WHERE employee_id = ? AND visit_date = ?',
