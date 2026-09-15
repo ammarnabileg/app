@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}وحدة المناديب{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width:620px">
+  <div class="card mt-4">
+    <div class="card-body text-center p-4">
+      <i class="fas fa-route fa-2x text-muted mb-3"></i>
+      <h4 class="mb-2">وحدة المناديب غير مُفعَّلة</h4>
+      <p class="text-muted mb-3">
+        تتبّع المناديب ومحطات الزيارة وحدةٌ اختيارية، مُطفأة افتراضًا لأن
+        أكثر الشركات لا تحتاجها — وهي تتتبّع مواقع الموظفين، فلا ينبغي أن
+        تعمل عند من لم يطلبها.
+      </p>
+      {% if session.get('role') == 'admin' %}
+      <a href="{{ url_for('main.settings') }}#field-module" class="btn btn-primary">
+        تفعيلها من الإعدادات
+      </a>
+      {% else %}
+      <p class="small text-muted mb-0">راجع مسؤول النظام إن كنت تحتاجها.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

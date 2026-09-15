@@ -77,8 +77,11 @@ def settings():
     _ps, _pe = resolve_period(conn, _now.month, _now.year)
     pp_now = {'month': _now.month, 'year': _now.year,
               'start': _ps.isoformat(), 'end': _pe.isoformat()}
+    from utils import field as _field
     return render_template('settings.html', settings=settings_data, sal=sal,
-                           pp_now=pp_now)
+                           pp_now=pp_now,
+                           field_on=_field.module_enabled(conn),
+                           field_data=_field.module_footprint(conn))
 
 @main_bp.route('/settings/update', methods=['POST'])
 @login_required
@@ -112,6 +115,14 @@ def update_settings():
             continue
         conn.execute('INSERT INTO salary_settings_v2(setting_name, setting_value) VALUES(?, ?) '
                      'ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value', (k, v))
+
+    # --- وحدة المناديب: اختيارية، ومُطفأة افتراضًا ---
+    # خانة اختيار غير المُعلَّمة لا تُرسَل أصلًا، فلا يُقرأ غيابها
+    # «لم يتغيّر» بل «مُطفأة» — وحقلٌ مخفيّ يميّز أن النموذج أُرسل.
+    if request.form.get('field_module_present'):
+        from utils import field as _field
+        _field.set_module_enabled(
+            conn, request.form.get('field_module_enabled') in ('1', 'on', 'true'))
 
     # --- إعدادات بصمة بوابة الموظف الذاتية (Portal Mobile Attendance) ---
     portal_enabled = '1' if request.form.get('portal_attendance_enabled') in ('1', 'on', 'true') else '0'

@@ -193,6 +193,20 @@ def inject_i18n():
 
 
 @app.context_processor
+def inject_optional_modules():
+    """الوحدات الاختيارية، ليعرف كل قالب ما يُظهره.
+
+    وهذا للعرض وحده: كل مسار في وحدة المناديب يتحقّق بنفسه، فإخفاء
+    الرابط لا يمنع من يعرف العنوان.
+    """
+    try:
+        from utils import field
+        return dict(field_module_on=field.module_enabled())
+    except Exception:
+        return dict(field_module_on=False)
+
+
+@app.context_processor
 def inject_version():
     """الإصدار متاح لكل قالب.
 

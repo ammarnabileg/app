@@ -200,6 +200,65 @@ _ADDED_COLUMNS = [
 ]
 
 
+# ------------------------------------------------- وحدة اختيارية
+
+SETTING_ENABLED = 'field_module_enabled'
+
+
+def module_enabled(conn=None):
+    """أوحدةُ المناديب مُفعَّلة في هذا التركيب؟
+
+    مُطفأة افتراضًا: أكثر الشركات لا مناديب لها، ووحدةٌ تتتبّع مواقع
+    الموظفين لا ينبغي أن تعمل عند من لم يطلبها. فالإطفاء هو الوضع
+    الآمن، لا مجرّد الوضع الأنسب.
+
+    والقراءة تسامحية: جدول الإعدادات قد لا يكون مهيّأً بعد عند أول
+    إقلاع، وسقوط الصفحة كلها لأجل هذا الفحص أسوأ من إطفاء الوحدة.
+    """
+    try:
+        conn = conn or get_db_connection()
+        row = conn.execute(
+            'SELECT setting_value FROM salary_settings_v2 WHERE setting_name = ?',
+            (SETTING_ENABLED,)).fetchone()
+    except Exception:
+        return False
+
+    if row is None:
+        # لم يُضبط بعد: تُقرأ البيئة مرةً واحدة — بها تُجهّز اللوحة
+        # المستأجرين الذين اشتروا الوحدة دون أن يفتح أحدٌ الإعدادات.
+        return os.environ.get('HR_FIELD_MODULE', '0').strip() in ('1', 'true', 'yes', 'on')
+
+    value = row[0] if not hasattr(row, 'keys') else row['setting_value']
+    return str(value).strip() in ('1', 'true', 'yes', 'on')
+
+
+def set_module_enabled(conn, on):
+    conn.execute('''INSERT INTO salary_settings_v2 (setting_name, setting_value)
+                    VALUES (?, ?)
+                    ON CONFLICT(setting_name) DO UPDATE SET setting_value = excluded.setting_value''',
+                 (SETTING_ENABLED, '1' if on else '0'))
+    conn.commit()
+
+
+def module_footprint(conn):
+    """ما الذي يوجد من بيانات الوحدة — ليُعرف ما يُخفى عند الإطفاء.
+
+    الإطفاء إخفاءٌ لا حذف: من أطفأها بالخطأ ثم أعادها يجد بياناته.
+    والشاشة تقول له العدد صراحةً قبل أن يطفئ.
+    """
+    out = {}
+    for label, table in (('stations', 'field_stations'),
+                         ('territories', 'field_territories'),
+                         ('trips', 'field_trips'),
+                         ('visits', 'field_visits'),
+                         ('photos', 'field_visit_photos')):
+        try:
+            out[label] = conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+        except Exception:
+            out[label] = 0
+    return out
+
+
 def init_schema(conn=None):
     conn = conn or get_db_connection()
     for stmt in SCHEMA:

@@ -107,6 +107,45 @@
                 </div>
 
                 <!-- بطاقة إعدادات بصمة بوابة الموظف الذاتية (Mobile GPS Attendance) -->
+                {# وحدة المناديب — اختيارية ومُطفأة افتراضًا #}
+                <div class="card mb-3" id="field-module">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-route text-secondary me-2"></i>
+                            <strong>وحدة المناديب — تتبّع خط السير ومحطات الزيارة</strong>
+                        </div>
+                        <span class="badge bg-secondary">وحدة اختيارية</span>
+                    </div>
+                    <div class="card-body">
+                        <input type="hidden" name="field_module_present" value="1">
+                        <div class="form-check form-switch p-2 bg-light rounded border">
+                            <input class="form-check-input ms-0 me-2" type="checkbox"
+                                   id="fieldModuleSwitch" name="field_module_enabled" value="1"
+                                   {% if field_on %}checked{% endif %}>
+                            <label class="form-check-label fw-bold" for="fieldModuleSwitch">
+                                تفعيل وحدة المناديب
+                            </label>
+                            <div class="form-text mt-1 text-muted" style="font-size:.78rem">
+                                مُطفأة افتراضًا: أكثر الشركات لا مناديب لها، والوحدة تتتبّع
+                                مواقع الموظفين طوال الدوام — فلا تعمل عند من لم يطلبها.
+                                عند التفعيل تظهر شاشتا «متابعة المناديب» و«المحطات والجدول»،
+                                وشاشة «رحلة اليوم» في بوابة الموظف.
+                            </div>
+                        </div>
+
+                        {% set fd = field_data or {} %}
+                        {% if fd.get('stations') or fd.get('trips') or fd.get('visits') %}
+                        <div class="alert alert-info py-2 px-3 small mt-3 mb-0">
+                            <b>الإطفاء إخفاءٌ لا حذف.</b>
+                            يوجد {{ fd.get('territories', 0) }} منطقة و{{ fd.get('stations', 0) }}
+                            محطة و{{ fd.get('trips', 0) }} رحلة و{{ fd.get('visits', 0) }} زيارة
+                            و{{ fd.get('photos', 0) }} صورة. تبقى كما هي عند الإطفاء، وتعود
+                            كاملةً إن أعدتَ التفعيل.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
                 <div class="card border-primary" style="border-width: 2px;">
                     <div class="card-header bg-light d-flex justify-content-between align-items-center">
                         <div>

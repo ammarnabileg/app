@@ -988,8 +988,10 @@
                                         </a>
                                     </li>
                                     {% endif %}
-                                    {# متابعة المناديب: المدير المباشر يرى مرؤوسيه،
-                                       والمسؤول يرى الجميع — والمسار نفسه يتحقّق. #}
+                                    {# المناديب: وحدة اختيارية. المدير المباشر يرى
+                                       مرؤوسيه والمسؤول يرى الجميع — وكل مسار
+                                       يتحقّق بنفسه من الاثنين. #}
+                                    {% if field_module_on %}
                                     <li class="nav-item">
                                         <a class="nav-link py-2 text-dark" href="{{ url_for('field.monitor') }}">
                                             <i class="fas fa-route small me-2"></i>متابعة المناديب
@@ -1001,6 +1003,7 @@
                                             <i class="fas fa-map-pin small me-2"></i>المحطات وخطة المناديب
                                         </a>
                                     </li>
+                                    {% endif %}
                                     {% endif %}
                                 </ul>
                             </div>

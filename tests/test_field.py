@@ -637,3 +637,81 @@ def test_a_bad_weekday_or_date_is_ignored_not_crashed(tmp_path):
         assert False, 'قُبل تاريخ غير صالح'
     except ValueError:
         pass
+
+
+# ============================================== وحدة اختيارية
+# أكثر الشركات لا مناديب لها، ووحدةٌ تتتبّع مواقع الموظفين لا ينبغي أن
+# تعمل عند من لم يطلبها. فالإطفاء هو الوضع الآمن لا مجرّد الأنسب.
+
+def test_the_module_is_off_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv('HR_FIELD_MODULE', raising=False)
+    con = _conn(tmp_path)
+    assert field.module_enabled(con) is False
+
+
+def test_the_toggle_turns_it_on_and_off(tmp_path):
+    con = _conn(tmp_path)
+
+    field.set_module_enabled(con, True)
+    assert field.module_enabled(con) is True
+
+    field.set_module_enabled(con, False)
+    assert field.module_enabled(con) is False
+
+
+def test_the_environment_seeds_it_before_anyone_opens_settings(tmp_path, monkeypatch):
+    """اللوحة تُجهّز المستأجر الذي اشترى الوحدة دون أن يفتح أحدٌ شاشة."""
+    con = _conn(tmp_path)
+    monkeypatch.setenv('HR_FIELD_MODULE', '1')
+    assert field.module_enabled(con) is True
+
+    # وما إن يُضبط في القاعدة حتى تصير هي المرجع، لا البيئة
+    field.set_module_enabled(con, False)
+    assert field.module_enabled(con) is False, 'البيئة تجاوزت اختيار المستخدم'
+
+
+def test_junk_values_read_as_off(tmp_path, monkeypatch):
+    con = _conn(tmp_path)
+    for bad in ('', 'maybe', '2', 'لا', '0'):
+        con.execute('''INSERT INTO salary_settings_v2 (setting_name, setting_value)
+                       VALUES (?, ?) ON CONFLICT(setting_name)
+                       DO UPDATE SET setting_value = excluded.setting_value''',
+                    (field.SETTING_ENABLED, bad))
+        con.commit()
+        assert field.module_enabled(con) is False, bad
+
+
+def test_reading_the_flag_never_raises(tmp_path):
+    """جدول الإعدادات قد لا يكون مهيّأً عند أول إقلاع."""
+    import sqlite3 as _s3
+
+    broken = _s3.connect(':memory:')
+    assert field.module_enabled(broken) is False
+
+
+def test_turning_it_off_hides_but_never_deletes(tmp_path):
+    """من أطفأها بالخطأ ثم أعادها يجد بياناته كما تركها."""
+    con = _conn(tmp_path)
+    field.set_module_enabled(con, True)
+    _station(con, 1, 'محطة')
+    con.execute('''INSERT INTO field_visits (employee_id, station_id, check_in_at, status)
+                   VALUES (7, 1, '2026-09-19 09:00:00', 'closed')''')
+    con.commit()
+
+    before = field.module_footprint(con)
+    field.set_module_enabled(con, False)
+    after = field.module_footprint(con)
+
+    assert before == after
+    assert after['stations'] == 1 and after['visits'] == 1
+
+
+def test_the_footprint_counts_what_would_be_hidden(tmp_path):
+    con = _conn(tmp_path)
+    _station(con, 1, 'أ')
+    _station(con, 2, 'ب')
+    con.commit()
+
+    fp = field.module_footprint(con)
+    assert fp['stations'] == 2
+    assert set(fp) == {'stations', 'territories', 'trips', 'visits', 'photos'}

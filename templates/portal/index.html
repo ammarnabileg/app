@@ -1140,6 +1140,21 @@
             </div>
             {% endif %}
 
+            {# رحلة اليوم: تظهر للمندوبين وحدهم — من أُسنِدت له منطقة.
+               وبغير هذا الشرط يرى كل موظف زرًّا لا يعنيه. #}
+            {% if is_field_rep %}
+            <div class="quick-punch-banner" onclick="location.href='/portal/trip'">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                    <div class="quick-punch-icon"><i class="fas fa-route"></i></div>
+                    <div style="text-align: right;">
+                        <h4 style="font-weight: 800; margin-bottom: 2px; font-size: 0.95rem; color: var(--ios-text);">رحلة اليوم</h4>
+                        <p style="font-size: 0.78rem; color: var(--ios-subtext); font-weight: 600; margin: 0;">محطاتك، وتسجيل الدخول والخروج بالصورة</p>
+                    </div>
+                </div>
+                <i class="fas fa-chevron-left" style="color: var(--ios-subtext); font-size: 0.9rem;"></i>
+            </div>
+            {% endif %}
+
             <!-- Quick Action Cards Grid -->
             <div class="action-grid">
                 <div class="action-card" onclick="openLeaveModal()">

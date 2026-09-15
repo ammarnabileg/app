@@ -13,14 +13,34 @@
 import os
 from datetime import datetime
 
-from flask import (Blueprint, jsonify, render_template, request, send_file,
-                   session)
+from functools import wraps
+
+from flask import (Blueprint, jsonify, redirect, render_template, request,
+                   send_file, session, url_for)
 
 from utils import field
 from utils.auth import get_current_user, login_required
 from utils.db import get_db_connection
 
 field_bp = Blueprint('field', __name__)
+
+
+def module_required(f):
+    """لا شيء من هذه الوحدة يعمل وهي مُطفأة.
+
+    الحارس على كل مسار لا على القائمة وحدها: إخفاء الرابط يُخفيه عمّن
+    لا يعرف العنوان، ولا يمنع من يعرفه. ووحدةٌ تتتبّع مواقع الموظفين
+    يجب أن تكون مغلقةً بالفعل عند من لم يشترها، لا مخفيّةً.
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not field.module_enabled(get_db_connection()):
+            if request.path.startswith('/api/') or request.path.startswith('/portal/api/'):
+                return jsonify({'success': False,
+                                'message': 'وحدة المناديب غير مُفعَّلة في هذا النظام'}), 404
+            return render_template('field_off.html'), 404
+        return f(*args, **kwargs)
+    return wrapper
 
 
 # ------------------------------------------------------------ مساعدات
@@ -68,6 +88,7 @@ def _f(v):
 
 @field_bp.route('/portal/trip')
 @login_required
+@module_required
 def trip_screen():
     emp_id = _emp_id()
     conn = get_db_connection()
@@ -84,6 +105,7 @@ def trip_screen():
 
 @field_bp.route('/portal/api/field/start', methods=['POST'])
 @login_required
+@module_required
 def api_start():
     emp_id = _emp_id()
     if not emp_id:
@@ -104,6 +126,7 @@ def api_start():
 
 @field_bp.route('/portal/api/field/track', methods=['POST'])
 @login_required
+@module_required
 def api_track():
     emp_id = _emp_id()
     if not emp_id:
@@ -127,6 +150,7 @@ def api_track():
 
 @field_bp.route('/portal/api/field/stop', methods=['POST'])
 @login_required
+@module_required
 def api_stop():
     emp_id = _emp_id()
     conn = get_db_connection()
@@ -143,6 +167,7 @@ def api_stop():
 
 @field_bp.route('/portal/api/field/plan')
 @login_required
+@module_required
 def api_plan():
     emp_id = _emp_id(for_write=False)
     if not emp_id:
@@ -157,6 +182,7 @@ def api_plan():
 
 @field_bp.route('/portal/api/field/token', methods=['POST'])
 @login_required
+@module_required
 def api_token():
     """رمز الزيارة — يُطلب عند فتح شاشة المحطة، قبل الصورة مباشرةً."""
     emp_id = _emp_id()
@@ -208,6 +234,7 @@ def _check_photo():
 
 @field_bp.route('/portal/api/field/check-in', methods=['POST'])
 @login_required
+@module_required
 def api_check_in():
     emp_id = _emp_id()
     if not emp_id:
@@ -290,6 +317,7 @@ def api_check_in():
 
 @field_bp.route('/portal/api/field/check-out', methods=['POST'])
 @login_required
+@module_required
 def api_check_out():
     emp_id = _emp_id()
     if not emp_id:
@@ -361,6 +389,7 @@ def api_check_out():
 
 @field_bp.route('/field')
 @login_required
+@module_required
 def monitor():
     conn = get_db_connection()
     field.init_schema(conn)
@@ -371,6 +400,7 @@ def monitor():
 
 @field_bp.route('/field/setup')
 @login_required
+@module_required
 def setup():
     """إدارة المحطات وخطة اليوم — لمسؤول النظام.
 
@@ -393,6 +423,7 @@ def setup():
 
 @field_bp.route('/api/field/territories', methods=['GET', 'POST'])
 @login_required
+@module_required
 def api_territories():
     """المناطق: مضلَّع من عدة نقاط، ومن يغطّيها من المناديب."""
     from utils import geo
@@ -460,6 +491,7 @@ def api_territories():
 
 @field_bp.route('/api/field/schedule', methods=['GET', 'POST'])
 @login_required
+@module_required
 def api_schedule():
     """جدول المندوب الأسبوعي — نسخةً لها تاريخ بداية."""
     conn = get_db_connection()
@@ -531,6 +563,7 @@ def api_schedule():
 
 @field_bp.route('/api/field/schedule/preview')
 @login_required
+@module_required
 def api_schedule_preview():
     """ما الذي سينزل في الأيام القادمة؟ — قبل الحفظ لا بعده."""
     conn = get_db_connection()
@@ -556,6 +589,7 @@ def api_schedule_preview():
 
 @field_bp.route('/api/field/territory/<int:territory_id>', methods=['DELETE'])
 @login_required
+@module_required
 def api_territory_delete(territory_id):
     """تعطيل لا حذف — كالمحطات، للسبب نفسه."""
     denied = _admin_only()
@@ -569,6 +603,7 @@ def api_territory_delete(territory_id):
 
 @field_bp.route('/api/field/station/<int:station_id>', methods=['DELETE'])
 @login_required
+@module_required
 def api_station_delete(station_id):
     """تعطيل لا حذف: الزيارات المسجّلة تشير إلى المحطة، وحذفها يترك
     تاريخًا بلا أسماء."""
@@ -584,6 +619,7 @@ def api_station_delete(station_id):
 
 @field_bp.route('/api/field/reps')
 @login_required
+@module_required
 def api_reps():
     """من أتابعهم، وحالة كلٍّ اليوم."""
     conn = get_db_connection()
@@ -640,6 +676,7 @@ def api_reps():
 
 @field_bp.route('/api/field/rep/<int:employee_id>')
 @login_required
+@module_required
 def api_rep_day(employee_id):
     """خط السير والزيارات ليوم واحد."""
     conn = get_db_connection()
@@ -698,6 +735,7 @@ def api_rep_day(employee_id):
 
 @field_bp.route('/api/field/photo/<int:photo_id>')
 @login_required
+@module_required
 def api_photo(photo_id):
     """الصورة من مسار محروس.
 
@@ -736,6 +774,7 @@ def _admin_only():
 
 @field_bp.route('/api/field/stations', methods=['GET', 'POST'])
 @login_required
+@module_required
 def api_stations():
     conn = get_db_connection()
     field.init_schema(conn)
@@ -816,6 +855,7 @@ def api_stations():
 
 @field_bp.route('/api/field/assignments', methods=['GET', 'POST'])
 @login_required
+@module_required
 def api_assignments():
     conn = get_db_connection()
     field.init_schema(conn)
