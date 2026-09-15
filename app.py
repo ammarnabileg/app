@@ -297,6 +297,14 @@ def main():
     debug = os.environ.get('FLASK_DEBUG', '').lower() in {'1', 'true', 'yes', 'on'}
     # Startup License Check
     print("--- STARTUP LICENSE CHECK ---")
+    # تفعيل الترخيص الذي مرّرته اللوحة، قبل الفحص لا بعده — وإلا أعلن
+    # الفحص «بلا ترخيص» عن نظام مفتاحه بين يديه.
+    try:
+        from utils.panel_sync import bootstrap_license_from_environment
+        bootstrap_license_from_environment()
+    except Exception as e:
+        print(f"[sync] تعذّر تفعيل الترخيص من البيئة: {e}")
+
     try:
         from utils.license import get_current_license_info
         info = get_current_license_info()

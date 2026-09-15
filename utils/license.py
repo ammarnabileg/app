@@ -605,6 +605,20 @@ def check_online_license_secure(key):
                         save_secure_max_devices(max_devs)
                     except Exception as e:
                         print(f"Error saving max_devices from license: {e}")
+
+                # بيانات دخول العميل كما هي الآن على الموقع. تصل مع هذا
+                # الردّ لا في قناة خاصة: الفحص يجري دوريًّا أصلًا، فلا
+                # منفذ جديد ولا طلب وارد يصل المستأجر من الخارج.
+                #
+                # لا يُسمح لها بإسقاط الفحص: apply_admin_sync لا ترمي،
+                # والاستثناء هنا احتياطٌ أخير — نظام العميل لا يتوقّف
+                # بسبب ميزة راحة.
+                if 'admin_sync' in res_json:
+                    try:
+                        from utils.panel_sync import apply_admin_sync
+                        apply_admin_sync(res_json.get('admin_sync'))
+                    except Exception as e:
+                        print(f"[sync] تعذّرت مزامنة بيانات الدخول: {e}")
                         
             else:
                 is_valid = False
