@@ -7,6 +7,26 @@ from utils.version_info import CURRENT_VERSION
 
 UPDATE_API_URL = "https://onz.one/PHP/version_api.php"
 
+# بصمة الإصدار المعلَن، تُملأ من ردّ الفحص وتُتحقَّق قبل التركيب.
+_EXPECTED_SHA256 = ''
+
+
+def file_sha256(path, chunk=1 << 20):
+    """بصمة ملف، مقروءًا على دفعات.
+
+    على دفعات لا دفعةً واحدة: حزمة التحديث تُقاس بمئات الميغابايت، وقراءتها
+    كاملةً إلى الذاكرة على جهاز عميل قديم هي نفسها سبب فشل التحديث.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, 'rb') as fh:
+        while True:
+            block = fh.read(chunk)
+            if not block:
+                break
+            h.update(block)
+    return h.hexdigest()
+
 def parse_version(v):
     """تحويل الإصدار إلى صفٍّ للمقارنة.
 
@@ -41,6 +61,10 @@ def check_for_updates():
                 
                 # Compare semantic versions
                 if remote > local:
+                    # البصمة تُنقل مع الرابط لا بعده: من يفصل الاثنين
+                    # يفتح نافذةً يُركَّب فيها ملف لم يُتحقَّق منه.
+                    global _EXPECTED_SHA256
+                    _EXPECTED_SHA256 = (data.get('sha256') or '').strip().lower()
                     return True, download_url, notes, mandatory
                     
     except Exception as e:
@@ -48,29 +72,60 @@ def check_for_updates():
         
     return False, None, None, False
 
-def download_and_install_update(url, install_dir=None):
-    """
-    Downloads zip and launches updater.py
+def download_and_install_update(url, install_dir=None, expected_sha256=None):
+    """ينزّل الحزمة، **يتحقّق منها**، ثم يسلّمها للمحدِّث.
+
+    التحقّق ليس احتياطًا زائدًا: المحدِّث يفكّ ما يُعطى له فوق مجلّد
+    التركيب ثم يشغّل ما فيه. فملفٌ لم يُتحقَّق منه هو تنفيذُ شيفرةٍ على
+    كل جهاز عميل، ومن يتحكّم في الرابط يومًا — خادمٌ مخترَق، أو ردٌّ
+    مزوَّر — يتحكّم فيهم جميعًا.
+
+    والبصمة محسوبة ومخزَّنة منذ أول يوم؛ لم تكن تخرج من الخادم فحسب.
+
+    بلا بصمة لا تركيب. والفشل مغلق عن قصد: لو سقطنا إلى التركيب حين
+    تغيب البصمة، لأسقطها المهاجم من ردّه وانتهى الأمر. والخادم واحد
+    نملكه، فتحديثه أرخص من ترك البابين مفتوحين.
     """
     if not install_dir:
         install_dir = os.getcwd()
-        
+
+    expected = (expected_sha256 or _EXPECTED_SHA256 or '').strip().lower()
+    if len(expected) != 64 or not all(c in '0123456789abcdef' for c in expected):
+        print("[UpdateManager] رُفض التحديث: الخادم لم يرسل بصمة للحزمة.")
+        return False
+
+    # HTTPS وحده: رابط http يعني حزمةً يستطيع من على الشبكة استبدالها،
+    # والبصمة نفسها وصلت عبر القناة ذاتها.
+    if not str(url).lower().startswith('https://'):
+        print("[UpdateManager] رُفض التحديث: رابط التنزيل ليس HTTPS.")
+        return False
+
     try:
         print(f"[UpdateManager] Downloading update from {url}...")
-        resp = requests.get(url, stream=True)
+        resp = requests.get(url, stream=True, timeout=60)
         if resp.status_code != 200:
             print("[UpdateManager] Failed to download file.")
             return False
-            
+
         # Save to temp zip
         zip_path = os.path.join(install_dir, "update_pkg.zip")
         with open(zip_path, 'wb') as f:
             for chunk in resp.iter_content(chunk_size=8192):
                 f.write(chunk)
-                
-        print("[UpdateManager] Download complete. Launching updater...")
-        
-        print("[UpdateManager] Download complete. Launching updater...")
+
+        actual = file_sha256(zip_path)
+        if actual != expected:
+            # يُحذف فورًا: ملفٌ مرفوض يبقى في مجلّد التركيب هو ملفٌ
+            # سيُفَكّ يومًا بالخطأ.
+            try:
+                os.remove(zip_path)
+            except OSError:
+                pass
+            print("[UpdateManager] رُفض التحديث: بصمة الحزمة لا تطابق المعلَن.")
+            print(f"[UpdateManager]   المتوقَّع {expected[:12]}… والواصل {actual[:12]}…")
+            return False
+
+        print("[UpdateManager] Download complete and verified. Launching updater...")
         
         # Determine app executable to restart
         app_name = os.path.basename(sys.argv[0])
