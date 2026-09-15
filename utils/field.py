@@ -94,6 +94,25 @@ SCHEMA = [
         notes TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''',
+    # الجدول: نمط أسبوعي له فترة سريان. «كل فترة يتغيّر» تعني نسخةً
+    # جديدة تبدأ من تاريخ، لا تعديلًا على القديمة — فخطة الشهر الماضي
+    # تبقى كما نُفّذت، ولا يُعاد كتابة التاريخ.
+    '''CREATE TABLE IF NOT EXISTS field_schedules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        name TEXT,
+        starts_on TEXT NOT NULL,
+        ends_on TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''',
+    '''CREATE TABLE IF NOT EXISTS field_schedule_days (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schedule_id INTEGER NOT NULL,
+        weekday INTEGER NOT NULL,
+        station_id INTEGER NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (schedule_id, weekday, station_id)
+    )''',
     '''CREATE TABLE IF NOT EXISTS field_assignments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         employee_id INTEGER NOT NULL,
@@ -174,6 +193,10 @@ SCHEMA = [
 # فيُتجاهَل خطؤه وحده — لا كل خطأ.
 _ADDED_COLUMNS = [
     ('field_stations', 'territory_id', 'INTEGER'),
+    # من أين جاءت هذه المهمة: 'manual' بيد المسؤول، أو 'schedule'
+    # مولَّدة من الجدول. الفرق ليس توثيقًا: تغييرُ الجدول يُعيد توليد
+    # المولَّد وحده ولا يمسّ ما وُضع باليد.
+    ('field_assignments', 'source', "TEXT NOT NULL DEFAULT 'manual'"),
 ]
 
 
@@ -684,11 +707,186 @@ def trip_path(conn, trip_id):
 
 # ----------------------------------------------------------- الزيارات
 
-def day_plan(conn, employee_id, day=None):
-    """محطات اليوم وحالة كل واحدة."""
-    day = day or datetime.now().strftime('%Y-%m-%d')
+# ------------------------------------------------------------ الجداول
+
+# ترتيب أيام الأسبوع كما تُعرض وتُخزَّن. السبت أولًا لأنه أول الأسبوع
+# في الكويت والخليج، ودوام المناديب من الأحد إلى الخميس.
+#
+# ومصدرٌ واحد للترتيب عمدًا: بايثون يبدأ الأسبوع بالاثنين
+# (weekday()=0)، وjavascript يبدؤه بالأحد (getDay()=0). ثلاثة ترتيبات
+# في نظام واحد تعني أن جدول يوم الأحد سيُنفَّذ يوم الثلاثاء يومًا ما،
+# ولن يُعرف السبب. فالتحويل يمرّ من هنا وحده.
+WEEKDAYS = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة']
+
+
+def weekday_index(d):
+    """رقم اليوم في ترتيبنا (٠ = السبت) من كائن تاريخ.
+
+    isoweekday: الاثنين ١ … الأحد ٧. والسبت ٦، فيصير صفرًا بالإزاحة.
+    """
+    return (d.isoweekday() + 1) % 7
+
+
+def active_schedule(conn, employee_id, day):
+    """الجدول السارية فترتُه على هذا اليوم، أو None.
+
+    الأحدث بدايةً يفوز عند التداخل: من يُدخل جدولًا جديدًا يبدأ اليوم
+    يقصد أن يحلّ محلّ القديم، لا أن يتنافسا.
+    """
+    return conn.execute('''
+        SELECT * FROM field_schedules
+        WHERE employee_id = ?
+          AND DATE(starts_on) <= DATE(?)
+          AND (ends_on IS NULL OR DATE(ends_on) >= DATE(?))
+        ORDER BY DATE(starts_on) DESC, id DESC LIMIT 1
+    ''', (employee_id, day, day)).fetchone()
+
+
+def schedule_stations(conn, schedule_id, weekday):
     rows = conn.execute('''
-        SELECT a.id AS assignment_id, a.sort_order, a.is_required,
+        SELECT d.station_id, d.sort_order, s.name
+        FROM field_schedule_days d
+        JOIN field_stations s ON s.id = d.station_id
+        WHERE d.schedule_id = ? AND d.weekday = ? AND s.is_active = 1
+        ORDER BY d.sort_order, s.name
+    ''', (schedule_id, weekday)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def generate_day(conn, employee_id, day, force=False):
+    """يُنزل خطة يومٍ من الجدول السارية فترتُه. يعيد عدد ما وُلِّد.
+
+    التوليد عند الطلب لا بمهمّة ليلية: مهمّةٌ تفشل ليلةً تترك مندوبًا
+    بلا خطة صباحًا ولا يُعرف السبب إلا بعد فوات اليوم. وهنا يُولَّد
+    اليوم أوّل مرة يُسأل عنها — من شاشة المندوب أو من شاشة المسؤول.
+
+    ولا يُمسّ ما وُضع باليد: التوليد يتخطّى اليوم إن كان فيه مهامّ
+    أصلًا، إلا أن يُطلب صراحةً (force) وحينها يُمحى المولَّد وحده.
+    """
+    existing = conn.execute(
+        'SELECT COUNT(*) FROM field_assignments WHERE employee_id = ? AND visit_date = ?',
+        (employee_id, day)).fetchone()[0]
+
+    if existing and not force:
+        return 0
+    if force:
+        conn.execute('''DELETE FROM field_assignments
+                        WHERE employee_id = ? AND visit_date = ? AND source = 'schedule' ''',
+                     (employee_id, day))
+
+    sched = active_schedule(conn, employee_id, day)
+    if not sched:
+        conn.commit()
+        return 0
+
+    d = _parse(day + ' 00:00:00') or _parse(day)
+    if d is None:
+        return 0
+
+    stations = schedule_stations(conn, sched['id'], weekday_index(d))
+    for i, st in enumerate(stations):
+        conn.execute('''INSERT OR IGNORE INTO field_assignments
+                        (employee_id, station_id, visit_date, sort_order, source)
+                        VALUES (?, ?, ?, ?, 'schedule')''',
+                     (employee_id, st['station_id'], day, i))
+    conn.commit()
+    return len(stations)
+
+
+def save_schedule(conn, employee_id, starts_on, days, name=None):
+    """نسخة جديدة من جدول موظف تبدأ من تاريخ.
+
+    وتُقفل النسخة السابقة في اليوم الذي قبله بدل أن تُحذف: ما نُفّذ
+    الشهر الماضي يبقى مقروءًا كما كان.
+
+    days: {رقم_اليوم: [أرقام المحطات]}
+    """
+    from datetime import timedelta
+
+    start = _parse(str(starts_on) + ' 00:00:00')
+    if start is None:
+        raise ValueError('تاريخ البداية غير صالح')
+    starts_on = start.strftime('%Y-%m-%d')
+    prev_end = (start - timedelta(days=1)).strftime('%Y-%m-%d')
+
+    conn.execute('''UPDATE field_schedules
+                    SET ends_on = ?
+                    WHERE employee_id = ? AND DATE(starts_on) < DATE(?)
+                      AND (ends_on IS NULL OR DATE(ends_on) >= DATE(?))''',
+                 (prev_end, employee_id, starts_on, starts_on))
+
+    # نسخة بالتاريخ نفسه تُستبدل: الحفظ مرتين في يوم واحد تصحيحٌ لا
+    # نسختان متنافستان.
+    old = conn.execute('SELECT id FROM field_schedules WHERE employee_id = ? '
+                       'AND DATE(starts_on) = DATE(?)',
+                       (employee_id, starts_on)).fetchall()
+    for r in old:
+        conn.execute('DELETE FROM field_schedule_days WHERE schedule_id = ?', (r['id'],))
+        conn.execute('DELETE FROM field_schedules WHERE id = ?', (r['id'],))
+
+    cur = conn.cursor()
+    cur.execute('''INSERT INTO field_schedules (employee_id, name, starts_on)
+                   VALUES (?, ?, ?)''', (employee_id, name, starts_on))
+    sid = cur.lastrowid
+
+    for wd, station_ids in (days or {}).items():
+        try:
+            wd = int(wd)
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= wd <= 6:
+            continue
+        for i, st in enumerate(list(station_ids)[:100]):
+            conn.execute('''INSERT OR IGNORE INTO field_schedule_days
+                            (schedule_id, weekday, station_id, sort_order)
+                            VALUES (?, ?, ?, ?)''', (sid, wd, st, i))
+
+    # أيام المستقبل المولَّدة من الجدول القديم تُمحى لتُولَّد من الجديد.
+    # الماضي لا يُمسّ: تغيير جدولٍ اليوم لا يعيد كتابة ما نُفّذ أمس.
+    conn.execute('''DELETE FROM field_assignments
+                    WHERE employee_id = ? AND source = 'schedule'
+                      AND DATE(visit_date) >= DATE(?)''', (employee_id, starts_on))
+    conn.commit()
+    return sid
+
+
+def schedule_history(conn, employee_id):
+    rows = conn.execute('''
+        SELECT s.*, (SELECT COUNT(*) FROM field_schedule_days d
+                     WHERE d.schedule_id = s.id) AS entries
+        FROM field_schedules s WHERE s.employee_id = ?
+        ORDER BY DATE(s.starts_on) DESC, s.id DESC
+    ''', (employee_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def schedule_grid(conn, schedule_id):
+    """{رقم اليوم: [محطات]} — كما تُعرض في الشاشة."""
+    grid = {i: [] for i in range(7)}
+    for r in conn.execute('''
+            SELECT d.weekday, d.station_id, d.sort_order, s.name
+            FROM field_schedule_days d
+            JOIN field_stations s ON s.id = d.station_id
+            WHERE d.schedule_id = ? ORDER BY d.weekday, d.sort_order''', (schedule_id,)):
+        grid[r['weekday']].append({'station_id': r['station_id'], 'name': r['name']})
+    return grid
+
+
+def day_plan(conn, employee_id, day=None, autogenerate=True):
+    """محطات اليوم وحالة كل واحدة.
+
+    والتوليد من الجدول يقع هنا: أوّل من يسأل عن خطة اليوم — المندوب
+    صباحًا أو المسؤول في شاشته — يجدها مولَّدةً. ولو انتظرنا مهمّةً
+    ليلية لتعطّل مندوب صباح كل ليلةٍ فشلت فيها.
+    """
+    day = day or datetime.now().strftime('%Y-%m-%d')
+    if autogenerate:
+        try:
+            generate_day(conn, employee_id, day)
+        except Exception:
+            pass          # قراءة الخطة لا تسقط لأن التوليد تعثّر
+    rows = conn.execute('''
+        SELECT a.id AS assignment_id, a.sort_order, a.is_required, a.source,
                s.id AS station_id, s.name, s.customer_name, s.address,
                s.latitude, s.longitude, s.radius_meters, s.min_minutes,
                v.id AS visit_id, v.check_in_at, v.check_out_at, v.status

@@ -458,6 +458,102 @@ def api_territories():
                     'area_km2': round(geo.area_km2(pts), 2)})
 
 
+@field_bp.route('/api/field/schedule', methods=['GET', 'POST'])
+@login_required
+def api_schedule():
+    """جدول المندوب الأسبوعي — نسخةً لها تاريخ بداية."""
+    conn = get_db_connection()
+    field.init_schema(conn)
+
+    if request.method == 'GET':
+        emp = request.args.get('employee_id', type=int)
+        if not emp:
+            return jsonify({'success': False, 'message': 'الموظف مطلوب'}), 400
+        if not _may_view(conn, emp):
+            return jsonify({'success': False, 'message': 'لا تملك متابعة هذا الموظف'}), 403
+
+        history = field.schedule_history(conn, emp)
+        sid = request.args.get('schedule_id', type=int)
+        if not sid:
+            day = request.args.get('date') or datetime.now().strftime('%Y-%m-%d')
+            cur = field.active_schedule(conn, emp, day)
+            sid = cur['id'] if cur else (history[0]['id'] if history else None)
+
+        return jsonify({
+            'success': True,
+            'weekdays': field.WEEKDAYS,
+            'history': history,
+            'schedule_id': sid,
+            'grid': field.schedule_grid(conn, sid) if sid else {},
+        })
+
+    denied = _admin_only()
+    if denied:
+        return denied
+
+    d = request.get_json(silent=True) or {}
+    emp = d.get('employee_id')
+    starts_on = d.get('starts_on')
+    if not emp or not starts_on:
+        return jsonify({'success': False, 'message': 'الموظف وتاريخ البداية مطلوبان'}), 400
+
+    days = d.get('days') or {}
+    if not isinstance(days, dict):
+        return jsonify({'success': False, 'message': 'صيغة الأيام غير صحيحة'}), 400
+
+    # محطات خارج مناطقه لا تدخل جدوله — كالخطة اليومية تمامًا.
+    terrs = {t['id'] for t in field.territories_of(conn, emp)}
+    wanted = {int(s) for lst in days.values() for s in (lst or [])}
+    if terrs and wanted:
+        marks = ','.join('?' * len(wanted))
+        rows = conn.execute(
+            f'SELECT id, name, territory_id FROM field_stations WHERE id IN ({marks})',
+            list(wanted)).fetchall()
+        stray = [r['name'] for r in rows if r['territory_id'] not in terrs]
+        if stray:
+            return jsonify({'success': False,
+                            'message': 'محطات خارج مناطق هذا المندوب: '
+                                       + '، '.join(stray[:5])}), 400
+
+    try:
+        sid = field.save_schedule(conn, emp, starts_on, days, d.get('name'))
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+    # اليوم الجاري يُولَّد فورًا ليراه المندوب دون انتظار
+    today = datetime.now().strftime('%Y-%m-%d')
+    generated = field.generate_day(conn, emp, today, force=True)
+
+    return jsonify({'success': True, 'schedule_id': sid,
+                    'generated_today': generated,
+                    'history': field.schedule_history(conn, emp)})
+
+
+@field_bp.route('/api/field/schedule/preview')
+@login_required
+def api_schedule_preview():
+    """ما الذي سينزل في الأيام القادمة؟ — قبل الحفظ لا بعده."""
+    conn = get_db_connection()
+    emp = request.args.get('employee_id', type=int)
+    if not emp or not _may_view(conn, emp):
+        return jsonify({'success': False, 'message': 'الموظف مطلوب'}), 400
+
+    from datetime import timedelta
+    start = datetime.now()
+    out = []
+    for i in range(14):
+        d = start + timedelta(days=i)
+        day = d.strftime('%Y-%m-%d')
+        sched = field.active_schedule(conn, emp, day)
+        names = ([s['name'] for s in
+                  field.schedule_stations(conn, sched['id'], field.weekday_index(d))]
+                 if sched else [])
+        out.append({'date': day, 'weekday': field.WEEKDAYS[field.weekday_index(d)],
+                    'schedule_id': sched['id'] if sched else None,
+                    'stations': names})
+    return jsonify({'success': True, 'days': out})
+
+
 @field_bp.route('/api/field/territory/<int:territory_id>', methods=['DELETE'])
 @login_required
 def api_territory_delete(territory_id):

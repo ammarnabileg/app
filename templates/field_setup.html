@@ -33,7 +33,9 @@
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
       data-bs-target="#tabStations" type="button">المحطات</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
-      data-bs-target="#tabPlan" type="button">خطة اليوم</button></li>
+      data-bs-target="#tabSched" type="button">الجدول الأسبوعي</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+      data-bs-target="#tabPlan" type="button">خطة يوم واحد</button></li>
 </ul>
 
 <div class="tab-content">
@@ -157,6 +159,50 @@
     </div>
   </div>
 
+  <!-- ------------------------------------------------ الجدول الأسبوعي -->
+  <div class="tab-pane fade" id="tabSched">
+    <div class="row g-2 mb-3">
+      <div class="col-sm-4">
+        <label class="form-label small mb-1">المندوب</label>
+        <select class="form-select form-select-sm" id="scEmp">
+          <option value="">— اختر —</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}">{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label small mb-1">يسري من تاريخ</label>
+        <input type="date" class="form-control form-control-sm" id="scStart" value="{{ today }}">
+      </div>
+      <div class="col-sm-5 d-flex align-items-end gap-2 flex-wrap">
+        <button class="btn btn-primary btn-sm" id="scSave">حفظ نسخة الجدول</button>
+        <button class="btn btn-outline-secondary btn-sm" id="scPreview">معاينة أسبوعين</button>
+      </div>
+    </div>
+
+    <div class="alert alert-info py-2 px-3 small">
+      <b>الجدول يتغيّر كل فترة — والتغيير نسخةٌ جديدة لا تعديل.</b>
+      تُدخل الجدول الجديد بتاريخ بدايته، فتُقفل النسخة السابقة في اليوم
+      الذي قبله وتبقى مقروءةً كما نُفّذت. والأيام الماضية لا تتغيّر أبدًا،
+      والقادمة تُعاد من الجدول الجديد — إلا ما وضعته بيدك في
+      «خطة يوم واحد»، فهو يبقى كما هو.
+    </div>
+
+    <div id="scGrid" class="mb-3"><div class="text-muted small">اختر مندوبًا.</div></div>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <h6>نسخ الجدول السابقة</h6>
+        <div id="scHistory"><div class="text-muted small">—</div></div>
+      </div>
+      <div class="col-md-6">
+        <h6>معاينة الأيام القادمة</h6>
+        <div id="scPrev"><div class="text-muted small">اضغط «معاينة أسبوعين».</div></div>
+      </div>
+    </div>
+  </div>
+
   <!-- --------------------------------------------------- خطة اليوم -->
   <div class="tab-pane fade" id="tabPlan">
     <div class="row g-2 mb-3">
@@ -182,8 +228,10 @@
     </div>
 
     <div class="hint mb-2">
-      اضغط المحطة لإضافتها أو إزالتها. الترتيب هو ترتيب الضغط، وهو ما
-      يظهر للمندوب في شاشته. والحفظ <b>يستبدل</b> خطة اليوم كاملةً.
+      لتعديل يوم واحد استثناءً. الأيام العادية تأتي من
+      <b>الجدول الأسبوعي</b> تلقائيًّا — وما تضعه هنا بيدك يبقى ولو
+      تغيّر الجدول. الترتيب هو ترتيب الضغط، والحفظ <b>يستبدل</b> خطة
+      اليوم كاملةً.
     </div>
     <div id="plList"><div class="text-muted small">اختر مندوبًا أولًا.</div></div>
   </div>
@@ -580,8 +628,141 @@
     }).then(function (r) { return r.json(); }).then(function (j) {
       note(j.success ? 'حُفظت المنطقة (' + j.area_km2 + ' كم²)'
                      : (j.message || 'تعذّر الحفظ'), j.success);
-      if (j.success) { $('trNew').click(); loadTerritories(); loadStations(); }
+      if (j.success) { $('trNew').click(); loadTerritories(); loadStations(); scLoad(); }
     });
+  });
+
+  // ============================================= الجدول الأسبوعي
+
+  var scGrid = {}, scWeekdays = [], scStations = [];
+
+  function scLoad() {
+    var emp = $('scEmp').value;
+    if (!emp) {
+      $('scGrid').innerHTML = '<div class="text-muted small">اختر مندوبًا.</div>';
+      $('scHistory').innerHTML = '<div class="text-muted small">—</div>';
+      return;
+    }
+    // محطات مناطقه وحدها — كالخطة اليومية
+    fetch('/api/field/stations?employee_id=' + emp)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        scStations = (j.stations || []).filter(function (s) { return s.is_active; });
+        return fetch('/api/field/schedule?employee_id=' + emp);
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        scWeekdays = j.weekdays || [];
+        scGrid = j.grid || {};
+        paintSched();
+        paintHistory(j.history || []);
+      });
+  }
+
+  function paintSched() {
+    var host = $('scGrid');
+    if (!scStations.length) {
+      host.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">' +
+        'لا محطات في مناطق هذا المندوب — أسنِد له منطقة أولًا.</div>';
+      return;
+    }
+    host.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px';
+
+    scWeekdays.forEach(function (label, wd) {
+      var picked = (scGrid[wd] || []).map(function (x) { return x.station_id; });
+      var col = document.createElement('div');
+      col.className = 'card';
+      col.innerHTML = '<div class="card-body p-2">' +
+        '<div class="fw-bold small mb-2">' + esc(label) +
+        ' <span class="text-muted">(' + picked.length + ')</span></div>' +
+        '<div class="sc-day"></div></div>';
+      var body = col.querySelector('.sc-day');
+
+      scStations.forEach(function (st) {
+        var i = picked.indexOf(st.id);
+        var el = document.createElement('div');
+        el.className = 'pick' + (i >= 0 ? ' on' : '');
+        el.style.padding = '5px 8px';
+        el.innerHTML = '<div class="ord" style="width:20px;height:20px;flex:0 0 20px;' +
+          'font-size:.68rem">' + (i >= 0 ? i + 1 : '+') + '</div>' +
+          '<div class="grow" style="font-size:.8rem">' + esc(st.name) + '</div>';
+        el.addEventListener('click', function () {
+          var list = (scGrid[wd] || []).slice();
+          var at = list.findIndex(function (x) { return x.station_id === st.id; });
+          if (at >= 0) { list.splice(at, 1); }
+          else { list.push({ station_id: st.id, name: st.name }); }
+          scGrid[wd] = list;
+          paintSched();
+        });
+        body.appendChild(el);
+      });
+      wrap.appendChild(col);
+    });
+    host.appendChild(wrap);
+  }
+
+  function paintHistory(hist) {
+    var host = $('scHistory');
+    if (!hist.length) {
+      host.innerHTML = '<div class="text-muted small">لا نسخ سابقة.</div>';
+      return;
+    }
+    host.innerHTML = '';
+    hist.forEach(function (h, i) {
+      var el = document.createElement('div');
+      el.className = 'st-row';
+      el.innerHTML = '<div class="grow"><b>' +
+        (i === 0 && !h.ends_on ? 'السارية الآن' : esc(h.name || 'نسخة')) + '</b>' +
+        '<small>من ' + esc(h.starts_on) +
+        (h.ends_on ? ' إلى ' + esc(h.ends_on) : ' — بلا نهاية') +
+        ' · ' + h.entries + ' مهمّة</small></div>';
+      host.appendChild(el);
+    });
+  }
+
+  $('scEmp').addEventListener('change', scLoad);
+
+  $('scSave').addEventListener('click', function () {
+    var emp = $('scEmp').value;
+    if (!emp) { return note('اختر مندوبًا', false); }
+
+    var days = {};
+    Object.keys(scGrid).forEach(function (wd) {
+      days[wd] = (scGrid[wd] || []).map(function (x) { return x.station_id; });
+    });
+
+    fetch('/api/field/schedule', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: parseInt(emp, 10),
+                             starts_on: $('scStart').value, days: days })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.success) { return note(j.message || 'تعذّر الحفظ', false); }
+      note('حُفظت نسخة الجدول — ونُزّلت ' + j.generated_today + ' محطة لليوم');
+      paintHistory(j.history || []);
+    });
+  });
+
+  $('scPreview').addEventListener('click', function () {
+    var emp = $('scEmp').value;
+    if (!emp) { return note('اختر مندوبًا', false); }
+    fetch('/api/field/schedule/preview?employee_id=' + emp)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var host = $('scPrev');
+        host.innerHTML = '';
+        (j.days || []).forEach(function (d) {
+          var el = document.createElement('div');
+          el.className = 'st-row';
+          el.innerHTML = '<div class="grow"><b>' + esc(d.weekday) + ' — ' +
+            esc(d.date) + '</b><small>' +
+            (d.stations.length ? esc(d.stations.join('، '))
+                               : '<span class="text-muted">لا محطات</span>') +
+            '</small></div>';
+          host.appendChild(el);
+        });
+      });
   });
 
   initMap();

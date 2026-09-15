@@ -435,3 +435,205 @@ def test_a_rep_without_a_territory_is_not_called_a_breach(tmp_path):
 
     out, ratio = field.outside_own_territory(con, 7, [(29.35, 48.0), (40.0, 60.0)])
     assert out == 0 and ratio == 0.0
+
+
+# ================================================ الجدول الأسبوعي
+# «كل فترة الجدول بيتغير» — فالتغيير نسخةٌ لها تاريخ بداية، لا تعديل
+# يعيد كتابة ما نُفّذ.
+
+from datetime import date as _date
+
+
+def _sched(con, emp, starts_on, days, name=None):
+    return field.save_schedule(con, emp, starts_on, days, name)
+
+
+def test_the_week_starts_on_saturday_in_one_place_only():
+    """بايثون يبدأ الأسبوع بالاثنين، وjavascript بالأحد، ونحن بالسبت.
+
+    ثلاثة ترتيبات في نظام واحد تعني أن جدول الأحد سيُنفَّذ الثلاثاء
+    يومًا ما ولن يُعرف السبب. فالتحويل يمرّ من دالة واحدة — وهذه هي.
+    """
+    assert field.WEEKDAYS[0] == 'السبت'
+    assert len(field.WEEKDAYS) == 7
+
+    # ٢٠٢٦-٠٩-١٩ سبت، و٢٠٢٦-٠٩-٢٠ أحد (تقويم ميلادي معروف)
+    assert field.weekday_index(_date(2026, 9, 19)) == 0     # السبت
+    assert field.weekday_index(_date(2026, 9, 20)) == 1     # الأحد
+    assert field.weekday_index(_date(2026, 9, 24)) == 5     # الخميس
+    assert field.weekday_index(_date(2026, 9, 25)) == 6     # الجمعة
+
+    # وكل أيام الأسبوع تُغطّى مرةً واحدة، بلا ثقب ولا تكرار
+    got = {field.weekday_index(_date(2026, 9, 19 + i)) for i in range(7)}
+    assert got == set(range(7))
+
+
+def test_a_schedule_generates_the_right_day(tmp_path):
+    con = _conn(tmp_path)
+    _station(con, 1, 'محطة السبت')
+    _station(con, 2, 'محطة الأحد')
+    con.commit()
+
+    _sched(con, 7, '2026-09-01', {0: [1], 1: [2]})
+
+    assert field.generate_day(con, 7, '2026-09-19') == 1        # سبت
+    plan = field.day_plan(con, 7, '2026-09-19', autogenerate=False)
+    assert [p['name'] for p in plan] == ['محطة السبت']
+
+    field.generate_day(con, 7, '2026-09-20')                    # أحد
+    plan = field.day_plan(con, 7, '2026-09-20', autogenerate=False)
+    assert [p['name'] for p in plan] == ['محطة الأحد']
+
+
+def test_a_day_with_no_entry_generates_nothing(tmp_path):
+    con = _conn(tmp_path)
+    _station(con, 1, 'محطة')
+    con.commit()
+    _sched(con, 7, '2026-09-01', {0: [1]})
+
+    assert field.generate_day(con, 7, '2026-09-25') == 0        # جمعة — فارغ
+    assert field.day_plan(con, 7, '2026-09-25', autogenerate=False) == []
+
+
+def test_reading_the_plan_generates_it(tmp_path):
+    """أوّل من يسأل يجدها — لا مهمّة ليلية تفشل فيتعطّل مندوب صباحًا."""
+    con = _conn(tmp_path)
+    _station(con, 1, 'محطة السبت')
+    con.commit()
+    _sched(con, 7, '2026-09-01', {0: [1]})
+
+    plan = field.day_plan(con, 7, '2026-09-19')     # بلا generate_day صريح
+    assert [p['name'] for p in plan] == ['محطة السبت']
+
+
+# ------------------------------------------- تغيّر الجدول كل فترة
+
+def test_a_new_version_closes_the_previous_one(tmp_path):
+    con = _conn(tmp_path)
+    _station(con, 1, 'القديمة')
+    _station(con, 2, 'الجديدة')
+    con.commit()
+
+    _sched(con, 7, '2026-09-01', {0: [1]}, name='الأولى')
+    _sched(con, 7, '2026-10-01', {0: [2]}, name='الثانية')
+
+    hist = field.schedule_history(con, 7)
+    assert len(hist) == 2
+    old = [h for h in hist if h['name'] == 'الأولى'][0]
+    assert old['ends_on'] == '2026-09-30', 'لم تُقفل النسخة السابقة في اليوم الذي قبله'
+
+
+def test_each_date_follows_the_version_in_force_then(tmp_path):
+    """بيت القصيد.
+
+    يوم في سبتمبر يتبع جدول سبتمبر، ويوم في أكتوبر يتبع جدول أكتوبر —
+    ولو أُدخلا كلاهما اليوم.
+    """
+    con = _conn(tmp_path)
+    _station(con, 1, 'القديمة')
+    _station(con, 2, 'الجديدة')
+    con.commit()
+
+    _sched(con, 7, '2026-09-01', {0: [1]})
+    _sched(con, 7, '2026-10-01', {0: [2]})
+
+    sept = field.day_plan(con, 7, '2026-09-19')      # سبت في سبتمبر
+    octo = field.day_plan(con, 7, '2026-10-03')      # سبت في أكتوبر
+
+    assert [p['name'] for p in sept] == ['القديمة']
+    assert [p['name'] for p in octo] == ['الجديدة']
+
+
+def test_changing_the_schedule_does_not_rewrite_the_past(tmp_path):
+    """ما نُفّذ الشهر الماضي يبقى كما نُفّذ."""
+    con = _conn(tmp_path)
+    _station(con, 1, 'القديمة')
+    _station(con, 2, 'الجديدة')
+    con.commit()
+
+    _sched(con, 7, '2026-09-01', {0: [1]})
+    field.generate_day(con, 7, '2026-09-19')        # نُزّل فعلًا
+    before = [p['name'] for p in field.day_plan(con, 7, '2026-09-19',
+                                                autogenerate=False)]
+
+    _sched(con, 7, '2026-10-01', {0: [2]})          # جدول جديد
+    after = [p['name'] for p in field.day_plan(con, 7, '2026-09-19',
+                                               autogenerate=False)]
+
+    assert before == after == ['القديمة'], 'أُعيد كتابة الماضي'
+
+
+def test_a_hand_made_day_survives_a_schedule_change(tmp_path):
+    """ما وضعه المسؤول بيده استثناءٌ مقصود — لا يمحوه جدولٌ جديد."""
+    con = _conn(tmp_path)
+    _station(con, 1, 'من الجدول')
+    _station(con, 2, 'استثناء بيد المسؤول')
+    con.commit()
+
+    _sched(con, 7, '2026-09-01', {0: [1]})
+    con.execute('''INSERT INTO field_assignments
+                   (employee_id, station_id, visit_date, source)
+                   VALUES (7, 2, '2026-12-05', 'manual')''')
+    con.commit()
+
+    _sched(con, 7, '2026-11-01', {0: [1]})          # نسخة جديدة تشمل ديسمبر
+
+    plan = field.day_plan(con, 7, '2026-12-05', autogenerate=False)
+    assert 'استثناء بيد المسؤول' in [p['name'] for p in plan]
+
+
+def test_a_future_generated_day_is_rebuilt_from_the_new_version(tmp_path):
+    con = _conn(tmp_path)
+    _station(con, 1, 'القديمة')
+    _station(con, 2, 'الجديدة')
+    con.commit()
+
+    _sched(con, 7, '2026-09-01', {0: [1]})
+    field.generate_day(con, 7, '2026-12-05')        # سبت بعيد، من الجدول القديم
+    assert [p['name'] for p in field.day_plan(con, 7, '2026-12-05',
+                                              autogenerate=False)] == ['القديمة']
+
+    _sched(con, 7, '2026-11-01', {0: [2]})
+    plan = field.day_plan(con, 7, '2026-12-05')     # يُعاد التوليد عند القراءة
+    assert [p['name'] for p in plan] == ['الجديدة']
+
+
+def test_saving_twice_on_the_same_date_replaces_not_duplicates(tmp_path):
+    con = _conn(tmp_path)
+    _station(con, 1, 'أ')
+    _station(con, 2, 'ب')
+    con.commit()
+
+    _sched(con, 7, '2026-09-01', {0: [1]})
+    _sched(con, 7, '2026-09-01', {0: [2]})          # تصحيح في اليوم نفسه
+
+    hist = field.schedule_history(con, 7)
+    assert len(hist) == 1
+    assert [p['name'] for p in field.day_plan(con, 7, '2026-09-19')] == ['ب']
+
+
+def test_a_date_before_any_schedule_yields_nothing(tmp_path):
+    con = _conn(tmp_path)
+    _station(con, 1, 'محطة')
+    con.commit()
+    _sched(con, 7, '2026-09-01', {0: [1]})
+
+    assert field.active_schedule(con, 7, '2026-08-15') is None
+    assert field.day_plan(con, 7, '2026-08-15') == []
+
+
+def test_a_bad_weekday_or_date_is_ignored_not_crashed(tmp_path):
+    con = _conn(tmp_path)
+    _station(con, 1, 'محطة')
+    con.commit()
+
+    sid = _sched(con, 7, '2026-09-01', {0: [1], 9: [1], 'abc': [1], -2: [1]})
+    grid = field.schedule_grid(con, sid)
+    assert len(grid[0]) == 1
+    assert sum(len(v) for v in grid.values()) == 1
+
+    try:
+        _sched(con, 7, 'not-a-date', {0: [1]})
+        assert False, 'قُبل تاريخ غير صالح'
+    except ValueError:
+        pass
