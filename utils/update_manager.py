@@ -135,7 +135,12 @@ def download_and_install_update(url, install_dir=None, expected_sha256=None):
             # Running as EXE -> Expect tools/updater.exe
             updater_exe = os.path.join(install_dir, "tools", "updater.exe")
             if os.path.exists(updater_exe):
-                subprocess.Popen([updater_exe, zip_path, install_dir, app_name], cwd=install_dir)
+                # تُمرَّر البصمة ثانيةً ليتحقّق المُركِّب بنفسه: بين
+                # التحقّق هنا وفكّ الحزمة هناك عمليتان وملفٌ على القرص.
+                # والنسخة القديمة من updater.exe تتجاهل ما زاد عن ثلاثة
+                # معامِلات، فالتمرير آمن على من لم يُحدِّث بعد.
+                subprocess.Popen([updater_exe, zip_path, install_dir, app_name,
+                                  '--sha256', expected], cwd=install_dir)
                 return True
             else:
                 print(f"[UpdateManager] Error: {updater_exe} not found.")
@@ -144,7 +149,8 @@ def download_and_install_update(url, install_dir=None, expected_sha256=None):
             # Running as Python Script
             python_exe = sys.executable
             updater_script = os.path.join(install_dir, "tools", "updater.py")
-            subprocess.Popen([python_exe, updater_script, zip_path, install_dir, app_name], cwd=install_dir)
+            subprocess.Popen([python_exe, updater_script, zip_path, install_dir, app_name,
+                              '--sha256', expected], cwd=install_dir)
             return True
         
     except Exception as e:
