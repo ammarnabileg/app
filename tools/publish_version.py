@@ -1,17 +1,44 @@
+"""نشر إصدار جديد إلى لوحة onz.one.
+
+    python tools/publish_version.py [--package PATH] [--url URL] [--build] [--dry-run]
+
+يحسب بصمة **الحزمة التي سينزّلها العميل** ويرسلها مع رابطها، فيتحقّق
+كل عميل أن ما وصله هو ما نشرناه.
+
+ثلاثة أشياء كانت مكسورة في سلسلة التحديث كلّها، وقد فحصتُ الصفّ المنشور
+فعلًا في قاعدة اللوحة فوجدتها كما هي:
+
+  * كان يحسب بصمة dist/HRSystem/HRSystem.exe — والعميل ينزّل حزمة zip
+    ويحسب بصمتها هي. فالبصمتان لملفّين مختلفين ولا يمكن أن تتطابقا أبدًا.
+
+  * وإن لم يجد الملف طبع تحذيرًا ونشر ببصمة فارغة. والصفّ الوحيد
+    المنشور اليوم — 2.5 — file_sha256 فيه NULL. والعميل بعد التشديد
+    يرفض التركيب بلا بصمة، فالنشر بلا بصمة يعني إصدارًا لا يستطيع أحد
+    تركيبه.
+
+  * والرابط لم يكن يُرسل أصلًا: اللوحة كانت تركّبه بنفسها منتهيًا بـ.exe
+    بينما المُركِّب يفكّ zip. والرابط المنشور فعلًا:
+    https://onz.one/public/uploads/OnPointHR2.5.exe
+
+الأخير يحتاج تعديلًا في اللوحة أيضًا (ApiController::publishRelease)،
+وهو في حزمة اللوحة لا هنا.
+"""
+
+import argparse
+import hashlib
+import hmac
+import json
 import os
 import re
 import sys
-import requests
-import hashlib
-import json
 import time
-import hmac
-import subprocess
+import zipfile
+
+import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.version_info import CURRENT_VERSION
 
-# Configuration
 API_URL = os.environ.get('PUBLISH_API_URL', 'https://onz.one/PHP/api/publish_release.php')
 
 # يُقرأ من البيئة ولا يُكتب هنا. كان مكتوبًا في الملف نصًّا
@@ -21,18 +48,43 @@ API_URL = os.environ.get('PUBLISH_API_URL', 'https://onz.one/PHP/api/publish_rel
 API_SECRET = os.environ.get('PUBLISH_API_SECRET', '')
 
 CHANGELOG_FILE = 'CHANGELOG.md'
-EXE_PATH = os.environ.get('PUBLISH_EXE_PATH', 'dist/HRSystem/HRSystem.exe')
 
-def calculate_checksum(file_path):
-    """Calculate SHA256 checksum of a file."""
+# الحزمة لا الملف التنفيذي: هذا ما ينزّله update_manager ويفكّه updater.
+BUILD_DIR = os.environ.get('PUBLISH_BUILD_DIR', 'dist/HRSystem')
+PACKAGE_PATH = os.environ.get('PUBLISH_PACKAGE_PATH', 'dist/HRSystem.zip')
+DOWNLOAD_URL = os.environ.get('PUBLISH_DOWNLOAD_URL', '')
+
+
+def calculate_checksum(file_path, chunk=1 << 20):
+    """بصمة ملف، مقروءًا على دفعات — الحزمة بمئات الميغابايت."""
     if not os.path.exists(file_path):
         return None
-    sha256_hash = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        # Read and update hash string value in blocks of 4K
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
+    h = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        for block in iter(lambda: f.read(chunk), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def build_package(build_dir, package_path):
+    """يحزم مجلد البناء كما يتوقّعه المُركِّب: المسارات من جذر التركيب.
+
+    لا مجلد أعلى داخل الحزمة: updater يفكّ في مجلد التركيب مباشرةً،
+    فحزمةٌ جذرها HRSystem/ تُنتج HRSystem/HRSystem.exe داخل التركيب.
+    """
+    if not os.path.isdir(build_dir):
+        return None
+
+    os.makedirs(os.path.dirname(package_path) or '.', exist_ok=True)
+    tmp = package_path + '.part'
+    with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as z:
+        for root, _dirs, files in os.walk(build_dir):
+            for name in sorted(files):
+                full = os.path.join(root, name)
+                z.write(full, os.path.relpath(full, build_dir))
+    os.replace(tmp, package_path)     # لا حزمة نصفها حتى تكتمل
+    return package_path
+
 
 def parse_latest_changelog():
     """ملاحظات إصدار CURRENT_VERSION من CHANGELOG.md.
@@ -90,83 +142,143 @@ def parse_latest_changelog():
         print(f"❌ لا مقطع للإصدار {CURRENT_VERSION} في {CHANGELOG_FILE}.")
         return None
 
+    return {'version': CURRENT_VERSION, 'notes': notes}
+
+
+def check_package(path):
+    """(سليمة؟، السبب). حزمةٌ لا تُفكّ تُوقف كل عميل عند التحديث."""
+    if not path or not os.path.exists(path):
+        return False, f'الحزمة غير موجودة: {path}'
+    try:
+        with zipfile.ZipFile(path) as z:
+            bad = z.testzip()
+            if bad is not None:
+                return False, f'الحزمة تالفة عند: {bad}'
+            if not [n for n in z.namelist() if not n.endswith('/')]:
+                return False, 'الحزمة فارغة'
+    except zipfile.BadZipFile:
+        # الحالة التي كانت قائمة فعلًا: رابط ينتهي بـ.exe والمُركِّب
+        # يفكّ zip.
+        return False, 'الملف ليس حزمة zip — والمُركِّب لا يفكّ غيرها'
+    except OSError as e:
+        return False, f'تعذّرت قراءة الحزمة: {e}'
+    return True, 'سليمة'
+
+
+def build_payload(version, notes, checksum, size, download_url):
     return {
-        'version': CURRENT_VERSION,
-        'notes': notes
+        'version': version,
+        'notes': notes,
+        'is_mandatory': True,
+        # البصمة باسمين: 'sha256' هو ما تقرأه اللوحة المحدَّثة، و'checksum'
+        # ما كانت تستقبله. إرسالهما معًا يعني أن النشر لا ينكسر أيّ
+        # النسختين كانت على الخادم.
+        'sha256': checksum,
+        'checksum': checksum,
+        'size': size,
+        'download_url': download_url,
     }
 
-def publish_release():
-    print("🚀 HR System Release Publisher v1.0")
-    print("-" * 40)
 
-    # المفتاح أولًا: بدونه كل توقيع يُرفض، والوقوف هنا أوضح من رسالة
-    # "Invalid Signature" بعد رفع الملف كاملًا.
-    if not API_SECRET:
-        print("❌ PUBLISH_API_SECRET غير مضبوط في البيئة.")
-        print("   يجب أن يساوي API_SECRET في config/secrets.local.php على اللوحة.")
-        return
-
-    # 1. Get Changelog Data
-    release_data = parse_latest_changelog()
-    if not release_data:
-        print(f"❌ Error: Could not parse latest version from {CHANGELOG_FILE}")
-        return
-
-    print(f"📦 Version: {release_data['version']}")
-    print(f"📝 Notes: {len(release_data['notes'])} items")
-
-    # 2. Calculate Checksum
-    print("🔍 Calculating EXE Checksum...")
-    checksum = calculate_checksum(EXE_PATH)
-    if not checksum:
-        print(f"⚠️ Warning: EXE not found at {EXE_PATH}. Checksum will be null (Development Mode?)")
-        # return # Uncomment to enforce EXE existence
-    else:
-        print(f"✅ Checksum: {checksum[:12]}...")
-
-    # 3. Prepare Payload
-    payload = {
-        'version': release_data['version'],
-        'notes': release_data['notes'], # List of strings
-        'is_mandatory': True, # Can be interactive
-        'checksum': checksum or ''
-    }
-    
-    body_json = json.dumps(payload)
-    
-    # 4. Security Headers
+def sign(body_json, secret):
     timestamp = str(int(time.time()))
     nonce = os.urandom(8).hex()
-    
-    # HMAC Sign: SHA256(body + timestamp + nonce)
     message = body_json + timestamp + nonce
-    signature = hmac.new(API_SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()
-    
-    headers = {
+    signature = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return {
         'Content-Type': 'application/json',
-        'X-API-Key': 'legacy_key_if_needed', # Or omitted if using only HMAC
         'X-Timestamp': timestamp,
         'X-Nonce': nonce,
-        'X-HMAC-Signature': signature
+        'X-HMAC-Signature': signature,
     }
-    
-    # 5. Send Request
-    try:
-        print(f"📡 Uploading to {API_URL}...")
-        response = requests.post(API_URL, data=body_json, headers=headers, timeout=10)
-        
-        if response.status_code == 200:
-            res_json = response.json()
-            if res_json.get('success'):
-                print("\n✅ SUCCESS: Release published successfully!")
-                print(f"Server Message: {res_json.get('message')}")
-            else:
-                print(f"\n❌ FAILED: Server returned error: {res_json.get('message')}")
-        else:
-            print(f"\n❌ HTTP ERROR {response.status_code}: {response.text}")
-            
-    except Exception as e:
-        print(f"\n❌ CONNECTION ERROR: {e}")
 
-if __name__ == "__main__":
-    publish_release()
+
+def publish_release(package_path=None, download_url=None, do_build=False, dry_run=False):
+    print('🚀 نشر إصدار')
+    print('-' * 40)
+
+    package_path = package_path or PACKAGE_PATH
+    download_url = download_url or DOWNLOAD_URL
+
+    if not API_SECRET and not dry_run:
+        print('❌ PUBLISH_API_SECRET غير مضبوط في البيئة.')
+        print('   يجب أن يساوي API_SECRET في config/secrets.local.php على اللوحة.')
+        return 1
+
+    release = parse_latest_changelog()
+    if not release:
+        return 1
+    print(f"📦 الإصدار: {release['version']} — {len(release['notes'])} ملاحظة")
+
+    if do_build:
+        print(f'🧱 بناء الحزمة من {BUILD_DIR}...')
+        if not build_package(BUILD_DIR, package_path):
+            print(f'❌ مجلد البناء غير موجود: {BUILD_DIR}')
+            return 1
+
+    ok, why = check_package(package_path)
+    if not ok:
+        # فشل مغلق: العميل يرفض التركيب بلا بصمة، فالنشر بلا حزمة
+        # يُنتج إصدارًا معلنًا لا يستطيع أحد تركيبه — وهو أسوأ من ألّا
+        # يُنشر شيء، لأن كل عميل يراه ويحاول ويفشل.
+        print(f'❌ {why}')
+        print('   لا يُنشر إصدار بلا حزمة يتحقّق منها العميل.')
+        return 1
+
+    checksum = calculate_checksum(package_path)
+    size = os.path.getsize(package_path)
+    print(f'✅ الحزمة: {size:,} بايت — البصمة {checksum[:12]}…')
+
+    if not download_url:
+        print('❌ رابط التنزيل غير محدَّد (--url أو PUBLISH_DOWNLOAD_URL).')
+        print('   كانت اللوحة تركّب رابطًا بنفسها ينتهي بـ.exe، والمُركِّب يفكّ zip.')
+        return 1
+    if not download_url.lower().startswith('https://'):
+        # update_manager يرفض غير https، فالنشر برابط http إصدار ميّت.
+        print(f'❌ رابط التنزيل ليس HTTPS: {download_url}')
+        return 1
+    print(f'🔗 الرابط: {download_url}')
+
+    payload = build_payload(release['version'], release['notes'],
+                            checksum, size, download_url)
+    body_json = json.dumps(payload)
+
+    if dry_run:
+        print('\n— تجربة بلا إرسال —')
+        print(json.dumps(payload, ensure_ascii=False, indent=2)[:600])
+        print('\nارفع الحزمة إلى الرابط أعلاه، ثم أعد التشغيل بلا --dry-run.')
+        return 0
+
+    try:
+        print(f'📡 الإرسال إلى {API_URL}...')
+        resp = requests.post(API_URL, data=body_json,
+                             headers=sign(body_json, API_SECRET), timeout=30)
+        if resp.status_code != 200:
+            print(f'\n❌ HTTP {resp.status_code}: {resp.text[:300]}')
+            return 1
+        res = resp.json()
+        if not res.get('success'):
+            print(f"\n❌ رفضت اللوحة: {res.get('message')}")
+            return 1
+        print(f"\n✅ نُشر. {res.get('message')}")
+    except Exception as e:
+        print(f'\n❌ تعذّر الاتصال: {e}')
+        return 1
+
+    print('\nتأكّد أن الحزمة مرفوعة على الرابط قبل أن يفحص العملاء.')
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description='نشر إصدار جديد.')
+    p.add_argument('--package', help=f'حزمة التحديث (افتراضي {PACKAGE_PATH})')
+    p.add_argument('--url', help='رابط التنزيل المعلَن للعملاء (https).')
+    p.add_argument('--build', action='store_true',
+                   help=f'ابنِ الحزمة من {BUILD_DIR} قبل النشر.')
+    p.add_argument('--dry-run', action='store_true', help='اعرض ما سيُرسل ولا ترسله.')
+    a = p.parse_args(argv)
+    return publish_release(a.package, a.url, a.build, a.dry_run)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
