@@ -141,6 +141,54 @@ def test_the_hash_is_stored_not_the_password(tmp_path):
     assert PHP_PLAIN not in admin['password']
 
 
+
+
+# ------------------------------ البصمة ليست كلمة مرور
+
+def test_typing_the_stored_hash_does_not_log_you_in():
+    """كان مسار «الكلمة الصريحة» يقارن المخزَّن بالمكتوب دائمًا.
+
+    فمن كتب البصمة نفسها في خانة كلمة المرور دخل. جرّبتُه على نظام يعمل:
+    ٣٠٢، أي دخول ناجح.
+
+    وليست حالةً نظرية: نسخة احتياطية واحدة تحمل بصمات كل المستخدمين، وهي
+    أكثر ملف يُرسَل بالبريد ويُنسَخ على ذاكرة ويُرفع إلى سحابة — فكان من
+    يقرأ نسخةً يملك كلمة مرور كل حساب فيها. ومزامنة اللوحة تنقل البصمة
+    أيضًا.
+    """
+    from werkzeug.security import generate_password_hash
+    from utils.passwords import verify_password
+
+    for stored in (generate_password_hash('real-one'), PHP_HASH):
+        assert verify_password(stored, stored) is False, 'قُبلت البصمة كلمةَ مرور'
+
+    # والكلمة الصحيحة تبقى تعمل
+    h = generate_password_hash('real-one')
+    assert verify_password(h, 'real-one') is True
+
+
+def test_legacy_plaintext_accounts_still_work():
+    """الحالة التي يوجد المسار من أجلها: عميل ركّب قبل التشفير."""
+    from utils.passwords import verify_password
+
+    assert verify_password('plainpass', 'plainpass') is True
+    assert verify_password('plainpass', 'other') is False
+
+
+def test_looks_hashed_knows_the_formats():
+    from werkzeug.security import generate_password_hash
+    from utils.passwords import looks_hashed
+
+    assert looks_hashed(generate_password_hash('x'))
+    assert looks_hashed(PHP_HASH)
+    assert looks_hashed('$2b$12$abc')
+    assert looks_hashed('scrypt:32768:8:1$salt$hash')
+
+    # كلمات صريحة — يجب ألّا تُعدّ بصمات، وإلا انقفل الحساب القديم
+    for plain in ['plainpass', '123456', '', None, 'pbkdf2', '$2y']:
+        assert not looks_hashed(plain), plain
+
+
 if __name__ == '__main__':
     import pytest
     raise SystemExit(pytest.main([__file__, '-v']))

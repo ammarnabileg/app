@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_babel import gettext
 from werkzeug.security import check_password_hash, generate_password_hash
 from utils.db import get_db_connection
-from utils.passwords import verify_password
+from utils.passwords import looks_hashed, verify_password
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -20,23 +20,25 @@ def login():
         # Verify password (supports hash with fallback for plain text + auto upgrade)
         is_authenticated = False
         if user and user['password']:
-            # verify_password لا check_password_hash: حساب المدير الذي
-            # تُنشئه لوحة onz.one يحمل بصمة bcrypt من PHP ('$2y$')،
-            # وcheck_password_hash لا تفهمها — فكان العميل يكتب كلمته
-            # الصحيحة ويُردّ.
+            # verify_password وحدها: هي التي تعرف الصيغ الثلاث — bcrypt
+            # من لوحة onz.one، وpbkdf2/scrypt من werkzeug، والكلمة
+            # الصريحة في الحسابات القديمة.
+            #
+            # وكانت المقارنة الصريحة تجري هنا **دائمًا**، حتى حين يكون
+            # المخزَّن بصمة. فمن كتب البصمة نفسها في خانة كلمة المرور
+            # دخل — ونسخةٌ احتياطية واحدة تحمل بصمات كل المستخدمين.
             if verify_password(user['password'], password):
                 is_authenticated = True
-            
-            # Fallback if stored as plain text
-            if not is_authenticated and user['password'] == password:
-                is_authenticated = True
-                try:
-                    # Auto upgrade plain text to secure hash in DB
-                    conn.execute('UPDATE users SET password = ? WHERE id = ?', 
-                                 (generate_password_hash(password), user['id']))
-                    conn.commit()
-                except Exception:
-                    pass
+
+                # ترقية الحسابات القديمة عند أول دخول ناجح: بعدها لا
+                # تبقى كلمة صريحة في القاعدة أصلًا.
+                if not looks_hashed(user['password']):
+                    try:
+                        conn.execute('UPDATE users SET password = ? WHERE id = ?',
+                                     (generate_password_hash(password), user['id']))
+                        conn.commit()
+                    except Exception:
+                        pass
         
         if is_authenticated:
             session['user_id'] = user['id']
