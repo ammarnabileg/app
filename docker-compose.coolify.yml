@@ -43,6 +43,11 @@ services:
       - APP_PORT=5000
       - TZ=${TZ:-Asia/Kuwait}
       - COMPANY_NAME=${COMPANY_NAME:-tenant}
+      # وسيط واحد أمامنا هنا (Traefik في Coolify)، فعنوان العميل هو آخر
+      # ما ألحقه بالسلسلة. والافتراض في الشيفرة صفر — أي لا تُقرأ
+      # الترويسة أصلًا — لأنه الصواب في التركيب المحلي بلا وسيط، وهو
+      # الحال الذي يُستعمل فيه قيد شبكة الفرع أكثر ما يُستعمل.
+      - HR_TRUSTED_PROXY_HOPS=${HR_TRUSTED_PROXY_HOPS:-1}
     command: python app.py
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/login"]

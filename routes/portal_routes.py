@@ -40,6 +40,25 @@ def get_portal_employee_id(for_write=False):
             return first_emp['id']
     return None
 
+
+def has_own_employee_record():
+    """هل لصاحب الجلسة سجلّ موظف يخصّه هو؟
+
+    غير get_portal_employee_id: تلك تُرجع «أول موظف نشط» للمسؤول
+    ليستعرض شكل البوابة. فكان الشرط `is_admin and not emp_id` في شاشتَي
+    الفريق لا يتحقّق أبدًا — المسؤول يحصل على رقم موظف فيسقط في فرع
+    «المرؤوسون المباشرون» ويرى فريق ذلك الموظف لا فريق الشركة، وفرعُ
+    المسؤول شيفرةٌ ميتة.
+    """
+    if session.get('employee_id'):
+        return True
+    user_id = session.get('user_id')
+    if not user_id:
+        return False
+    row = get_db_connection().execute(
+        "SELECT employee_id FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row and row['employee_id'])
+
 @portal_bp.route('/')
 @portal_bp.route('/dashboard')
 @login_required
@@ -249,15 +268,46 @@ def api_request_leave():
     
     if not all([leave_type_id, start_date, end_date]):
         return jsonify({'success': False, 'message': 'يرجى تعبئة كافة الحقول الإلزامية'}), 400
-    
+
     conn = get_db_connection()
+
+    # ما كان يُفحص شيء من هذا. جرّبتُه على نظام يعمل فقُبلت ثلاثة طلبات
+    # لا معنى لها: نهاية قبل بدايةٍ، ونوع إجازة رقمه 99999 لا وجود له،
+    # وطلبٌ مكرّر حرفيًا. وكلّها تصل شاشة المدير على أنها طلبات حقيقية.
+    try:
+        start_dt = datetime.strptime(str(start_date), '%Y-%m-%d')
+        end_dt = datetime.strptime(str(end_date), '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'success': False, 'message': 'صيغة التاريخ غير صحيحة (المطلوب YYYY-MM-DD)'}), 400
+
+    if end_dt < start_dt:
+        return jsonify({'success': False,
+                        'message': 'تاريخ النهاية قبل تاريخ البداية'}), 400
+
+    if not conn.execute('SELECT 1 FROM leave_types WHERE id = ?',
+                        (leave_type_id,)).fetchone():
+        return jsonify({'success': False, 'message': 'نوع الإجازة غير موجود'}), 400
+
+    # تداخل مع طلب قائم: الموظف لا يكون في إجازتين معًا، والطلبان
+    # المتداخلان يُعتمدان كلاهما فيُخصم الرصيد مرتين عن الأيام نفسها.
+    clash = conn.execute('''
+        SELECT id, start_date, end_date FROM leave_requests
+        WHERE employee_id = ? AND status IN ('pending', 'approved')
+          AND DATE(start_date) <= DATE(?) AND DATE(end_date) >= DATE(?)
+        LIMIT 1
+    ''', (emp_id, end_date, start_date)).fetchone()
+    if clash:
+        return jsonify({
+            'success': False,
+            'message': f"يوجد طلب قائم يتداخل مع هذه المدة ({clash['start_date']} — {clash['end_date']})"
+        }), 400
+
     try:
         days_count = calculate_actual_leave_days(conn, start_date, end_date)
         if days_count <= 0:
             days_count = 1
         
-        # Check leave balance
-        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        # Check leave balance — start_dt مفكوك ومُتحقَّق منه أعلاه
         bal = calculate_leave_balance(conn, emp_id, start_dt.month, start_dt.year)
         available = bal.get('closing_balance', 0) if bal else 0
         is_paid = (available >= days_count)
@@ -319,12 +369,13 @@ def api_request_excuse():
 def api_team_summary():
     emp_id = get_portal_employee_id()
     user = get_current_user()
-    is_admin = (user and user['role'] == 'admin')
-    
+    # لا `not emp_id`: المسؤول يحصل على رقم موظف مستعار من الدالة أعلاه.
+    is_admin = (user and user['role'] == 'admin' and not has_own_employee_record())
+
     conn = get_db_connection()
     today_str = date.today().strftime('%Y-%m-%d')
-    
-    if is_admin and not emp_id:
+
+    if is_admin:
         # Admin gets full active team
         members = conn.execute('''
             SELECT id, name, arabic_name, employee_number, position, department, phone
@@ -368,7 +419,7 @@ def api_team_summary():
         })
     
     # Count pending approvals
-    if is_admin and not emp_id:
+    if is_admin:
         pending_cnt = conn.execute("SELECT COUNT(*) FROM leave_requests WHERE status = 'pending'").fetchone()[0]
     else:
         pending_cnt = conn.execute('''
@@ -391,11 +442,11 @@ def api_team_summary():
 def api_team_approvals():
     emp_id = get_portal_employee_id()
     user = get_current_user()
-    is_admin = (user and user['role'] == 'admin')
-    
+    is_admin = (user and user['role'] == 'admin' and not has_own_employee_record())
+
     conn = get_db_connection()
-    
-    if is_admin and not emp_id:
+
+    if is_admin:
         reqs = conn.execute('''
             SELECT lr.id, lr.start_date, lr.end_date, lr.days_count, lr.reason, lr.created_at, lr.status,
                    e.name as employee_name, e.employee_number, lt.name as leave_type_name
@@ -613,9 +664,11 @@ def api_punch():
     except (ValueError, TypeError):
         emp_lat, emp_lon, accuracy = None, None, 0
 
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '')
-    if ',' in client_ip:
-        client_ip = client_ip.split(',')[0].strip()
+    # العنوان من utils.net لا من الترويسة مباشرةً: كانت تُقرأ كما وصلت،
+    # وهي شيء يكتبه المتصفح. انظر التعليق في ذلك الملف — جرّبتُه وسُجّلت
+    # بصمة من خارج الشبكة بترويسة واحدة.
+    from utils.net import client_ip as resolve_client_ip, ip_allowed
+    client_ip = resolve_client_ip(request, conn)
 
     # 1. Fetch Employee Branch Info & Active Branches
     emp_row = conn.execute('SELECT branch_location FROM employees WHERE id = ?', (emp_id,)).fetchone()
@@ -646,8 +699,9 @@ def api_punch():
             branch_ips = all_branch_ips
 
     if branch_ips:
-        is_ip_matched = any(client_ip == aip or client_ip.startswith(aip.rstrip('*')) for aip in branch_ips)
-        if not is_ip_matched:
+        # المطابقة على حدود النقاط: 'startswith' وحدها كانت تجعل
+        # 10.0.0.1 تقبل 10.0.0.100 — عنوانًا على شبكة أخرى.
+        if not ip_allowed(client_ip, branch_ips):
             return jsonify({
                 'success': False,
                 'message': f'يجب الاتصال بشبكة واي فاي الفرع المعتمدة لتسجيل البصمة (عنوان IP الحالي: {client_ip}).'

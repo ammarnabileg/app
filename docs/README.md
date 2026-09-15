@@ -6,6 +6,7 @@
 |---|---|---|
 | **[التشغيل](ops/)** | فريق onz.one — من يجهّز الخوادم ويشغّل المستأجرين | [ops/README.md](ops/README.md) |
 | **[المنتج](product/)** | العميل — من يستخدم النظام في شركته | [product/README.md](product/README.md) |
+| **[الإصدار](RELEASE.md)** | من يبني نسخة جديدة ويوصلها للعملاء | [RELEASE.md](RELEASE.md) |
 
 ---
 
