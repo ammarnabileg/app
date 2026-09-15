@@ -4,53 +4,134 @@
 {% block content %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
-  .fm-grid{display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start}
-  @media (max-width:900px){.fm-grid{grid-template-columns:1fr}}
-  #fmMap{height:min(72vh,640px);border-radius:14px;border:1px solid #e3e6ea}
-  .rep{border:1px solid #e3e6ea;border-radius:12px;padding:10px 12px;margin-bottom:8px;
-    cursor:pointer;background:#fff}
-  .rep.on{border-color:#0d6efd;box-shadow:0 0 0 2px rgba(13,110,253,.12)}
-  .rep h6{margin:0 0 3px;font-size:.95rem}
-  .rep .meta{font-size:.78rem;color:#6c757d}
-  .pill{display:inline-block;font-size:.72rem;padding:1px 8px;border-radius:999px;
-    background:#eef1f4;color:#495057;margin-inline-start:4px}
-  .pill.good{background:#e4f6ec;color:#1c7a4a}
-  .pill.warn{background:#fff3e0;color:#9a6100}
-  .pill.bad{background:#fdeaea;color:#a12626}
-  .visit{border:1px solid #e3e6ea;border-radius:12px;padding:10px;margin-bottom:8px}
-  .shots{display:flex;gap:8px;margin-top:8px}
+  /* الخريطة هي الشاشة، لا عنصرٌ فيها: من يتابع أسطولًا ينظر إلى
+     المواقع أولًا، والقوائم تأتي فوقها عند الحاجة. */
+  .fleet{position:relative;height:calc(100vh - 190px);min-height:460px;
+    border-radius:16px;overflow:hidden;border:1px solid #e3e6ea}
+  #fleetMap{position:absolute;inset:0}
+
+  .fleet-bar{position:absolute;top:12px;inset-inline-start:12px;z-index:600;
+    display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+    background:rgba(255,255,255,.94);border:1px solid #e3e6ea;border-radius:12px;
+    padding:8px 10px;box-shadow:0 4px 16px rgba(0,0,0,.08);max-width:calc(100% - 24px)}
+  .fleet-bar .chip{font-size:.76rem;padding:2px 9px;border-radius:999px;
+    background:#eef1f4;color:#495057;white-space:nowrap}
+  .chip.live{background:#e4f6ec;color:#1c7a4a}
+  .chip.idle{background:#fff3e0;color:#9a6100}
+  .chip.lost{background:#fdeaea;color:#a12626}
+
+  /* لوح التفاصيل: جانبيّ على الشاشة الواسعة، وورقة سفلية على الهاتف. */
+  .detail{position:absolute;z-index:700;background:#fff;border:1px solid #e3e6ea;
+    box-shadow:0 8px 32px rgba(0,0,0,.14);display:none;overflow:auto}
+  .detail.on{display:block}
+  @media (min-width:860px){
+    .detail{top:12px;inset-inline-end:12px;width:340px;max-height:calc(100% - 24px);
+      border-radius:14px}
+  }
+  @media (max-width:859px){
+    .detail{inset-inline:0;bottom:0;max-height:64%;border-radius:16px 16px 0 0}
+  }
+  .detail header{display:flex;justify-content:space-between;align-items:flex-start;
+    gap:8px;padding:12px 14px;border-bottom:1px solid #eef1f4;position:sticky;top:0;
+    background:#fff}
+  .detail h5{margin:0;font-size:1rem}
+  .detail .body{padding:12px 14px}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;
+    border-bottom:1px dashed #eef1f4;font-size:.84rem}
+  .kv b{font-weight:700}
+  .kv span{color:#6c757d}
+
+  /* رمز العربة: دائرة ملوّنة بحسب الحالة وسهمٌ يدور مع الاتجاه. */
+  .car{width:38px;height:38px;position:relative}
+  .car .disc{position:absolute;inset:0;border-radius:50%;display:flex;
+    align-items:center;justify-content:center;color:#fff;font-size:15px;
+    box-shadow:0 2px 8px rgba(0,0,0,.28);border:2px solid #fff}
+  .car.live .disc{background:#2ea56a}
+  .car.idle .disc{background:#f0a13a}
+  .car.lost .disc{background:#adb5bd}
+  .car.ended .disc{background:#6c757d}
+  .car .dir{position:absolute;top:-7px;left:50%;margin-left:-5px;width:0;height:0;
+    border-inline:5px solid transparent;border-bottom:8px solid #212529;
+    transform-origin:50% 26px}
+  .car .tag{position:absolute;top:38px;inset-inline-start:50%;transform:translateX(50%);
+    background:rgba(255,255,255,.95);border:1px solid #dee2e6;border-radius:6px;
+    font-size:.68rem;padding:0 5px;white-space:nowrap;font-weight:700}
+  .car.live .disc::after{content:'';position:absolute;inset:-6px;border-radius:50%;
+    border:2px solid rgba(46,165,106,.5);animation:pulse 2s infinite}
+  @keyframes pulse{0%{transform:scale(.8);opacity:.9}100%{transform:scale(1.4);opacity:0}}
+
+  .shots{display:flex;gap:8px;margin-top:6px}
   .shots img{width:50%;border-radius:8px;border:1px solid #dee2e6;cursor:zoom-in}
   .legend{font-size:.76rem;color:#6c757d;margin-top:8px;line-height:1.9}
-  .legend i{display:inline-block;width:22px;height:3px;vertical-align:middle;
+  .legend i{display:inline-block;width:20px;height:3px;vertical-align:middle;
     margin-inline-end:5px}
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
   <h3 class="mb-0">متابعة المناديب</h3>
-  <div class="d-flex gap-2">
-    <input type="date" id="fmDate" class="form-control form-control-sm" value="{{ today }}">
-    <button class="btn btn-sm btn-outline-secondary" id="fmReload">تحديث</button>
+  <div class="d-flex gap-2 align-items-center">
+    <div class="form-check form-switch mb-0">
+      <input class="form-check-input" type="checkbox" id="fmAuto" checked>
+      <label class="form-check-label small" for="fmAuto">تحديث تلقائي</label>
+    </div>
+    <input type="date" id="fmDate" class="form-control form-control-sm"
+           value="{{ today }}" style="width:auto">
+    <button class="btn btn-sm btn-outline-secondary" id="fmReload">تحديث الآن</button>
   </div>
 </div>
 
-<div class="fm-grid">
-  <div>
-    <div id="fmReps"><div class="text-muted small">…</div></div>
-    <div class="legend">
-      <i style="background:#0d6efd"></i> سير متّصل<br>
-      <i style="background:#adb5bd;border-top:2px dashed #6c757d;height:0"></i>
-      فجوة — الشاشة كانت مقفلة أو الشبكة منقطعة<br>
-      <i style="background:#dc3545"></i> قفزة — مسافة لا تُقطع في زمنها<br>
-      <i style="background:transparent;border:1px dashed #0d6efd;height:10px"></i>
-      حدود المنطقة المُسنَدة
+<div class="fleet">
+  <div id="fleetMap"></div>
+
+  {# الخريطة تأتي من الإنترنت: مكتبة leaflet ومربّعات OpenStreetMap.
+     والتركيب المنفصل عن الشبكة لا يصله شيء منها — فيرى مربّعًا فارغًا
+     ولا يدري: أهو عطل، أم لا مناديب اليوم؟ هذا اللوح يقول له. #}
+  <div id="mapOffline" style="display:none;position:absolute;inset:0;z-index:650;
+       background:#f8f9fa;padding:28px;text-align:center;
+       display:none;align-items:center;justify-content:center">
+    <div style="max-width:440px">
+      <i class="fas fa-plug-circle-xmark" style="font-size:2rem;color:#adb5bd"></i>
+      <h5 class="mt-3">تعذّر تحميل الخريطة</h5>
+      <p class="text-muted small mb-3">
+        الخريطة تحتاج اتصالًا بالإنترنت (مكتبة Leaflet ومربّعات
+        OpenStreetMap). هذا التركيب لا يصل إليها الآن.
+      </p>
+      <p class="text-muted small mb-3">
+        بيانات المناديب نفسها محفوظة عندك ولم يضِع منها شيء — وهي معروضة
+        في القائمة أدناه.
+      </p>
+      <div id="offlineList" class="text-start"></div>
     </div>
   </div>
 
-  <div>
-    <div id="fmMap"></div>
-    <div id="fmStats" class="small text-muted mt-2"></div>
-    <div id="fmVisits" class="mt-3"></div>
+  <div class="fleet-bar">
+    <span class="chip" id="cAll">—</span>
+    <span class="chip live" id="cLive">—</span>
+    <span class="chip idle" id="cIdle">—</span>
+    <span class="chip lost" id="cLost">—</span>
+    <span class="text-muted" style="font-size:.72rem" id="cWhen"></span>
+    <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="fmFit"
+            style="font-size:.74rem">ضمّ الكل</button>
   </div>
+
+  <aside class="detail" id="fmDetail">
+    <header>
+      <div>
+        <h5 id="dName">—</h5>
+        <div class="small text-muted" id="dSub"></div>
+      </div>
+      <button class="btn-close" id="dClose" aria-label="إغلاق"></button>
+    </header>
+    <div class="body" id="dBody"></div>
+  </aside>
+</div>
+
+<div class="legend">
+  <i style="background:#0d6efd"></i> سير متّصل ·
+  <i style="background:#adb5bd"></i> فجوة (الشاشة مقفلة أو الشبكة منقطعة) ·
+  <i style="background:#dc3545"></i> قفزة (مسافة لا تُقطع في زمنها) ·
+  <i style="background:transparent;border:1px dashed #0d6efd;height:10px"></i>
+  حدود المنطقة المُسنَدة
 </div>
 
 <div class="modal fade" id="shotModal" tabindex="-1">
@@ -66,174 +147,244 @@
 (function () {
   'use strict';
 
-  var map, layer, current = null;
-  var $ = function (id) { return document.getElementById(id); };
-
-  function initMap() {
-    map = L.map('fmMap').setView([29.3759, 47.9774], 11);   // الكويت
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '© OpenStreetMap'
-    }).addTo(map);
-    layer = L.layerGroup().addTo(map);
-  }
+  var map, carLayer, routeLayer, markers = {}, reps = [], openId = null, timer = null;
+  var $ = function (i) { return document.getElementById(i); };
 
   function esc(s) {
     var d = document.createElement('div');
     d.textContent = s == null ? '' : String(s);
     return d.innerHTML;
   }
+  function hhmm(s) { return s ? String(s).slice(11, 16) : '—'; }
 
-  function loadReps() {
-    var d = $('fmDate').value;
-    fetch('/api/field/reps?date=' + encodeURIComponent(d))
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        var host = $('fmReps');
-        if (!j.success || !j.reps.length) {
-          host.innerHTML = '<div class="text-muted small">لا مناديب في هذا اليوم.</div>';
-          return;
-        }
-        host.innerHTML = '';
-        j.reps.forEach(function (rep) {
-          var s = rep.summary;
-          var cls = s.stations_total && s.stations_done === s.stations_total ? 'good'
-                  : (s.stations_done ? 'warn' : 'bad');
-          var el = document.createElement('div');
-          el.className = 'rep' + (current === rep.employee_id ? ' on' : '');
-          el.innerHTML =
-            '<h6>' + esc(rep.name) +
-            '<span class="pill ' + cls + '">' + s.stations_done + '/' +
-            s.stations_total + '</span></h6>' +
-            '<div class="meta">' +
-            (rep.started_at ? 'بدأ ' + esc(rep.started_at.slice(11, 16)) : 'لم يبدأ') +
-            (rep.ended_at ? ' · أنهى ' + esc(rep.ended_at.slice(11, 16)) : '') +
-            ' · ' + rep.points + ' نقطة</div>';
-          el.addEventListener('click', function () { showRep(rep.employee_id); });
-          host.appendChild(el);
-        });
-      });
+  function ago(mins) {
+    if (mins == null) { return 'لم يبدأ'; }
+    if (mins < 1) { return 'الآن' }
+    if (mins < 60) { return 'منذ ' + mins + ' دقيقة'; }
+    var h = Math.floor(mins / 60);
+    return 'منذ ' + h + ' ساعة' + (mins % 60 ? ' و' + (mins % 60) + ' دقيقة' : '');
   }
 
-  function showRep(empId) {
-    current = empId;
-    loadReps();
-    var d = $('fmDate').value;
+  var mapReady = false;
 
-    fetch('/api/field/rep/' + empId + '?date=' + encodeURIComponent(d))
+  function showOffline() {
+    var el = $('mapOffline');
+    el.style.display = 'flex';
+  }
+
+  function offlineList() {
+    // بلا خريطة تبقى الحقيقة: من بدأ، وأين آخر ما سُمع منه، وكم محطة.
+    $('offlineList').innerHTML = reps.length
+      ? reps.map(function (r) {
+          return '<div class="kv"><span>' + esc(r.name) + '</span><b>' +
+            ago(r.stale_minutes) + ' · ' + r.summary.stations_done + '/' +
+            r.summary.stations_total + ' محطة</b></div>';
+        }).join('')
+      : '<div class="text-muted small">لا مناديب في هذا اليوم.</div>';
+  }
+
+  function initMap() {
+    if (typeof L === 'undefined') { showOffline(); return false; }
+    map = L.map('fleetMap', { zoomControl: true }).setView([29.3759, 47.9774], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    routeLayer = L.layerGroup().addTo(map);   // تحت
+    carLayer = L.layerGroup().addTo(map);     // فوق
+    mapReady = true;
+    return true;
+  }
+
+  function carIcon(rep) {
+    var dir = (rep.heading != null && rep.state === 'live')
+      ? '<i class="dir" style="transform:rotate(' + Math.round(rep.heading) + 'deg)"></i>' : '';
+    var first = (rep.name || '؟').trim().charAt(0);
+    return L.divIcon({
+      className: '',
+      html: '<div class="car ' + rep.state + '">' + dir +
+            '<div class="disc"><i class="fas fa-car-side"></i></div>' +
+            '<div class="tag">' + esc(first) + '</div></div>',
+      iconSize: [38, 38], iconAnchor: [19, 19]
+    });
+  }
+
+  function paintCars() {
+    if (!mapReady) { return; }
+    var seen = {};
+    reps.forEach(function (rep) {
+      if (rep.last_lat == null || rep.last_lon == null) { return; }
+      seen[rep.employee_id] = true;
+      var pos = [rep.last_lat, rep.last_lon];
+      var m = markers[rep.employee_id];
+      if (m) {
+        // تحريك العلامة لا إعادة بنائها: إعادة البناء تُغلق ما فُتح
+        // عليها وتُقفز الخريطة في كل تحديث.
+        m.setLatLng(pos);
+        m.setIcon(carIcon(rep));
+      } else {
+        m = L.marker(pos, { icon: carIcon(rep), title: rep.name }).addTo(carLayer);
+        m.on('click', function () { openRep(rep.employee_id); });
+        markers[rep.employee_id] = m;
+      }
+      m.bindTooltip(rep.name + ' · ' + ago(rep.stale_minutes),
+                    { direction: 'top', offset: [0, -20] });
+    });
+
+    Object.keys(markers).forEach(function (id) {
+      if (!seen[id]) { carLayer.removeLayer(markers[id]); delete markers[id]; }
+    });
+  }
+
+  function paintChips() {
+    var n = function (st) { return reps.filter(function (r) { return r.state === st; }).length; };
+    $('cAll').textContent = reps.length + ' مندوب';
+    $('cLive').textContent = n('live') + ' متحرّك';
+    $('cIdle').textContent = n('idle') + ' متوقّف';
+    $('cLost').textContent = (n('lost') + n('not_started')) + ' بلا إشارة';
+    $('cWhen').textContent = 'آخر تحديث ' +
+      new Date().toTimeString().slice(0, 5);
+  }
+
+  function fit() {
+    if (!mapReady) { return; }
+    var pts = reps.filter(function (r) { return r.last_lat != null; })
+                  .map(function (r) { return [r.last_lat, r.last_lon]; });
+    if (pts.length) { map.fitBounds(pts, { padding: [50, 50], maxZoom: 15 }); }
+  }
+
+  var fitted = false;
+  function load(auto) {
+    return fetch('/api/field/reps?date=' + encodeURIComponent($('fmDate').value))
       .then(function (r) { return r.json(); })
       .then(function (j) {
-        layer.clearLayers();
-        if (!j.success) { $('fmStats').textContent = j.message || ''; return; }
+        if (!j.success) { return; }
+        reps = j.reps || [];
+        paintCars();
+        paintChips();
+        if (!mapReady) { offlineList(); }
+        if (!fitted && reps.length) { fit(); fitted = true; }
+        if (openId) { renderDetail(openId, true); }
+      })
+      .catch(function () { /* الشبكة تتقطّع؛ التحديث القادم يُصلح */ });
+  }
 
+  // ------------------------------------------------------- التفاصيل
+
+  function repById(id) {
+    return reps.filter(function (r) { return String(r.employee_id) === String(id); })[0];
+  }
+
+  function openRep(id) {
+    openId = id;
+    $('fmDetail').classList.add('on');
+    renderDetail(id, false);
+  }
+
+  $('dClose').addEventListener('click', function () {
+    openId = null;
+    $('fmDetail').classList.remove('on');
+    routeLayer.clearLayers();
+  });
+
+  function renderDetail(id, quiet) {
+    var rep = repById(id);
+    if (!rep) { return; }
+
+    $('dName').textContent = rep.name;
+    $('dSub').textContent = (rep.employee_number || '') + ' · ' + ago(rep.stale_minutes);
+
+    var s = rep.summary || {};
+    var rows = [
+      ['الحالة', {live: 'متحرّك الآن', idle: 'متوقّف', lost: 'بلا إشارة',
+                  ended: 'أنهى رحلته', not_started: 'لم يبدأ'}[rep.state] || '—'],
+      ['المحطات', s.stations_done + ' من ' + s.stations_total],
+      ['مسافة اليوم', (rep.distance_meters / 1000).toFixed(1) + ' كم'],
+      ['بدأ / أنهى', hhmm(rep.started_at) + (rep.ended_at ? ' → ' + hhmm(rep.ended_at) : ' → جارية')],
+      ['دقّة آخر موقع', rep.accuracy != null ? Math.round(rep.accuracy) + ' م' : '—'],
+    ];
+    if (rep.at_station) {
+      rows.splice(1, 0, ['داخل محطة الآن', rep.at_station + ' منذ ' + hhmm(rep.at_station_since)]);
+    }
+    if (rep.gaps) { rows.push(['انقطاعات في الخط', rep.gaps]); }
+    if (rep.jumps) { rows.push(['قفزات غير ممكنة', rep.jumps]); }
+    if (s.missed && s.missed.length) { rows.push(['لم تُزَر', s.missed.join('، ')]); }
+
+    $('dBody').innerHTML = rows.map(function (kv) {
+      return '<div class="kv"><span>' + esc(kv[0]) + '</span><b>' + esc(kv[1]) + '</b></div>';
+    }).join('') +
+      '<button class="btn btn-sm btn-primary w-100 mt-3" id="dRoute">' +
+      'عرض خط السير والزيارات</button>' +
+      '<div id="dVisits" class="mt-2"></div>';
+
+    $('dRoute').addEventListener('click', function () { loadRoute(id); });
+    if (!quiet) { routeLayer.clearLayers(); }
+  }
+
+  function loadRoute(id) {
+    if (!mapReady) { return; }
+    fetch('/api/field/rep/' + id + '?date=' + encodeURIComponent($('fmDate').value))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.success) { return; }
+        routeLayer.clearLayers();
         var bounds = [];
 
-        // المنطقة أولًا لتكون تحت الخط لا فوقه.
         (j.territories || []).forEach(function (t) {
           if (!t.points || t.points.length < 3) { return; }
           L.polygon(t.points, { color: t.color || '#0d6efd', weight: 2,
-                                fillOpacity: .06, dashArray: '4,4' })
-           .addTo(layer).bindTooltip('منطقة: ' + t.name);
+                                fillOpacity: .05, dashArray: '4,4' }).addTo(routeLayer);
           t.points.forEach(function (p) { bounds.push(p); });
         });
 
         (j.segments || []).forEach(function (seg) {
           if (seg.points.length < 2) { return; }
-          var style = seg.kind === 'move'
-            ? { color: '#0d6efd', weight: 4, opacity: .85 }
-            : (seg.kind === 'gap'
-               ? { color: '#6c757d', weight: 3, dashArray: '7,9', opacity: .8 }
-               : { color: '#dc3545', weight: 3, dashArray: '2,7' });
-          var line = L.polyline(seg.points, style).addTo(layer);
+          var st = seg.kind === 'move' ? { color: '#0d6efd', weight: 4, opacity: .85 }
+                 : seg.kind === 'gap' ? { color: '#6c757d', weight: 3, dashArray: '7,9' }
+                 : { color: '#dc3545', weight: 3, dashArray: '2,7' };
+          var line = L.polyline(seg.points, st).addTo(routeLayer);
           if (seg.kind === 'gap') {
-            line.bindTooltip('انقطاع ' + Math.round(seg.seconds / 60) +
-                             ' دقيقة — ' + seg.meters + ' م');
+            line.bindTooltip('انقطاع ' + Math.round(seg.seconds / 60) + ' دقيقة');
           } else if (seg.kind === 'jump') {
             line.bindTooltip('قفزة بسرعة ' + seg.kmh + ' كم/س');
           }
           seg.points.forEach(function (p) { bounds.push(p); });
         });
 
-        // المحطات: دائرة النطاق كما هي معرَّفة، فيرى المدير لِمَ قُبل
-        // أو رُفض تسجيل.
-        (j.plan || []).forEach(function (st) {
-          L.circle([st.latitude, st.longitude], {
-            radius: st.radius_meters || 100,
-            color: st.state === 'done' ? '#2ea56a'
-                 : (st.state === 'inside' ? '#f0a13a' : '#adb5bd'),
+        (j.plan || []).forEach(function (stn) {
+          L.circle([stn.latitude, stn.longitude], {
+            radius: stn.radius_meters || 100,
+            color: stn.state === 'done' ? '#2ea56a'
+                 : (stn.state === 'inside' ? '#f0a13a' : '#adb5bd'),
             fillOpacity: .12, weight: 1
-          }).addTo(layer).bindTooltip(st.name + ' · ' +
-            (st.state === 'done' ? 'زُيرت' :
-             st.state === 'inside' ? 'بالداخل الآن' : 'لم تُزَر'));
-          bounds.push([st.latitude, st.longitude]);
+          }).addTo(routeLayer).bindTooltip(stn.name);
+          bounds.push([stn.latitude, stn.longitude]);
         });
 
-        (j.visits || []).forEach(function (v, i) {
-          if (v.check_in_lat == null) { return; }
-          L.marker([v.check_in_lat, v.check_in_lon]).addTo(layer)
-            .bindPopup('<b>' + esc(v.station_name) + '</b><br>دخول ' +
-                       esc((v.check_in_at || '').slice(11, 16)) +
-                       (v.check_out_at ? '<br>خروج ' + esc(v.check_out_at.slice(11, 16)) : ''));
-        });
-
-        if (bounds.length) { map.fitBounds(bounds, { padding: [30, 30] }); }
-
-        var st = j.stats, sm = j.summary;
-        $('fmStats').innerHTML =
-          '<b>' + (st.distance_meters / 1000).toFixed(1) + ' كم</b> · ' +
-          st.points + ' نقطة · ' +
-          (st.gaps ? '<span class="pill warn">' + st.gaps + ' انقطاع</span>' : '') +
-          (st.jumps ? '<span class="pill bad">' + st.jumps + ' قفزة</span>' : '') +
-          outsideBadge(j) +
-          (sm.missed.length ? ' · لم تُزَر: ' + esc(sm.missed.join('، ')) : '');
-
+        if (bounds.length) { map.fitBounds(bounds, { padding: [40, 40] }); }
         paintVisits(j.visits || []);
       });
   }
 
-  function outsideBadge(j) {
-    var o = j.outside || {};
-    if (!j.territories || !j.territories.length) {
-      return ' <span class="pill">لا منطقة مُسنَدة</span>';
-    }
-    if (!o.points) { return ' <span class="pill good">داخل منطقته</span>'; }
-    // نسبة لا عددًا مجرّدًا: عشر نقاط من ألف غير عشر من عشرين.
-    return ' <span class="pill warn">خارج منطقته ' +
-           Math.round((o.ratio || 0) * 100) + '٪ من المسار</span>';
-  }
-
   function paintVisits(visits) {
-    var host = $('fmVisits');
+    var host = $('dVisits');
     if (!visits.length) {
-      host.innerHTML = '<div class="text-muted small">لا زيارات مسجّلة.</div>';
+      host.innerHTML = '<div class="text-muted small mt-2">لا زيارات مسجّلة.</div>';
       return;
     }
-    host.innerHTML = '';
+    host.innerHTML = '<div class="small text-muted mt-3 mb-1">الزيارات</div>';
     visits.forEach(function (v) {
       var el = document.createElement('div');
-      el.className = 'visit';
+      el.style.cssText = 'border:1px solid #e3e6ea;border-radius:10px;padding:8px;margin-bottom:6px';
       var shots = (v.photos || []).map(function (p) {
-        var flag = p.had_exif
-          ? '<span class="pill bad">مصدر غير الكاميرا</span>' : '';
-        return '<figure class="m-0" style="width:50%">' +
-          '<img src="/api/field/photo/' + p.id + '" loading="lazy" alt="">' +
-          '<figcaption class="small text-muted mt-1">' +
-          (p.kind === 'in' ? 'دخول' : 'خروج') + ' · دقّة ' +
-          Math.round(p.accuracy || 0) + 'م · بُعد ' +
-          Math.round(p.distance_meters || 0) + 'م ' + flag +
-          '</figcaption></figure>';
+        return '<img src="/api/field/photo/' + p.id + '" loading="lazy" alt="' +
+               (p.kind === 'in' ? 'دخول' : 'خروج') + '">';
       }).join('');
-
-      el.innerHTML =
-        '<div class="d-flex justify-content-between align-items-start">' +
-        '<div><b>' + esc(v.station_name) + '</b>' +
-        (v.customer_name ? ' <span class="text-muted small">' +
-          esc(v.customer_name) + '</span>' : '') +
-        '<div class="small text-muted">' +
-        esc((v.check_in_at || '').slice(11, 16)) +
-        (v.check_out_at ? ' → ' + esc(v.check_out_at.slice(11, 16)) : ' → مفتوحة') +
-        (v.minutes != null ? ' · ' + v.minutes + ' دقيقة' : '') + '</div></div></div>' +
+      var flag = (v.photos || []).some(function (p) { return p.had_exif; })
+        ? ' <span class="chip lost">مصدر غير الكاميرا</span>' : '';
+      el.innerHTML = '<b style="font-size:.86rem">' + esc(v.station_name) + '</b>' + flag +
+        '<div class="small text-muted">' + hhmm(v.check_in_at) +
+        (v.check_out_at ? ' → ' + hhmm(v.check_out_at) : ' → مفتوحة') +
+        (v.minutes != null ? ' · ' + v.minutes + ' دقيقة' : '') + '</div>' +
         '<div class="shots">' + shots + '</div>';
-
       el.querySelectorAll('img').forEach(function (img) {
         img.addEventListener('click', function () {
           $('shotBig').src = img.src;
@@ -244,17 +395,32 @@
     });
   }
 
-  $('fmReload').addEventListener('click', loadReps);
+  // ------------------------------------------------------- التحديث
+
+  function arm() {
+    if (timer) { clearInterval(timer); timer = null; }
+    // عشرون ثانية: المندوب يرسل دفعته كل عشرين، فالأسرع لا يُظهر جديدًا
+    // ويُتعب الخادم بلا فائدة.
+    if ($('fmAuto').checked) { timer = setInterval(function () { load(true); }, 20000); }
+  }
+
+  $('fmAuto').addEventListener('change', arm);
+  $('fmReload').addEventListener('click', function () { load(false); });
+  $('fmFit').addEventListener('click', fit);
   $('fmDate').addEventListener('change', function () {
-    current = null;
-    layer && layer.clearLayers();
-    $('fmVisits').innerHTML = '';
-    $('fmStats').innerHTML = '';
-    loadReps();
+    openId = null;
+    $('fmDetail').classList.remove('on');
+    routeLayer.clearLayers();
+    Object.keys(markers).forEach(function (k) {
+      carLayer.removeLayer(markers[k]); delete markers[k];
+    });
+    fitted = false;
+    load(false);
   });
 
   initMap();
-  loadReps();
+  load(false);
+  arm();
 })();
 </script>
 {% endblock %}

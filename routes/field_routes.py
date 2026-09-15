@@ -661,10 +661,45 @@ def api_reps():
         ''', (r['id'], day)).fetchone()
 
         last = conn.execute('''
-            SELECT latitude, longitude, recorded_at FROM field_track_points
+            SELECT latitude, longitude, recorded_at, accuracy, speed, heading
+            FROM field_track_points
             WHERE employee_id = ? AND DATE(recorded_at) = ?
             ORDER BY recorded_at DESC LIMIT 1
         ''', (r['id'], day)).fetchone()
+
+        # منذ متى لم نسمع منه؟ هذا ما يفرّق «متحرّك الآن» عن «علامة
+        # على الخريطة منذ ساعتين» — ونقطةٌ قديمة تبدو كموقع حاليّ هي
+        # أسوأ ما في شاشة متابعة.
+        stale_minutes = None
+        if last:
+            t = field._parse(last['recorded_at'])
+            if t:
+                stale_minutes = int((datetime.now() - t).total_seconds() / 60)
+
+        if trip and trip['ended_at']:
+            state = 'ended'
+        elif stale_minutes is None:
+            state = 'not_started'
+        elif stale_minutes <= 5:
+            state = 'live'
+        elif stale_minutes <= 30:
+            state = 'idle'
+        else:
+            state = 'lost'
+
+        # مسافة اليوم من المسار نفسه: الفجوات لا تُحسب سيرًا.
+        pts = conn.execute('''
+            SELECT latitude, longitude, accuracy, recorded_at FROM field_track_points
+            WHERE employee_id = ? AND DATE(recorded_at) = ? ORDER BY recorded_at
+        ''', (r['id'], day)).fetchall()
+        _segs, stats = field.build_path([dict(p) for p in pts])
+
+        open_v = conn.execute('''
+            SELECT v.id, v.check_in_at, s.name FROM field_visits v
+            JOIN field_stations s ON s.id = v.station_id
+            WHERE v.employee_id = ? AND v.status = 'open'
+            ORDER BY v.id DESC LIMIT 1
+        ''', (r['id'],)).fetchone()
 
         out.append({
             'employee_id': r['id'], 'name': r['name'],
@@ -676,6 +711,16 @@ def api_reps():
             'last_seen': last['recorded_at'] if last else None,
             'last_lat': last['latitude'] if last else None,
             'last_lon': last['longitude'] if last else None,
+            'accuracy': last['accuracy'] if last else None,
+            'heading': last['heading'] if last else None,
+            'speed': last['speed'] if last else None,
+            'stale_minutes': stale_minutes,
+            'state': state,
+            'distance_meters': stats['distance_meters'],
+            'gaps': stats['gaps'],
+            'jumps': stats['jumps'],
+            'at_station': open_v['name'] if open_v else None,
+            'at_station_since': open_v['check_in_at'] if open_v else None,
             'summary': summary,
         })
 
