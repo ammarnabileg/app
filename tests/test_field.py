@@ -812,3 +812,31 @@ def test_the_rep_list_holds_reps_only(tmp_path):
     assert 'مندوب' in names and 'الاثنان' in names
     assert 'مكتب' not in names
     assert 'مندوب موقوف' not in names, 'ظهر موظف موقوف في قائمة الإسناد'
+
+
+def test_import_files_are_written_by_people_not_machines():
+    """ملف العميل يكتب «مندوب» لا 'field'."""
+    n = field.normalize_work_mode
+
+    assert n('مندوب') == 'field'
+    assert n('ميداني') == 'field'
+    assert n('Field') == 'field'
+    assert n('  FIELD  ') == 'field'
+    assert n('مكتب') == 'office'
+    assert n('office') == 'office'
+    assert n('الاثنان') == 'both'
+    assert n('both') == 'both'
+
+
+def test_an_unreadable_mode_is_reported_not_swallowed():
+    """الفرق بين «قال مكتب» و«كتب ما لم نفهمه» يجب أن يصل لمن يستورد.
+
+    لو عاد 'office' للمجهول لظنّ المستورد أن ملفه قُبل كما كتبه، ثم
+    اكتشف بعد شهر أن مائة مندوب مسجَّلون موظفي مكتب.
+    """
+    for bad in ('سائق', 'rep?', 'xyz', '1', 'ffield'):
+        assert field.normalize_work_mode(bad) is None, bad
+
+    # والفارغ ليس خطأً: خليةٌ فارغة تعني «لا تغيّر»
+    assert field.normalize_work_mode('') is None
+    assert field.normalize_work_mode(None) is None

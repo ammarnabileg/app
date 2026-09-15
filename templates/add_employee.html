@@ -314,6 +314,19 @@
                                     <label class="form-label">{{ _('x.branch') }}</label>
                                     <input type="text" class="form-control" name="branch_location" value="">
                                 </div>
+                                {# نمط العمل: هو ما يقرّر ما يراه الموظف في بوابته. #}
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">نمط العمل</label>
+                                    <select class="form-select" name="work_mode">
+                                        <option value="office" selected>يبصم في المكتب</option>
+                                        <option value="field">مندوب ميداني</option>
+                                        <option value="both">الاثنان معًا</option>
+                                    </select>
+                                    <div class="form-text" style="font-size:.76rem">
+                                        المندوب يرى «رحلة اليوم» ومحطاته بدل تبويب البصمة،
+                                        ويُتتبَّع موقعه أثناء الرحلة.
+                                    </div>
+                                </div>
                                 <div class="col-md-4 mb-3">
                                     <label class="form-label">{{ _('x.work_email') }}</label>
                                     <input type="email" class="form-control" name="work_email" value="">

@@ -236,6 +236,14 @@ def add_employee():
             
             employee_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
 
+            # نمط العمل يُكتب على حدة لا داخل الجملة أعلاه: إضافة عمود
+            # إلى ثمانٍ وخمسين قيمة موضعية بابُ خطأٍ صامت يضع قيمةً في
+            # عمود جارها — ولا يُكتشف إلا حين يُقرأ الصفّ.
+            _wm = (request.form.get('work_mode') or '').strip()
+            if _wm in ('office', 'field', 'both'):
+                conn.execute('UPDATE employees SET work_mode = ? WHERE id = ?',
+                             (_wm, employee_id))
+
             # ADMS SYNC
             if is_active == 1:
                 employee_data = {
@@ -577,6 +585,8 @@ def delete_all_employees():
 # so adding a field later means editing exactly one place.
 # (key, db_column, [accepted header names], example value)
 IMPORT_OPTIONAL_FIELDS = [
+    ('work_mode', 'work_mode',
+     ['Work Mode', 'نمط العمل', 'نوع العمل', 'مندوب'], 'مكتب'),
     ('national_id', 'national_id',
      ['Civil ID', 'National ID', 'الرقم المدني', 'رقم الهوية', 'الرقم القومي'], '284091500123'),
     ('nid_issue', 'national_id_issue_date',
@@ -899,8 +909,22 @@ def import_employees():
                         extra = {}
                         for _k, _dbcol, _aliases, _ex in IMPORT_OPTIONAL_FIELDS:
                             _v = get_row_val(_k)
-                            if _v != '':
-                                extra[_dbcol] = _v
+                            if _v == '':
+                                continue
+                            if _dbcol == 'work_mode':
+                                # الملفات تكتب «مندوب» لا 'field'. والمجهول
+                                # يُتخطّى ويُبلَّغ عنه بدل أن يُكتب نصًّا
+                                # حرًّا في عمودٍ له ثلاث قيم — فيُقرأ بعدها
+                                # «مكتب» ولا يدري أحد أن الملف لم يُفهم.
+                                from utils.field import normalize_work_mode
+                                _m = normalize_work_mode(_v)
+                                if _m is None:
+                                    row_errors.append(
+                                        f'سطر {index + 2}: نمط عمل غير مفهوم «{_v}» — '
+                                        'المقبول: مكتب / مندوب / الاثنان')
+                                    continue
+                                _v = _m
+                            extra[_dbcol] = _v
 
                         base_cols = ['name', 'department', 'position', 'hire_date',
                                      'salary', 'phone', 'email', 'address',

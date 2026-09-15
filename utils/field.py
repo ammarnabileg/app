@@ -291,6 +291,26 @@ def field_reps(conn):
     return [dict(r) for r in rows]
 
 
+def normalize_work_mode(raw):
+    """يحوّل ما يكتبه بشرٌ في ملف استيراد إلى أحد الأنماط الثلاثة.
+
+    ملفات العملاء تكتب «مندوب» و«ميداني» و«Field» و«مكتب»، لا 'field'.
+    والمجهول يعود None لا 'office': الفرق بين «قال مكتب» و«كتب شيئًا لم
+    نفهمه» فرقٌ يجب أن يصل إلى من يستورد، لا أن يُبتلع في القيمة
+    الافتراضية فيظنّ أن الملف قُبل كما كتبه.
+    """
+    s = str(raw or '').strip().lower()
+    if not s:
+        return None
+    if s in ('office', 'مكتب', 'موظف مكتب', 'يبصم في المكتب', 'مكتبي'):
+        return 'office'
+    if s in ('field', 'مندوب', 'ميداني', 'مندوب ميداني', 'field rep', 'rep'):
+        return 'field'
+    if s in ('both', 'الاثنان', 'الاثنان معا', 'الاثنان معًا', 'كلاهما', 'office+field'):
+        return 'both'
+    return None
+
+
 def set_work_mode(conn, employee_id, mode):
     if mode not in WORK_MODES:
         raise ValueError('نمط عمل غير معروف')
