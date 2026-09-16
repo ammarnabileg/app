@@ -148,6 +148,30 @@ def store(z, x, y, data):
     return True
 
 
+def build_url(template, z, x, y):
+    """(الرابط أو None، السبب أو None) — بلا رمي مهما كان القالب.
+
+    `str.format` كانت ترمي KeyError على `{s}` — وهو أشيع ما يُلصَق،
+    لأن أمثلة Leaflet كلها `{s}.tile...`. والرمي كان يُبتلع ويُقال
+    «لا اتصال»، وهو الخطأ نفسه الذي أصلحتُه للتوّ في موضع آخر: عطلٌ
+    في الإعداد يُعرض عطلًا في الشبكة.
+
+    فالاستبدال صريح لا تنسيق: `{s}` و`{r}` اصطلاحا Leaflet فيُلبَّيان،
+    وما بقي بين قوسين بعدها قالبٌ لا نعرفه — فيُقال ذلك بعينه.
+    """
+    if not template:
+        return None, 'bad_url'
+    out = (template
+           .replace('{s}', 'abc'[(x + y) % 3])     # كما يوزّع Leaflet
+           .replace('{r}', '')                      # لاحقة الشاشات الدقيقة
+           .replace('{z}', str(z))
+           .replace('{x}', str(x))
+           .replace('{y}', str(y)))
+    if '{' in out or '}' in out:
+        return None, 'bad_url'
+    return out, None
+
+
 def fetch_ex(z, x, y, timeout=8, url=None):
     """(البايتات أو None، سببُ الإخفاق أو None).
 
@@ -156,9 +180,12 @@ def fetch_ex(z, x, y, timeout=8, url=None):
     فلو قيل للمستخدم «لا اتصال» وهو متّصل، طارد عطلًا في الشبكة لا
     وجود له، والعطل في سطرٍ بلوحة المزوّد.
     """
+    target, bad = build_url(url or tile_source()[0], z, x, y)
+    if bad:
+        return None, bad
     try:
         import requests
-        r = requests.get((url or tile_source()[0]).format(z=z, x=x, y=y),
+        r = requests.get(target,
                          headers={'User-Agent': USER_AGENT}, timeout=timeout)
         if r.status_code == 200 and r.content[:4] == b'\x89PNG':
             return r.content, None
@@ -191,6 +218,8 @@ FAIL_MESSAGES = {
             'محفوظ ولا يُعاد تنزيله.',
     'not_png': 'الردّ ليس صورة. تأكّد أن الرابط قالب مربّعات ينتهي بـ '
                '{z}/{x}/{y}.png لا صفحة خرائط.',
+    'bad_url': 'رابط المصدر فيه قالبٌ غير مفهوم. المطلوب رابط مربّعات '
+               'فيه {z} و{x} و{y} — و{s} و{r} مفهومان أيضًا، وما عداهما لا.',
     'network': 'لا اتصال بخادم الخرائط.',
 }
 
@@ -289,9 +318,10 @@ def download(bboxes, zmin=MIN_ZOOM, zmax=MAX_ZOOM, conn=None):
                 else:
                     fail += 1
                     why = reason or why
-                    # مفتاحٌ مرفوض لا يُصلحه التكرار: يُوقَف عند أوّله
-                    # بدل ثلاثين محاولة تنتهي إلى الرسالة نفسها.
-                    if why == 'key' or (fail > 30 and ok == 0):
+                    # مفتاحٌ مرفوض ورابطٌ معطوب لا يُصلحهما التكرار:
+                    # يُوقَفان عند أوّلهما بدل ثلاثين محاولة تنتهي إلى
+                    # الرسالة نفسها.
+                    if why in ('key', 'bad_url') or (fail > 30 and ok == 0):
                         with _lock:
                             _state['message'] = FAIL_MESSAGES.get(
                                 why, FAIL_MESSAGES['network'])

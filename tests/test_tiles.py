@@ -337,6 +337,47 @@ def test_the_paid_key_never_reaches_a_browser(tmp_path):
     assert 'url' not in src, 'الرابط ما زال في الردّ'
 
 
+def test_the_leaflet_subdomain_placeholder_does_not_break_the_url(tmp_path):
+    """`{s}.tile...` أشيع ما يُلصَق — كل أمثلة Leaflet عليه.
+
+    و`str.format` كانت ترمي KeyError('s')، فيُبتلع الرمي ويُقال «لا
+    اتصال». فيذهب المستخدم يفحص شبكته، والعطل حرفٌ في رابطٍ لصقه.
+    """
+    t = _tiles(tmp_path)
+
+    url, bad = t.build_url('https://{s}.tile.example.com/{z}/{x}/{y}.png', 12, 2560, 1744)
+    assert bad is None
+    assert url in ('https://a.tile.example.com/12/2560/1744.png',
+                   'https://b.tile.example.com/12/2560/1744.png',
+                   'https://c.tile.example.com/12/2560/1744.png')
+
+
+def test_the_retina_placeholder_is_understood(tmp_path):
+    t = _tiles(tmp_path)
+    url, bad = t.build_url('https://x.example.com/{z}/{x}/{y}{r}.png', 3, 4, 2)
+    assert bad is None and url == 'https://x.example.com/3/4/2.png'
+
+
+def test_a_maptiler_style_url_survives_formatting(tmp_path):
+    """الصيغة التي سأعطيها للمستخدم — تُختبر لا تُقال."""
+    t = _tiles(tmp_path)
+    tpl = 'https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=KKK'
+    url, bad = t.build_url(tpl, 12, 2560, 1744)
+    assert bad is None
+    assert url == 'https://api.maptiler.com/maps/streets-v4/256/12/2560/1744.png?key=KKK'
+
+
+def test_an_unknown_placeholder_is_named_not_mistaken_for_an_outage(tmp_path):
+    t = _tiles(tmp_path)
+
+    url, bad = t.build_url('https://x.example.com/{quadkey}/{z}.png', 3, 4, 2)
+    assert url is None and bad == 'bad_url'
+
+    data, reason = t.fetch_ex(3, 4, 2, url='https://x.example.com/{quadkey}.png')
+    assert data is None and reason == 'bad_url'
+    assert 'لا اتصال' not in t.FAIL_MESSAGES['bad_url']
+
+
 def _wait_idle(t, seconds=5):
     import time
     for _ in range(int(seconds * 50)):
