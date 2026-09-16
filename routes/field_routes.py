@@ -1003,3 +1003,166 @@ def api_work_mode():
 
     return jsonify({'success': True, 'work_mode': mode,
                     'label': field.WORK_MODES[mode]})
+
+
+# ==================================================== خرائط بلا إنترنت
+
+# حدود دولة الكويت تقريبًا — جاهزة لمن يريد البلد كلّه لا منطقةً.
+KUWAIT_BBOX = (28.52, 46.55, 30.10, 48.43)
+
+
+@field_bp.route('/api/field/tile/<int:z>/<int:x>/<int:y>.png')
+@login_required
+@module_required
+def api_tile(z, x, y):
+    """مربّع خريطة: من المخزن، وإلا من المصدر ويُحفظ، وإلا 404.
+
+    الخريطة تطلبه بدل أن تطلب OpenStreetMap مباشرةً. فما يراه المدير
+    يبقى محفوظًا، ويعمل في المرّة التالية بلا اتصال دون أن يفعل أحد
+    شيئًا.
+    """
+    from flask import Response
+    from utils import tiles
+
+    data = tiles.read(z, x, y)
+    if data is None:
+        data = tiles.fetch(z, x, y)
+        if data:
+            tiles.store(z, x, y, data)
+
+    if not data:
+        # 404 لا صورة فارغة: Leaflet يعرف معناها ويترك المربّع شفّافًا،
+        # والصورة الفارغة تُخزَّن في المتصفح فتبقى بيضاء بعد عودة
+        # الاتصال.
+        return jsonify({'success': False}), 404
+
+    return Response(data, mimetype='image/png',
+                    headers={'Cache-Control': 'public, max-age=604800'})
+
+
+@field_bp.route('/api/field/maps', methods=['GET', 'POST'])
+@login_required
+@module_required
+def api_maps():
+    """حالة مخزن الخرائط، وتنزيل رقعة، وإيقافه."""
+    from utils import geo, tiles
+
+    conn = get_db_connection()
+    url, attr, is_osm = tiles.tile_source(conn)
+
+    if request.method == 'GET':
+        # رقع مناطق العميل: كل منطقة حدودُ مضلَّعها.
+        boxes, names = [], []
+        for t in conn.execute(
+                'SELECT name, polygon FROM field_territories WHERE is_active = 1'):
+            pts, _ = geo.parse_polygon(t['polygon'])
+            if pts:
+                boxes.append(geo.bounds(pts))
+                names.append(t['name'])
+
+        want_t, have_t = tiles.estimate(boxes) if boxes else (0, 0)
+        kw_t, kw_have = tiles.estimate([KUWAIT_BBOX], zmax=14)
+
+        return jsonify({
+            'success': True,
+            'cache': tiles.cache_stats(),
+            'source': {'url': url, 'attribution': attr, 'is_default': is_osm,
+                       'max_tiles': tiles.max_tiles(conn)},
+            'territories': {'count': len(boxes), 'names': names,
+                            'tiles': want_t, 'have': have_t},
+            'kuwait': {'tiles': kw_t, 'have': kw_have, 'zmax': 14},
+            'zoom': {'min': tiles.MIN_ZOOM, 'max': tiles.MAX_ZOOM},
+            'progress': tiles.progress(),
+        })
+
+    denied = _admin_only()
+    if denied:
+        return denied
+
+    d = request.get_json(silent=True) or {}
+    action = d.get('action')
+
+    if action == 'stop':
+        tiles.stop()
+        return jsonify({'success': True, 'message': 'أُوقف'})
+
+    scope = d.get('scope', 'territories')
+    zmax = int(d.get('zmax') or tiles.MAX_ZOOM)
+    zmax = max(tiles.MIN_ZOOM, min(zmax, 17))
+
+    if scope == 'kuwait':
+        boxes = [KUWAIT_BBOX]
+    else:
+        boxes = []
+        for t in conn.execute(
+                'SELECT polygon FROM field_territories WHERE is_active = 1'):
+            pts, _ = geo.parse_polygon(t['polygon'])
+            if pts:
+                boxes.append(geo.bounds(pts))
+        if not boxes:
+            return jsonify({'success': False,
+                            'message': 'لا مناطق مرسومة — ارسم منطقة أولًا'}), 400
+
+    started, msg = tiles.download(boxes, zmax=zmax, conn=conn)
+    return jsonify({'success': started, 'message': msg,
+                    'progress': tiles.progress()})
+
+
+@field_bp.route('/api/field/maps/export')
+@login_required
+@module_required
+def api_maps_export():
+    """حزمة المربّعات ملفًّا واحدًا — تُحمل إلى تركيب بلا إنترنت."""
+    denied = _admin_only()
+    if denied:
+        return denied
+
+    from flask import Response
+    from utils import tiles
+
+    stats = tiles.cache_stats()
+    if not stats['tiles']:
+        return jsonify({'success': False, 'message': 'المخزن فارغ'}), 400
+
+    tmp = os.path.join(os.path.dirname(tiles.cache_dir()),
+                       f'maps-{os.getpid()}-{os.urandom(4).hex()}.zip')
+    try:
+        tiles.export_pack(tmp)
+        with open(tmp, 'rb') as f:
+            data = f.read()
+    finally:
+        for p in (tmp, tmp + '.part'):
+            if os.path.exists(p):
+                os.remove(p)
+
+    name = f"map-tiles-{datetime.now().strftime('%Y-%m-%d')}.zip"
+    return Response(data, mimetype='application/zip', headers={
+        'Content-Disposition': f'attachment; filename="{name}"',
+        'Content-Length': str(len(data)), 'Cache-Control': 'no-store'})
+
+
+@field_bp.route('/api/field/maps/import', methods=['POST'])
+@login_required
+@module_required
+def api_maps_import():
+    denied = _admin_only()
+    if denied:
+        return denied
+
+    from utils import tiles
+
+    f = request.files.get('pack')
+    if not f:
+        return jsonify({'success': False, 'message': 'اختر ملف الحزمة'}), 400
+
+    tmp = os.path.join(os.path.dirname(tiles.cache_dir()),
+                       f'inpack-{os.urandom(4).hex()}.zip')
+    try:
+        f.save(tmp)
+        added, msg = tiles.import_pack(tmp)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+    return jsonify({'success': added > 0, 'message': msg,
+                    'cache': tiles.cache_stats()})

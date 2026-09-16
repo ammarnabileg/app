@@ -153,6 +153,7 @@
 
   var map, carLayer, routeLayer, markers = {}, reps = [], openId = null, timer = null;
   var $ = function (i) { return document.getElementById(i); };
+  var MAP_ATTR = '© OpenStreetMap';   // يُستبدل بنسب المصدر المضبوط
 
   function esc(s) {
     var d = document.createElement('div');
@@ -194,8 +195,8 @@
     // المكتبة عندنا محليًّا، أمّا **مربّعات** الخريطة فصورٌ للعالم
     // تأتي من الإنترنت ولا يمكن حملها في التركيب. فبلا اتصال تبقى
     // الخلفية رمادية — والرمادي بلا سبب يبدو عطلًا، فيُقال السبب.
-    var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            { maxZoom: 19, attribution: '© OpenStreetMap' });
+    var tiles = L.tileLayer('/api/field/tile/{z}/{x}/{y}.png',
+                            { maxZoom: 17, attribution: MAP_ATTR });
     var tileWarned = false;
     tiles.on('tileerror', function () {
       if (tileWarned) { return; }

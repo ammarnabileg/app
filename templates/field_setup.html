@@ -25,6 +25,9 @@
     display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700}
   .pick.on .ord{background:#0d6efd;color:#fff}
   .hint{font-size:.8rem;color:#6c757d}
+  .kvrow{display:flex;justify-content:space-between;gap:10px;padding:5px 0;
+    border-bottom:1px dashed #eef1f4;font-size:.85rem}
+  .kvrow span{color:#6c757d}
 </style>
 
 <h3 class="mb-3">المحطات وخطة المناديب</h3>
@@ -40,6 +43,8 @@
       data-bs-target="#tabSched" type="button">الجدول الأسبوعي</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
       data-bs-target="#tabPlan" type="button">خطة يوم واحد</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+      data-bs-target="#tabMaps" type="button">خرائط بلا إنترنت</button></li>
 </ul>
 
 <div class="tab-content">
@@ -233,6 +238,74 @@
     </div>
   </div>
 
+  <!-- --------------------------------------------- خرائط بلا إنترنت -->
+  <div class="tab-pane fade" id="tabMaps">
+    <div class="alert alert-info py-2 px-3 small">
+      <b>الخريطة تعمل بلا إنترنت — إلا خلفيّتها.</b>
+      المكتبة والعلامات والخطوط والمناطق كلّها داخل النظام. أمّا صور
+      الخريطة (المربّعات) فتأتي من الشبكة. وما يُعرض منها يُحفظ تلقائيًّا،
+      ويمكن تنزيل رقعة كاملة مقدَّمًا.
+    </div>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card"><div class="card-body">
+          <h6 class="mb-3">المخزن</h6>
+          <div class="kvrow"><span>المحفوظ الآن</span><b id="mpCache">—</b></div>
+          <div class="kvrow"><span>مصدر الخرائط</span><b id="mpSrc">—</b></div>
+          <div class="kvrow"><span>رقعة مناطقك</span><b id="mpTerr">—</b></div>
+          <div class="kvrow"><span>دولة الكويت (حتى تقريب ١٤)</span><b id="mpKw">—</b></div>
+
+          <hr>
+          <label class="form-label small mb-1">أقصى تقريب</label>
+          <select class="form-select form-select-sm mb-2" id="mpZoom">
+            <option value="13">١٣ — أحياء</option>
+            <option value="14" selected>١٤ — شوارع رئيسية</option>
+            <option value="15">١٥ — شوارع فرعية</option>
+            <option value="16">١٦ — مبانٍ</option>
+          </select>
+          <div class="hint mb-2">كل درجة تقريب تُربّع العدد تقريبًا.</div>
+
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-primary btn-sm" id="mpGetTerr">نزّل رقعة مناطقي</button>
+            <button class="btn btn-outline-primary btn-sm" id="mpGetKw">نزّل الكويت</button>
+            <button class="btn btn-outline-danger btn-sm" id="mpStop"
+                    style="display:none">إيقاف</button>
+          </div>
+          <div class="progress mt-2" style="height:6px;display:none" id="mpBarWrap">
+            <div class="progress-bar" id="mpBar" style="width:0%"></div>
+          </div>
+          <div class="small text-muted mt-1" id="mpMsg"></div>
+        </div></div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card"><div class="card-body">
+          <h6 class="mb-2">النقل إلى تركيب بلا إنترنت</h6>
+          <p class="hint">
+            التركيب المنفصل تمامًا لا يصل خادمُه إلى الإنترنت أيضًا، فلا
+            ينفعه التنزيل. نزّل الحزمة من هنا (وأنت متّصل)، واستوردها هناك.
+          </p>
+          <a class="btn btn-outline-secondary btn-sm mb-3"
+             href="/api/field/maps/export">تصدير حزمة المربّعات</a>
+
+          <label class="form-label small mb-1">استيراد حزمة</label>
+          <input type="file" class="form-control form-control-sm mb-2" id="mpFile" accept=".zip">
+          <button class="btn btn-secondary btn-sm" id="mpImport">استيراد</button>
+          <div class="small text-muted mt-1" id="mpImpMsg"></div>
+        </div></div>
+
+        <div class="alert alert-warning py-2 px-3 small mt-3" id="mpPolicy">
+          <b>عن المصدر الافتراضي.</b>
+          خوادم OpenStreetMap تطوّعية، وشروطها تمنع التنزيل الجملي — فالحدّ
+          هنا <b id="mpCap">٤٠٠٠</b> مربّع لكل عملية. ولرقعة أوسع (دولة
+          كاملة بتقريب عالٍ) اضبط مصدرًا خاصًّا: مزوّدًا تجاريًّا تشترك فيه،
+          أو خادم مربّعات تملكه. عندها يُرفع الحدّ، والرخصة رخصتك.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- --------------------------------------------------- خطة اليوم -->
   <div class="tab-pane fade" id="tabPlan">
     <div class="row g-2 mb-3">
@@ -271,6 +344,7 @@
 (function () {
   'use strict';
   var $ = function (i) { return document.getElementById(i); };
+  var MAP_ATTR = '© OpenStreetMap';   // يُستبدل بنسب المصدر المضبوط
   var stations = [], picked = [], map, marker, ring;
   var territories = [], draft = [], trMap, trDraft, trLayer;
 
@@ -293,8 +367,10 @@
 
   function initMap() {
     map = L.map('fsMap').setView([29.3759, 47.9774], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    // من مسارنا لا من OSM مباشرةً: ما يُعرض يُحفظ، فيعمل في المرّة
+    // التالية بلا اتصال دون أن يفعل أحد شيئًا.
+    L.tileLayer('/api/field/tile/{z}/{x}/{y}.png',
+                { maxZoom: 17, attribution: MAP_ATTR }).addTo(map);
     map.on('click', function (e) { place(e.latlng.lat, e.latlng.lng); });
   }
 
@@ -517,8 +593,8 @@
 
   function initTerrMap() {
     trMap = L.map('trMap').setView([29.3759, 47.9774], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(trMap);
+    L.tileLayer('/api/field/tile/{z}/{x}/{y}.png',
+                { maxZoom: 17, attribution: MAP_ATTR }).addTo(trMap);
     trLayer = L.layerGroup().addTo(trMap);
     trMap.on('click', function (e) {
       draft.push([e.latlng.lat, e.latlng.lng]);
@@ -866,8 +942,95 @@
   $('whoSearch').addEventListener('input', paintWho);
   paintWho();
 
+  // ========================================== خرائط بلا إنترنت
+
+  function mb(b) {
+    if (!b) { return '0'; }
+    if (b < 1048576) { return (b / 1024).toFixed(0) + ' ك.ب'; }
+    return (b / 1048576).toFixed(1) + ' م.ب';
+  }
+  function num(n) { return (n || 0).toLocaleString('ar-EG'); }
+
+  var mpTimer = null;
+
+  function mapsLoad() {
+    return fetch('/api/field/maps').then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.success) { return; }
+        MAP_ATTR = j.source.attribution;
+        $('mpCache').textContent = num(j.cache.tiles) + ' مربّع · ' + mb(j.cache.bytes);
+        $('mpSrc').textContent = j.source.is_default
+          ? 'OpenStreetMap (الافتراضي، مجاني)' : j.source.attribution;
+        $('mpTerr').textContent = j.territories.count
+          ? num(j.territories.tiles) + ' مربّع (محفوظ منها ' + num(j.territories.have) + ')'
+          : 'لا مناطق مرسومة';
+        $('mpKw').textContent = num(j.kuwait.tiles) + ' مربّع (محفوظ ' +
+          num(j.kuwait.have) + ') ≈ ' + mb(j.kuwait.tiles * 14336);
+        $('mpCap').textContent = num(j.source.max_tiles);
+        $('mpPolicy').style.display = j.source.is_default ? '' : 'none';
+        showProgress(j.progress);
+      });
+  }
+
+  function showProgress(p) {
+    if (!p) { return; }
+    var on = p.running;
+    $('mpBarWrap').style.display = on ? '' : 'none';
+    $('mpStop').style.display = on ? '' : 'none';
+    if (on && p.total) {
+      $('mpBar').style.width = Math.round(p.done / p.total * 100) + '%';
+    }
+    if (p.message) { $('mpMsg').textContent = p.message + (on ? ' …' : ''); }
+
+    if (on && !mpTimer) {
+      mpTimer = setInterval(function () { mapsLoad(); }, 2500);
+    } else if (!on && mpTimer) {
+      clearInterval(mpTimer); mpTimer = null;
+      loadTerritories();      // الخرائط تحدّثت، فتُعاد الرسوم
+    }
+  }
+
+  function mapsDownload(scope) {
+    fetch('/api/field/maps', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: scope, zmax: parseInt($('mpZoom').value, 10) })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      $('mpMsg').textContent = j.message || '';
+      if (!j.success) { note(j.message, false); }
+      showProgress(j.progress);
+      mapsLoad();
+    });
+  }
+
+  $('mpGetTerr').addEventListener('click', function () { mapsDownload('territories'); });
+  $('mpGetKw').addEventListener('click', function () { mapsDownload('kuwait'); });
+  $('mpStop').addEventListener('click', function () {
+    fetch('/api/field/maps', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'stop' })
+    }).then(mapsLoad);
+  });
+
+  $('mpImport').addEventListener('click', function () {
+    var f = $('mpFile').files[0];
+    if (!f) { return note('اختر ملف الحزمة', false); }
+    var fd = new FormData();
+    fd.append('pack', f);
+    $('mpImpMsg').textContent = 'جارٍ الاستيراد…';
+    fetch('/api/field/maps/import', { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); }).then(function (j) {
+        $('mpImpMsg').textContent = j.message || '';
+        note(j.message, j.success);
+        mapsLoad();
+      });
+  });
+
+  document.querySelector('[data-bs-target="#tabMaps"]')
+    .addEventListener('shown.bs.tab', mapsLoad);
+
   initMap();
   initTerrMap();
+  mapsLoad();
   loadTerritories();
   loadStations();
 })();
