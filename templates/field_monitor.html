@@ -67,6 +67,9 @@
 
   .shots{display:flex;gap:8px;margin-top:6px}
   .shots img{width:50%;border-radius:8px;border:1px solid #dee2e6;cursor:zoom-in}
+  .bld-label{background:rgba(255,255,255,.88);border:1px solid #e0d6bb;color:#6b4f14;
+    font-size:.68rem;font-weight:700;padding:1px 5px;border-radius:5px;box-shadow:none}
+  .bld-label::before{display:none}
   .legend{font-size:.76rem;color:#6c757d;margin-top:8px;line-height:1.9}
   .legend i{display:inline-block;width:20px;height:3px;vertical-align:middle;
     margin-inline-end:5px}
@@ -136,7 +139,8 @@
   <i style="background:#adb5bd"></i> فجوة (الشاشة مقفلة أو الشبكة منقطعة) ·
   <i style="background:#dc3545"></i> قفزة (مسافة لا تُقطع في زمنها) ·
   <i style="background:transparent;border:1px dashed #0d6efd;height:10px"></i>
-  حدود المنطقة المُسنَدة
+  حدود المنطقة المُسنَدة ·
+  <i style="background:#c9a227"></i> مبانٍ بأسمائها (تظهر عند التقريب)
 </div>
 
 <div class="modal fade" id="shotModal" tabindex="-1">
@@ -151,7 +155,9 @@
 (function () {
   'use strict';
 
-  var map, carLayer, routeLayer, markers = {}, reps = [], openId = null, timer = null;
+  var map, carLayer, routeLayer, bldLayer, markers = {}, reps = [], openId = null;
+  var timer = null, bldBusy = false, bldSeen = {};
+  var BUILDING_ZOOM = 17;
   var $ = function (i) { return document.getElementById(i); };
   var MAP_ATTR = '© OpenStreetMap';   // يُستبدل بنسب المصدر المضبوط
 
@@ -196,7 +202,7 @@
     // تأتي من الإنترنت ولا يمكن حملها في التركيب. فبلا اتصال تبقى
     // الخلفية رمادية — والرمادي بلا سبب يبدو عطلًا، فيُقال السبب.
     var tiles = L.tileLayer('/api/field/tile/{z}/{x}/{y}.png',
-                            { maxZoom: 17, attribution: MAP_ATTR });
+                            { maxZoom: 19, attribution: MAP_ATTR });
     var tileWarned = false;
     tiles.on('tileerror', function () {
       if (tileWarned) { return; }
@@ -211,8 +217,13 @@
       document.querySelector('.fleet').appendChild(b);
     });
     tiles.addTo(map);
-    routeLayer = L.layerGroup().addTo(map);   // تحت
+    bldLayer = L.layerGroup().addTo(map);     // أسفل الكل
+    routeLayer = L.layerGroup().addTo(map);
     carLayer = L.layerGroup().addTo(map);     // فوق
+
+    // المباني تُجلب عند التقريب العالي وحده: عند تقريب المدينة تكون
+    // آلافًا لا يُقرأ منها اسم، وتُثقل خدمةً مجانية بلا فائدة.
+    map.on('moveend zoomend', maybeBuildings);
     mapReady = true;
     return true;
   }
@@ -257,6 +268,41 @@
     Object.keys(markers).forEach(function (id) {
       if (!seen[id]) { carLayer.removeLayer(markers[id]); delete markers[id]; }
     });
+  }
+
+  function maybeBuildings() {
+    if (!mapReady || map.getZoom() < BUILDING_ZOOM) {
+      bldLayer.clearLayers();
+      return;
+    }
+    if (bldBusy) { return; }
+    var b = map.getBounds();
+    var key = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]
+      .map(function (n) { return n.toFixed(3); }).join(',');
+    if (bldSeen[key]) { return; }      // الرقعة نفسها لا تُطلب مرتين
+    bldSeen[key] = true;
+    bldBusy = true;
+
+    fetch('/api/field/buildings?min_lat=' + b.getSouth() + '&min_lon=' + b.getWest() +
+          '&max_lat=' + b.getNorth() + '&max_lon=' + b.getEast())
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        bldBusy = false;
+        if (!j.success) { return; }
+        bldLayer.clearLayers();
+        (j.buildings || []).forEach(function (bd) {
+          var poly = L.polygon(bd.points, {
+            color: '#8a6420', weight: 1, fillColor: '#c9a227', fillOpacity: .18
+          }).addTo(bldLayer);
+          if (bd.name) {
+            // الاسم دائم لا عند المرور: المدير يقرأ الشاشة ليعرف أيّ
+            // فرعٍ لا ليطارد المؤشّر.
+            poly.bindTooltip(bd.name, { permanent: true, direction: 'center',
+                                        className: 'bld-label' });
+          }
+        });
+      })
+      .catch(function () { bldBusy = false; });
   }
 
   function paintChips() {
@@ -406,6 +452,7 @@
       var flag = (v.photos || []).some(function (p) { return p.had_exif; })
         ? ' <span class="chip lost">مصدر غير الكاميرا</span>' : '';
       el.innerHTML = '<b style="font-size:.86rem">' + esc(v.station_name) + '</b>' + flag +
+        '<div class="small" data-place style="color:#6b4f14"></div>' +
         '<div class="small text-muted">' + hhmm(v.check_in_at) +
         (v.check_out_at ? ' → ' + hhmm(v.check_out_at) : ' → مفتوحة') +
         (v.minutes != null ? ' · ' + v.minutes + ' دقيقة' : '') + '</div>' +
@@ -416,6 +463,18 @@
           new bootstrap.Modal($('shotModal')).show();
         });
       });
+
+      // «في أيّ فرع كان؟» — النطاق وحده لا يجيب: مئة متر في مجمّع
+      // تجاري تسع عشرة فروع.
+      if (v.check_in_lat != null) {
+        fetch('/api/field/place?lat=' + v.check_in_lat + '&lon=' + v.check_in_lon)
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j.success && j.summary) {
+              el.querySelector('[data-place]').textContent = j.summary;
+            }
+          }).catch(function () {});
+      }
       host.appendChild(el);
     });
   }

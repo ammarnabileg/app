@@ -370,7 +370,7 @@
     // من مسارنا لا من OSM مباشرةً: ما يُعرض يُحفظ، فيعمل في المرّة
     // التالية بلا اتصال دون أن يفعل أحد شيئًا.
     L.tileLayer('/api/field/tile/{z}/{x}/{y}.png',
-                { maxZoom: 17, attribution: MAP_ATTR }).addTo(map);
+                { maxZoom: 19, attribution: MAP_ATTR }).addTo(map);
     map.on('click', function (e) { place(e.latlng.lat, e.latlng.lng); });
   }
 
@@ -594,7 +594,7 @@
   function initTerrMap() {
     trMap = L.map('trMap').setView([29.3759, 47.9774], 11);
     L.tileLayer('/api/field/tile/{z}/{x}/{y}.png',
-                { maxZoom: 17, attribution: MAP_ATTR }).addTo(trMap);
+                { maxZoom: 19, attribution: MAP_ATTR }).addTo(trMap);
     trLayer = L.layerGroup().addTo(trMap);
     trMap.on('click', function (e) {
       draft.push([e.latlng.lat, e.latlng.lng]);

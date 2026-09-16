@@ -1166,3 +1166,42 @@ def api_maps_import():
 
     return jsonify({'success': added > 0, 'message': msg,
                     'cache': tiles.cache_stats()})
+
+
+# ========================================================== المباني
+
+@field_bp.route('/api/field/buildings')
+@login_required
+@module_required
+def api_buildings():
+    """مباني رقعة: للرسم على الخريطة عند التقريب العالي."""
+    from utils import buildings
+
+    def _n(k):
+        return _f(request.args.get(k))
+
+    mn_la, mn_lo, mx_la, mx_lo = _n('min_lat'), _n('min_lon'), _n('max_lat'), _n('max_lon')
+    if None in (mn_la, mn_lo, mx_la, mx_lo):
+        return jsonify({'success': False, 'message': 'حدود الرقعة مطلوبة'}), 400
+    if not (-90 <= mn_la <= 90 and -90 <= mx_la <= 90):
+        return jsonify({'success': False, 'message': 'إحداثيات خارج المدى'}), 400
+
+    found, fetched = buildings.in_bbox(mn_la, mn_lo, mx_la, mx_lo)
+    return jsonify({'success': True, 'buildings': found,
+                    'count': len(found), 'fetched': fetched})
+
+
+@field_bp.route('/api/field/place')
+@login_required
+@module_required
+def api_place():
+    """أيّ مبنًى/فرعٍ عند هذه النقطة — للسؤال عن زيارة بعينها."""
+    from utils import buildings
+
+    lat, lon = _f(request.args.get('lat')), _f(request.args.get('lon'))
+    if lat is None or lon is None:
+        return jsonify({'success': False, 'message': 'الإحداثيات مطلوبة'}), 400
+
+    hits = buildings.at_point(lat, lon)
+    return jsonify({'success': True, 'places': hits,
+                    'summary': buildings.describe(lat, lon)})
