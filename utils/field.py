@@ -39,6 +39,19 @@ IMPOSSIBLE_KMH = 300.0
 # عمر رمز الزيارة: يكفي لالتقاط صورة، ولا يكفي لتحضيرها من البيت.
 TOKEN_TTL_SECONDS = 180
 
+# أقصى عمرٍ مقبول للصورة بحسب EXIF. القاعدة كانت «أيّ EXIF يعني صورة
+# ملف فتُرفض» — وهي تصلح لشاشة الويب وحدها، لأن canvas لا يُخرج EXIF.
+# وكاميرا التطبيق الأصلية تُخرجه دائمًا، فكانت القاعدة سترفض كل صورة
+# يلتقطها التطبيق.
+#
+# والأهمّ أن القاعدة القديمة كانت تحرس الباب الخطأ: من يعيد ترميز
+# صورةٍ قديمة يمحو EXIF فتمرّ، ومن يلتقط الآن بهاتفه تُرفض صورته.
+# فالمقياس الصحيح ليس وجود البيانات بل ما تقوله: **متى التُقطت**.
+# صورةٌ عمرها دقائق تُقبل، وصورةٌ عمرها ساعة تُردّ — أيًّا كان مصدرها.
+# وما لا EXIF فيه يُقبل كما كان: غيابه ليس إدانة ولا براءة، والحارس
+# الحقيقي هو الرمز والنطاق والختم.
+PHOTO_FRESH_SECONDS = 600
+
 MAX_PHOTO_BYTES = 6 * 1024 * 1024
 MAX_POINTS_PER_BATCH = 500
 
@@ -651,12 +664,7 @@ def stamp_photo(raw_bytes, lines):
 
 
 def has_exif(raw_bytes):
-    """أفي الصورة بيانات EXIF؟
-
-    مخرجات canvas — وهي طريق الالتقاط الوحيد في شاشتنا — لا تحمل EXIF.
-    وصور المعرض من الهواتف تحمله دائمًا تقريبًا. فوجوده يعني أن الصورة
-    لم تأتِ من كاميرا الصفحة. دليل لا برهان: من يعيد ترميز صورة يمحوه.
-    """
+    """أفي الصورة بيانات EXIF؟"""
     try:
         from PIL import Image
         img = Image.open(io.BytesIO(raw_bytes))
@@ -664,6 +672,30 @@ def has_exif(raw_bytes):
         return bool(exif and len(exif) > 0)
     except Exception:
         return False
+
+
+def photo_age_seconds(raw_bytes, now=None):
+    """عمر الصورة بثوانٍ بحسب EXIF، أو None إن لم يُعرف.
+
+    الوقت في EXIF محليٌّ بلا منطقة زمنية، فيُقارَن بساعة الخادم. وما
+    لا يُقرأ يُعدّ مجهولًا لا مذنبًا: قيمةٌ مشوَّهة ليست دليل تزوير.
+    """
+    try:
+        from PIL import Image
+        from PIL.ExifTags import Base
+        img = Image.open(io.BytesIO(raw_bytes))
+        exif = img.getexif()
+        if not exif:
+            return None
+        raw = (exif.get(Base.DateTimeOriginal.value)
+               or exif.get(Base.DateTime.value)
+               or exif.get_ifd(0x8769).get(Base.DateTimeOriginal.value))
+        if not raw:
+            return None
+        taken = datetime.strptime(str(raw).strip()[:19], '%Y:%m:%d %H:%M:%S')
+        return ((now or datetime.now()) - taken).total_seconds()
+    except Exception:
+        return None
 
 
 def save_visit_photo(conn, visit_id, kind, raw_bytes, meta):

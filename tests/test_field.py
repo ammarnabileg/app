@@ -193,8 +193,12 @@ def _jpeg(exif=False, size=(640, 480)):
     return buf.getvalue()
 
 
-def test_a_gallery_photo_is_recognised_by_its_exif():
-    """كاميرا الصفحة تُخرج canvas بلا EXIF؛ صور المعرض تحمله."""
+def test_exif_presence_is_still_detectable_but_no_longer_decides():
+    """`has_exif` باقية ويُسجَّل ما تقوله في صفّ الصورة.
+
+    لكنها لم تعد تقبل أو ترفض: كاميرا التطبيق الأصلية تُخرج EXIF
+    دائمًا، فالرفض عليه كان سيرفض التطبيق نفسه. القرار الآن للعمر.
+    """
     assert field.has_exif(_jpeg(exif=True)) is True
     assert field.has_exif(_jpeg(exif=False)) is False
     assert field.has_exif(b'not an image') is False
@@ -840,3 +844,76 @@ def test_an_unreadable_mode_is_reported_not_swallowed():
     # والفارغ ليس خطأً: خليةٌ فارغة تعني «لا تغيّر»
     assert field.normalize_work_mode('') is None
     assert field.normalize_work_mode(None) is None
+
+
+# ------------------------------- الصورة: العمر لا وجود البيانات
+
+def _cam_jpeg(exif_time=None, size=(320, 240)):
+    """صورة JPEG، بتاريخ EXIF أو بلا EXIF أصلًا."""
+    import io as _io
+    from PIL import Image
+    from PIL.ExifTags import Base
+
+    img = Image.new('RGB', size, (90, 120, 160))
+    buf = _io.BytesIO()
+    if exif_time is None:
+        img.save(buf, 'JPEG')                      # كما يُخرج canvas
+    else:
+        ex = img.getexif()
+        ex[Base.Orientation.value] = 1
+        ex[Base.Make.value] = 'Samsung'
+        ex[Base.DateTimeOriginal.value] = exif_time.strftime('%Y:%m:%d %H:%M:%S')
+        img.save(buf, 'JPEG', exif=ex.tobytes())   # كما تُخرج كاميرا الهاتف
+    return buf.getvalue()
+
+
+def test_a_photo_from_a_real_phone_camera_is_readable():
+    """العطل الذي أوقف التطبيق قبل أن يُكتب.
+
+    القاعدة كانت «أيّ EXIF يعني صورة من المعرض فتُرفض»، وهي تصلح
+    لشاشة الويب وحدها لأن canvas لا يُخرج EXIF. وكاميرا الهاتف
+    الأصلية تُخرجه دائمًا — فكان الخادم سيرفض كل صورة يلتقطها
+    التطبيق، وهو الطريق الوحيد للالتقاط فيه.
+    """
+    fresh = _cam_jpeg(datetime.now() - timedelta(seconds=30))
+
+    assert field.has_exif(fresh) is True, 'صورة الكاميرا بلا EXIF؟ فالاختبار لا يفحص شيئًا'
+    age = field.photo_age_seconds(fresh)
+    assert age is not None and age < field.PHOTO_FRESH_SECONDS
+
+
+def test_an_old_photo_is_rejected_whatever_its_source():
+    """وهذا ما كانت القاعدة القديمة تعجز عنه فعلًا: صورةٌ قديمة
+    أُعيد ترميزها تمحو EXIF فتمرّ. الآن يُسأل عن الوقت لا عن الوجود."""
+    stale = _cam_jpeg(datetime.now() - timedelta(hours=2))
+
+    age = field.photo_age_seconds(stale)
+    assert age is not None and age > field.PHOTO_FRESH_SECONDS
+
+
+def test_a_photo_without_exif_is_still_accepted():
+    """شاشة الويب تُخرج canvas بلا EXIF — لا تُكسر."""
+    assert field.photo_age_seconds(_cam_jpeg(None)) is None
+
+
+def test_a_corrupt_exif_date_is_unknown_not_guilty():
+    """قيمةٌ مشوَّهة ليست دليل تزوير."""
+    import io as _io
+    from PIL import Image
+    from PIL.ExifTags import Base
+
+    img = Image.new('RGB', (64, 64), (1, 2, 3))
+    ex = img.getexif()
+    ex[Base.DateTimeOriginal.value] = 'not a date at all'
+    buf = _io.BytesIO()
+    img.save(buf, 'JPEG', exif=ex.tobytes())
+
+    assert field.photo_age_seconds(buf.getvalue()) is None
+
+
+def test_the_freshness_window_is_measured_against_a_given_clock():
+    """يُحقن الوقت فلا يعتمد الاختبار على ساعة الجهاز."""
+    now = datetime(2026, 9, 16, 12, 0, 0)
+    img = _cam_jpeg(now - timedelta(minutes=5))
+
+    assert 290 < field.photo_age_seconds(img, now=now) < 310
