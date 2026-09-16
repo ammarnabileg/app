@@ -1,0 +1,6 @@
+# انسخه إلى android/key.properties واملأه. الملف نفسه **لا** يدخل
+# المستودع — راجع .gitignore.
+storeFile=/absolute/path/to/onz-field.jks
+storePassword=
+keyAlias=onz
+keyPassword=
