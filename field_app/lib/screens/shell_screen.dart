@@ -13,6 +13,7 @@ import '../portal_api.dart';
 import '../store.dart';
 import 'attendance_screen.dart';
 import 'home_screen.dart';
+import 'profile_screen.dart';
 import 'punch_screen.dart';
 import 'requests_screen.dart';
 import 'team_screen.dart';
@@ -102,6 +103,9 @@ class _ShellScreenState extends State<ShellScreen> {
 
       if (isManager)
         _Tab('فريقي', Icons.groups_outlined, () => TeamScreen(api: widget.api)),
+
+      _Tab('حسابي', Icons.person_outline,
+          () => ProfileScreen(api: widget.api, boot: boot)),
     ];
   }
 

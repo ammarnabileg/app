@@ -209,9 +209,14 @@ class _ExcuseFormState extends State<_ExcuseForm> {
   final _reason = TextEditingController();
   bool _busy = false;
 
+  // القيم التي تكتبها شاشة الويب حرفيًّا. كنتُ كتبتُ `permission`،
+  // والشاشة تكتب `personal` — والخادم يُدخل ما يصله بلا فحص، فكان
+  // التطبيق سيملأ الجدول بقيمةٍ لا ينتجها شيءٌ آخر في النظام، وتسقط
+  // من كل تصفيةٍ أو تقرير مبنيّ على قيم الشاشة.
   static const _kinds = {
-    'mission': 'مهمة عمل',
-    'permission': 'استئذان',
+    'mission': 'مهمة عمل خارجية',
+    'personal': 'استئذان شخصي',
+    'manual_override': 'تصحيح بصمة',
   };
 
   Future<void> _submit() async {
@@ -245,13 +250,15 @@ class _ExcuseFormState extends State<_ExcuseForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SegmentedButton<String>(
-              segments: [
+            DropdownButtonFormField<String>(
+              initialValue: _type,
+              decoration: const InputDecoration(
+                  labelText: 'نوع الطلب', border: OutlineInputBorder()),
+              items: [
                 for (final e in _kinds.entries)
-                  ButtonSegment(value: e.key, label: Text(e.value)),
+                  DropdownMenuItem(value: e.key, child: Text(e.value)),
               ],
-              selected: {_type},
-              onSelectionChanged: (s) => setState(() => _type = s.first),
+              onChanged: (v) => setState(() => _type = v ?? _type),
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(

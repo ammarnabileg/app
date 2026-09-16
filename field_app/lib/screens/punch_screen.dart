@@ -35,6 +35,22 @@ class _PunchScreenState extends State<PunchScreen> {
   String? _result;
   bool _resultOk = false;
 
+  /// ما يختاره الموظف. يُبدأ بما يقترحه الخادم، ويبقى اختياره بعدها.
+  String? _mode;
+
+  static const _modes = {
+    'check_in': 'حضور',
+    'presence': 'تواجد',
+    'check_out': 'انصراف',
+  };
+
+  /// `next_action` يعود بالعربية ('حضور')، والخادم يقبلها أيضًا —
+  /// لكن المفتاح الإنجليزي أوضح في الشاشة وأثبت.
+  static String _keyFor(String arabic) => _modes.entries
+      .firstWhere((e) => e.value == arabic,
+          orElse: () => const MapEntry('check_in', 'حضور'))
+      .key;
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +64,8 @@ class _PunchScreenState extends State<PunchScreen> {
       if (mounted) {
         setState(() {
           _status = j;
+          // الاقتراح يُتبع ما لم يكن الموظف قد اختار بنفسه.
+          _mode ??= _keyFor((j['next_action'] ?? 'حضور').toString());
           _error = null;
         });
       }
@@ -88,12 +106,15 @@ class _PunchScreenState extends State<PunchScreen> {
         accuracy: pos.accuracy,
         timestampMillis: DateTime.now().millisecondsSinceEpoch,
         deviceUuid: widget.deviceUuid,
+        punchType: _mode,
       );
 
       if (mounted) {
         setState(() {
           _result = (j['message'] ?? 'سُجّلت البصمة').toString();
           _resultOk = true;
+          // بعد تسجيلٍ ناجح يُتبع اقتراح الخادم من جديد.
+          _mode = null;
         });
       }
       await _load();
@@ -148,7 +169,8 @@ class _PunchScreenState extends State<PunchScreen> {
     }
 
     final punches = (s['today_punches'] as List?) ?? [];
-    final next = (s['next_action'] ?? 'حضور').toString();
+    final mode = _mode ?? _keyFor((s['next_action'] ?? 'حضور').toString());
+    final label = _modes[mode] ?? 'حضور';
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -160,11 +182,25 @@ class _PunchScreenState extends State<PunchScreen> {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Text('الخطوة التالية',
-                      style: Theme.of(context).textTheme.bodySmall),
-                  const SizedBox(height: 4),
-                  Text(next, style: Theme.of(context).textTheme.headlineSmall),
-                  const SizedBox(height: 20),
+                  // ثلاثة أزرار كما في شاشة الويب: النوع يختاره الموظف
+                  // ولا يُستنتج من عدد بصماته.
+                  SegmentedButton<String>(
+                    segments: [
+                      for (final e in _modes.entries)
+                        ButtonSegment(value: e.key, label: Text(e.value)),
+                    ],
+                    selected: {mode},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (v) => setState(() => _mode = v.first),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _mode == null || _mode == _keyFor((s['next_action'] ?? '').toString())
+                        ? 'المقترح بحسب بصمات يومك'
+                        : 'اخترتَه بنفسك',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
@@ -175,7 +211,7 @@ class _PunchScreenState extends State<PunchScreen> {
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.fingerprint),
-                      label: Text(_busy ? 'يُقرأ موقعك…' : 'سجّل $next'),
+                      label: Text(_busy ? 'يُقرأ موقعك…' : 'سجّل $label'),
                       style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 18)),
                     ),

@@ -31,12 +31,18 @@ extension PortalApi on Api {
   /// `timestamp` **بالميلي ثانية**، والخادم يردّ القراءة التي يزيد
   /// فرقها عن ٣٥ ثانية. فإرسال الثواني بدل الميلي يجعل كل بصمة
   /// تُردّ بحجّة أن الموقع «قديم» — وهو خطأٌ يصعب تشخيصه من الرسالة.
+  ///
+  /// و`punchType` هو ما يختاره الموظف: `check_in` أو `presence` أو
+  /// `check_out`. وتركُه يجعل الخادم يستنتج النوع من **عدد** بصمات
+  /// اليوم — فبصمةٌ زائدة تقلب الباقي، ويُسجَّل انصرافٌ مكان تواجد.
+  /// شاشة الويب ترسله، فالتطبيق يرسله.
   Future<Map<String, dynamic>> punch({
     required double lat,
     required double lon,
     required double accuracy,
     required int timestampMillis,
     required String deviceUuid,
+    String? punchType,
   }) =>
       postJson('/portal/api/punch', {
         'latitude': lat,
@@ -44,6 +50,7 @@ extension PortalApi on Api {
         'accuracy': accuracy,
         'timestamp': timestampMillis,
         'device_uuid': deviceUuid,
+        if (punchType != null) 'punch_type': punchType,
       });
 
   // --------------------------------------------------- الطلبات

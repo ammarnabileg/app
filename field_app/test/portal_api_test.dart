@@ -115,6 +115,34 @@ void main() {
     expect(s.lastBody['end_date'], matches(r'^\d{4}-\d{2}-\d{2}$'));
   });
 
+  test('البصمة ترسل النوع الذي اختاره الموظف', () async {
+    // بلا `punch_type` يستنتج الخادم النوع من **عدد** بصمات اليوم.
+    // فبصمةٌ زائدة تقلب الباقي: يُسجَّل انصرافٌ مكان تواجد، ويُحسب
+    // اليوم ناقصًا. وشاشة الويب ترسله منذ البداية.
+    final s = _Spy();
+    final api = await _api(s);
+
+    await api.punch(
+        lat: 29.1,
+        lon: 48.2,
+        accuracy: 9,
+        timestampMillis: 1,
+        deviceUuid: 'd',
+        punchType: 'presence');
+
+    expect(s.lastBody['punch_type'], 'presence');
+  });
+
+  test('بلا اختيارٍ لا يُرسل الحقل فيستنتج الخادم', () async {
+    final s = _Spy();
+    final api = await _api(s);
+
+    await api.punch(
+        lat: 29.1, lon: 48.2, accuracy: 9, timestampMillis: 1, deviceUuid: 'd');
+
+    expect(s.lastBody.containsKey('punch_type'), isFalse);
+  });
+
   test('الاستئذان يرسل النوع والتاريخ', () async {
     final s = _Spy();
     final api = await _api(s);
