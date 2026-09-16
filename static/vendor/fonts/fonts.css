@@ -1,0 +1,99 @@
+/* خطوط النظام محليًّا — لا من fonts.googleapis.com.
+   التركيب المنفصل عن الشبكة كان يخرج بخطّ النظام الافتراضي، وهو في
+   ويندوز خطٌّ لاتينيّ يرسم العربية بأشكال منفصلة رديئة. والأوزان هنا
+   أربعة لا تسعة: ما تستعمله القوالب فعلًا. */
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('files/tajawal-arabic-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('files/tajawal-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('files/tajawal-arabic-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('files/tajawal-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('files/tajawal-arabic-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('files/tajawal-latin-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('files/tajawal-arabic-800-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('files/tajawal-latin-800-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('files/noto-sans-arabic-arabic-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Arabic';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('files/noto-sans-arabic-arabic-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Arabic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('files/noto-sans-arabic-arabic-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Arabic';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('files/noto-sans-arabic-arabic-800-normal.woff2') format('woff2');
+}

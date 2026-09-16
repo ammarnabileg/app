@@ -2,10 +2,12 @@
 {% block title %}المحطات وخطة المناديب{% endblock %}
 
 {% block content %}
+{% include '_partials/leaflet.html' %}
+
 {% if denied %}
   <div class="alert alert-danger">هذه الصفحة لمسؤول النظام.</div>
 {% else %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+{% include '_partials/assets.html' %}
 <style>
   .fs-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
   @media (max-width:980px){.fs-grid{grid-template-columns:1fr}}
@@ -265,7 +267,6 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 (function () {
   'use strict';

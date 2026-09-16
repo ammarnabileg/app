@@ -2,7 +2,9 @@
 {% block title %}متابعة المناديب{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+{% include '_partials/leaflet.html' %}
+
+{% include '_partials/assets.html' %}
 <style>
   /* الخريطة هي الشاشة، لا عنصرٌ فيها: من يتابع أسطولًا ينظر إلى
      المواقع أولًا، والقوائم تأتي فوقها عند الحاجة. */
@@ -53,9 +55,12 @@
   .car .dir{position:absolute;top:-7px;left:50%;margin-left:-5px;width:0;height:0;
     border-inline:5px solid transparent;border-bottom:8px solid #212529;
     transform-origin:50% 26px}
-  .car .tag{position:absolute;top:38px;inset-inline-start:50%;transform:translateX(50%);
+  /* left/translateX(-50%) لا inset-inline-start: التوسيط المنطقي
+     ينقلب مع اتجاه الصفحة فتخرج البطاقة عن عربتها في العربية. */
+  .car .tag{position:absolute;top:38px;left:50%;transform:translateX(-50%);
     background:rgba(255,255,255,.95);border:1px solid #dee2e6;border-radius:6px;
-    font-size:.68rem;padding:0 5px;white-space:nowrap;font-weight:700}
+    font-size:.68rem;padding:0 5px;white-space:nowrap;font-weight:700;
+    max-width:90px;overflow:hidden;text-overflow:ellipsis}
   .car.live .disc::after{content:'';position:absolute;inset:-6px;border-radius:50%;
     border:2px solid rgba(46,165,106,.5);animation:pulse 2s infinite}
   @keyframes pulse{0%{transform:scale(.8);opacity:.9}100%{transform:scale(1.4);opacity:0}}
@@ -142,7 +147,6 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 (function () {
   'use strict';
@@ -186,8 +190,26 @@
   function initMap() {
     if (typeof L === 'undefined') { showOffline(); return false; }
     map = L.map('fleetMap', { zoomControl: true }).setView([29.3759, 47.9774], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+
+    // المكتبة عندنا محليًّا، أمّا **مربّعات** الخريطة فصورٌ للعالم
+    // تأتي من الإنترنت ولا يمكن حملها في التركيب. فبلا اتصال تبقى
+    // الخلفية رمادية — والرمادي بلا سبب يبدو عطلًا، فيُقال السبب.
+    var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            { maxZoom: 19, attribution: '© OpenStreetMap' });
+    var tileWarned = false;
+    tiles.on('tileerror', function () {
+      if (tileWarned) { return; }
+      tileWarned = true;
+      var b = document.createElement('div');
+      b.style.cssText = 'position:absolute;bottom:10px;inset-inline-start:10px;z-index:640;' +
+        'background:rgba(255,255,255,.95);border:1px solid #e3e6ea;border-radius:10px;' +
+        'padding:7px 11px;font-size:.78rem;max-width:300px;box-shadow:0 4px 14px rgba(0,0,0,.1)';
+      b.innerHTML = '<b>خلفية الخريطة غير متاحة</b><br>' +
+        '<span class="text-muted">لا اتصال بالإنترنت. المواقع والخطوط والمناطق ' +
+        'تُرسم كما هي — الصورة وحدها هي الناقصة.</span>';
+      document.querySelector('.fleet').appendChild(b);
+    });
+    tiles.addTo(map);
     routeLayer = L.layerGroup().addTo(map);   // تحت
     carLayer = L.layerGroup().addTo(map);     // فوق
     mapReady = true;
@@ -197,12 +219,14 @@
   function carIcon(rep) {
     var dir = (rep.heading != null && rep.state === 'live')
       ? '<i class="dir" style="transform:rotate(' + Math.round(rep.heading) + 'deg)"></i>' : '';
-    var first = (rep.name || '؟').trim().charAt(0);
+    // الاسم لا أوّل حرف: ثلاثة مناديب أسماؤهم تبدأ بالميم تصير ثلاث
+    // بطاقات متطابقة لا تُميّز شيئًا.
+    var short = (rep.name || '؟').trim().split(/\s+/)[0];
     return L.divIcon({
       className: '',
       html: '<div class="car ' + rep.state + '">' + dir +
             '<div class="disc"><i class="fas fa-car-side"></i></div>' +
-            '<div class="tag">' + esc(first) + '</div></div>',
+            '<div class="tag">' + esc(short) + '</div></div>',
       iconSize: [38, 38], iconAnchor: [19, 19]
     });
   }

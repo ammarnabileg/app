@@ -88,7 +88,7 @@
     function exportLateTwoDays() {
         if (!window.XLSX) {
             const s = document.createElement('script');
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+            s.src = '/static/vendor/libs/xlsx.full.min.js';
             s.onload = exportLateTwoDays;
             document.head.appendChild(s);
             return;
