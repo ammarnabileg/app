@@ -132,6 +132,16 @@ def update_settings():
                 'ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value',
                 (_k, request.form.get(_k, '').strip()))
 
+    # إذن الحفظ: خانةٌ غير معلَّمة لا تُرسَل، فيميّز الحقل المخفيّ أن
+    # النموذج أُرسل — وإلا قُرئ غيابها «لم يتغيّر» فبقي الإذن مشتعلًا.
+    if request.form.get('map_tile_form_present'):
+        from utils import tiles as _tiles
+        conn.execute(
+            'INSERT INTO salary_settings_v2(setting_name, setting_value) VALUES(?, ?) '
+            'ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value',
+            (_tiles.SETTING_CACHE,
+             '1' if request.form.get('map_tile_cache_allowed') in ('1', 'on', 'true') else '0'))
+
     # --- إعدادات بصمة بوابة الموظف الذاتية (Portal Mobile Attendance) ---
     portal_enabled = '1' if request.form.get('portal_attendance_enabled') in ('1', 'on', 'true') else '0'
     geofence_enabled = '1' if request.form.get('portal_attendance_geofence_enabled') in ('1', 'on', 'true') else '0'

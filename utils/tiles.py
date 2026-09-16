@@ -35,6 +35,7 @@ DEFAULT_ATTRIBUTION = '© OpenStreetMap'
 
 SETTING_URL = 'map_tile_url'
 SETTING_ATTR = 'map_tile_attribution'
+SETTING_CACHE = 'map_tile_cache_allowed'
 
 # اسم تعريف صحيح شرطٌ في سياستهم؛ والمجهول يُحجب.
 USER_AGENT = 'OnPointHR-FieldModule/1.0 (+https://onz.one)'
@@ -81,6 +82,34 @@ def tile_source(conn=None):
     if not url or '{z}' not in url or '{x}' not in url or '{y}' not in url:
         return DEFAULT_TILE_URL, DEFAULT_ATTRIBUTION, True
     return url, (attr or 'مصدر خرائط خاص'), False
+
+
+def cache_allowed(conn=None):
+    """أيُسمح بحفظ مربّعات هذا المصدر على القرص؟
+
+    المصدر الافتراضي (OpenStreetMap) نعم: حفظُ ما يُعرض تصفّحٌ عادي،
+    والتنزيل الجملي وحده ممنوع — ويمنعه السقف.
+
+    والمصدر الخارجي **لا، حتى يقول مالكُ النظام إن رخصته تسمح.** لأن
+    شروط المزوّدين التجاريين تختلف: MapTiler Cloud مثلًا يمنع
+    التخزين في ذاكرة خادم وسيطة صراحةً. فالافتراض الآمن ألّا يُحفظ،
+    ويُشعلها من يملك خادمه أو اشتراكًا يسمح — فتقع المسؤولية حيث
+    تُعرف الرخصة، لا على إعدادٍ صامت.
+    """
+    if tile_source(conn)[2]:
+        return True
+    try:
+        from utils.db import get_db_connection
+        conn = conn or get_db_connection()
+        row = conn.execute(
+            'SELECT setting_value FROM salary_settings_v2 WHERE setting_name = ?',
+            (SETTING_CACHE,)).fetchone()
+        if not row:
+            return False
+        v = row[0] if not hasattr(row, 'keys') else row['setting_value']
+        return str(v).strip() in ('1', 'on', 'true')
+    except Exception:
+        return False
 
 
 def source_host(conn=None):
@@ -286,6 +315,16 @@ def download(bboxes, zmin=MIN_ZOOM, zmax=MAX_ZOOM, conn=None):
     if not todo:
         return False, 'كل المربّعات محفوظة بالفعل'
     url, _attr, is_osm = tile_source(conn)
+
+    # التنزيل المسبق حفظٌ جمليّ — أوضح ما تمنعه شروط المزوّدين. فلا
+    # يبدأ أصلًا حين لا يُسمح بالحفظ، ويُقال السبب وموضع تغييره.
+    if not cache_allowed(conn):
+        return False, (
+            'الحفظ مُطفأ لهذا المصدر، والتنزيل المسبق حفظٌ جمليّ. '
+            'أكثر المزوّدين التجاريين يمنعونه في شروطهم — ومنهم '
+            'MapTiler Cloud صراحةً. فإن كانت رخصتك تسمح (خادم تملكه، '
+            'أو اشتراك on-prem)، أشعل «المزوّد يسمح بحفظ المربّعات» '
+            'من الإعدادات. وإلا فالمصدر الافتراضي يسمح بالحفظ.')
     cap = MAX_TILES_OSM if is_osm else MAX_TILES_CUSTOM
     if len(todo) > cap:
         if is_osm:

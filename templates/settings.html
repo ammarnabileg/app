@@ -143,13 +143,37 @@
                                value="{{ sal.get('map_tile_attribution', '') }}">
                         <div class="form-text mt-1" style="font-size:.78rem">
                             اتركه فارغًا لاستعمال <b>OpenStreetMap</b> — مجاني بلا مفتاح،
-                            وهو الافتراضي ويكفي أكثر الشركات. واملأه إن اشتركت بمزوّد
-                            (MapTiler أو Thunderforest مثلًا) أو كان لك خادم خرائط:
-                            عندها يُرفع حدّ التنزيل المسبق لأن الرخصة تصير رخصتك.
+                            وهو الافتراضي، ويسمح بالحفظ فتعمل الخريطة بلا إنترنت.
+                            <br>
+                            طلبات الخرائط تخرج من <b>الخادم</b> لا من المتصفح، فلا
+                            تحمل نطاقًا (Referer). فإن قيّدتَ مفتاحك بنطاقات في لوحة
+                            المزوّد فسيرفضه — اسمح بمجهول المصدر (<code dir="ltr">?</code>
+                            عند MapTiler) وقيّده بـ User-Agent:
+                            <code dir="ltr">OnPointHR-FieldModule</code>.
                             <br>
                             <b>لا يصلح رابط خرائط جوجل هنا:</b> شروطها تمنع عرض
-                            مربّعاتها في غير خرائطها، وتمنع حفظها — وهذا النظام يحفظ
-                            ليعمل بلا إنترنت.
+                            مربّعاتها في غير خرائطها.
+                        </div>
+
+                        <input type="hidden" name="map_tile_form_present" value="1">
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" role="switch"
+                                   id="map_tile_cache_allowed" name="map_tile_cache_allowed" value="1"
+                                   {% if sal.get('map_tile_cache_allowed', '0') == '1' %}checked{% endif %}>
+                            <label class="form-check-label small" for="map_tile_cache_allowed">
+                                المزوّد يسمح بحفظ المربّعات على الخادم
+                            </label>
+                        </div>
+                        <div class="form-text mt-1" style="font-size:.78rem">
+                            مُطفأة: تُمرَّر المربّعات بلا حفظ — الخريطة تحتاج إنترنت،
+                            ولا تنزيل مسبق. وهذا الافتراض الآمن لأي مصدر خارجي، إذ
+                            يمنع أكثر المزوّدين التجاريين التخزين الوسيط في شروطهم
+                            — ومنهم <b>MapTiler Cloud</b> صراحةً.
+                            <br>
+                            أشعلها إن كانت رخصتك تسمح: خادم خرائط تملكه، أو اشتراك
+                            on-prem. عندها يُحفظ ما يُعرض، ويُفتح التنزيل المسبق
+                            بسقفٍ أعلى. ولا أثر لها على المصدر الافتراضي — فهو
+                            يسمح بالحفظ دائمًا.
                         </div>
 
                         {% set fd = field_data or {} %}

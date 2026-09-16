@@ -1015,11 +1015,15 @@ KUWAIT_BBOX = (28.52, 46.55, 30.10, 48.43)
 @login_required
 @module_required
 def api_tile(z, x, y):
-    """مربّع خريطة: من المخزن، وإلا من المصدر ويُحفظ، وإلا 404.
+    """مربّع خريطة: من المخزن، وإلا من المصدر، وإلا 404.
 
-    الخريطة تطلبه بدل أن تطلب OpenStreetMap مباشرةً. فما يراه المدير
-    يبقى محفوظًا، ويعمل في المرّة التالية بلا اتصال دون أن يفعل أحد
-    شيئًا.
+    الخريطة تطلبه بدل أن تطلب المزوّد مباشرةً — فالمفتاح يبقى في
+    الخادم ولا يصل إلى المتصفح.
+
+    والحفظ **مشروط**: المصدر الافتراضي يُحفظ فيعمل في المرّة التالية
+    بلا اتصال، والمصدر الخارجي يُمرَّر بلا حفظ حتى يُقال إن رخصته
+    تسمح. لأن أكثر المزوّدين التجاريين يمنعون التخزين الوسيط، والحفظ
+    الصامت يجعل العميل مخالفًا وهو لا يدري.
     """
     from flask import Response
     from utils import tiles
@@ -1027,7 +1031,7 @@ def api_tile(z, x, y):
     data = tiles.read(z, x, y)
     if data is None:
         data = tiles.fetch(z, x, y)
-        if data:
+        if data and tiles.cache_allowed(get_db_connection()):
             tiles.store(z, x, y, data)
 
     if not data:
@@ -1070,7 +1074,8 @@ def api_maps():
             # لكل من دخل لا للمسؤول وحده. والواجهة لا تستعمله أصلًا —
             # المربّعات تُطلب من وسيطنا. ويكفي المضيف للتشخيص.
             'source': {'host': tiles.source_host(conn), 'attribution': attr,
-                       'is_default': is_osm, 'max_tiles': tiles.max_tiles(conn)},
+                       'is_default': is_osm, 'max_tiles': tiles.max_tiles(conn),
+                       'cache_allowed': tiles.cache_allowed(conn)},
             'territories': {'count': len(boxes), 'names': names,
                             'tiles': want_t, 'have': have_t},
             'kuwait': {'tiles': kw_t, 'have': kw_have, 'zmax': 14},

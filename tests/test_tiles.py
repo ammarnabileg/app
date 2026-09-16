@@ -378,6 +378,115 @@ def test_an_unknown_placeholder_is_named_not_mistaken_for_an_outage(tmp_path):
     assert 'لا اتصال' not in t.FAIL_MESSAGES['bad_url']
 
 
+# ------------------------------------- الحفظ: إذنٌ لا افتراض
+
+def test_the_default_source_still_caches(tmp_path):
+    """OpenStreetMap يسمح بحفظ ما يُعرض — فلا تُكسر الميزة الأصلية."""
+    t = _tiles(tmp_path)
+    assert t.cache_allowed() is True
+
+
+def test_an_external_source_does_not_cache_until_permitted(tmp_path):
+    """الافتراض الآمن: رخصة المزوّد لا تُفترض، تُقال."""
+    t = _tiles(tmp_path)
+    c = _admin_client(tmp_path)
+
+    c.post('/settings/update',
+           data={'map_tile_url': 'https://api.example.com/{z}/{x}/{y}.png?key=k',
+                 'map_tile_form_present': '1'})           # الخانة غير معلَّمة
+    assert t.cache_allowed() is False
+
+    c.post('/settings/update',
+           data={'map_tile_url': 'https://api.example.com/{z}/{x}/{y}.png?key=k',
+                 'map_tile_form_present': '1', 'map_tile_cache_allowed': '1'})
+    assert t.cache_allowed() is True
+
+
+def test_the_proxy_serves_the_tile_without_writing_it_to_disk(tmp_path):
+    """بيت القصيد: المربّع يصل إلى المتصفح ولا يبقى على القرص.
+
+    فلو حُفظ رغم إطفاء الإذن، صار العميل مخالفًا لشروط مزوّده وهو
+    يظنّ أنه اختار ألّا يحفظ — وهذا أسوأ من غياب الخيار.
+    """
+    import sqlite3
+    t = _tiles(tmp_path)
+    c = _admin_client(tmp_path)
+    c.post('/settings/update',
+           data={'map_tile_url': 'https://api.example.com/{z}/{x}/{y}.png?key=k',
+                 'map_tile_form_present': '1'})
+
+    from utils import field
+    con = sqlite3.connect(os.path.join(str(tmp_path), 'hr_system.db'))
+    field.init_schema(con)
+    field.set_module_enabled(con, True)
+    con.commit()
+    con.close()
+
+    t.fetch = lambda z, x, y, timeout=8, url=None: PNG
+
+    r = c.get('/api/field/tile/12/2560/1744.png')
+    assert r.status_code == 200
+    assert r.data[:4] == b'\x89PNG', 'المربّع لم يصل إلى المتصفح'
+    assert t.have(12, 2560, 1744) is False, 'حُفظ رغم إطفاء الإذن'
+    assert t.cache_stats()['tiles'] == 0
+
+
+def test_the_proxy_does_cache_when_permitted(tmp_path):
+    """ولا يُقلب: من أذِن يُحفظ له، وإلا ضاعت ميزة العمل بلا إنترنت."""
+    import sqlite3
+    t = _tiles(tmp_path)
+    c = _admin_client(tmp_path)
+    c.post('/settings/update',
+           data={'map_tile_url': 'https://api.example.com/{z}/{x}/{y}.png?key=k',
+                 'map_tile_form_present': '1', 'map_tile_cache_allowed': '1'})
+
+    from utils import field
+    con = sqlite3.connect(os.path.join(str(tmp_path), 'hr_system.db'))
+    field.init_schema(con)
+    field.set_module_enabled(con, True)
+    con.commit()
+    con.close()
+
+    t.fetch = lambda z, x, y, timeout=8, url=None: PNG
+
+    assert c.get('/api/field/tile/12/2560/1744.png').status_code == 200
+    assert t.have(12, 2560, 1744) is True
+
+
+def test_bulk_download_refuses_and_says_where_to_change_it(tmp_path):
+    """التنزيل المسبق حفظٌ جمليّ — فلا يبدأ أصلًا، ويُقال السبب."""
+    t = _tiles(tmp_path)
+    c = _admin_client(tmp_path)
+    c.post('/settings/update',
+           data={'map_tile_url': 'https://api.example.com/{z}/{x}/{y}.png?key=k',
+                 'map_tile_form_present': '1'})
+
+    started, msg = t.download([(29.30, 47.95, 29.31, 47.96)], zmin=11, zmax=11)
+
+    assert started is False
+    assert 'الإعدادات' in msg, 'رُفض بلا أن يُقال أين يُغيَّر'
+    assert t.progress()['running'] is False
+
+
+def test_an_imported_pack_is_still_usable_when_caching_is_off(tmp_path):
+    """المربّعات التي تأتي في حزمة مربّعاتُك: التركيب المنفصل تمامًا
+    لا طريق له غيرها، فلا يُغلق بإعدادٍ عن مصدرٍ أونلاين."""
+    t = _tiles(tmp_path)
+    c = _admin_client(tmp_path)
+    c.post('/settings/update',
+           data={'map_tile_url': 'https://api.example.com/{z}/{x}/{y}.png?key=k',
+                 'map_tile_form_present': '1'})
+    assert t.cache_allowed() is False
+
+    pack = str(tmp_path / 'pack.zip')
+    with zipfile.ZipFile(pack, 'w') as z:
+        z.writestr('12/2560/1744.png', PNG)
+
+    added, _msg = t.import_pack(pack)
+    assert added == 1
+    assert t.read(12, 2560, 1744)[:4] == b'\x89PNG'
+
+
 def _wait_idle(t, seconds=5):
     import time
     for _ in range(int(seconds * 50)):

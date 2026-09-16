@@ -300,7 +300,19 @@
           خوادم OpenStreetMap تطوّعية، وشروطها تمنع التنزيل الجملي — فالحدّ
           هنا <b id="mpCap">٤٠٠٠</b> مربّع لكل عملية. ولرقعة أوسع (دولة
           كاملة بتقريب عالٍ) اضبط مصدرًا خاصًّا: مزوّدًا تجاريًّا تشترك فيه،
-          أو خادم مربّعات تملكه. عندها يُرفع الحدّ، والرخصة رخصتك.
+          أو خادم مربّعات تملكه.
+        </div>
+
+        <div class="alert alert-secondary py-2 px-3 small mt-3" id="mpNoCache"
+             style="display:none">
+          <b>الحفظ مُطفأ لهذا المصدر.</b>
+          المربّعات تُمرَّر بلا تخزين، فالخريطة تحتاج إنترنت ولا تنزيل
+          مسبق. وهذا الافتراض الآمن لأي مصدر خارجي: أكثر المزوّدين
+          التجاريين يمنعون التخزين الوسيط في شروطهم.
+          <br>
+          إن كانت رخصتك تسمح — خادم تملكه أو اشتراك on-prem — أشعل
+          «المزوّد يسمح بحفظ المربّعات» من <b>الإعدادات</b>. والاستيراد
+          يعمل في الحالين: المربّعات التي تأتي في حزمة مربّعاتُك.
         </div>
       </div>
     </div>
@@ -968,6 +980,16 @@
           num(j.kuwait.have) + ') ≈ ' + mb(j.kuwait.tiles * 14336);
         $('mpCap').textContent = num(j.source.max_tiles);
         $('mpPolicy').style.display = j.source.is_default ? '' : 'none';
+
+        // الحفظ مُطفأ: لا تُعرض أزرارٌ لا تفعل شيئًا — تُعطَّل ويُقال
+        // السبب، فالزرّ الذي يخيب أسوأ من زرٍّ معطَّل معلَّل.
+        var canCache = j.source.cache_allowed !== false;
+        $('mpNoCache').style.display = canCache ? 'none' : '';
+        ['mpGetTerr', 'mpGetKw'].forEach(function (id) {
+          $(id).disabled = !canCache;
+          $(id).title = canCache ? '' : 'الحفظ مُطفأ لهذا المصدر';
+        });
+
         showProgress(j.progress);
       });
   }
