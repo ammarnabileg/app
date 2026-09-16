@@ -10,7 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import 'api.dart';
 import 'screens/login_screen.dart';
-import 'screens/trip_screen.dart';
+import 'screens/shell_screen.dart';
 import 'store.dart';
 
 void main() {
@@ -71,7 +71,7 @@ class _FieldAppState extends State<FieldApp> {
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _api == null
               ? LoginScreen(onDone: (api) => setState(() => _api = api))
-              : TripScreen(
+              : ShellScreen(
                   api: _api!,
                   deviceUuid: _deviceUuid,
                   onSignOut: () => setState(() => _api = null),

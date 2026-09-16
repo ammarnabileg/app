@@ -202,5 +202,65 @@ def test_a_file_that_is_not_an_image_is_refused(rep):
     assert 'صورة صالحة' in r.get_json()['message']
 
 
+
+# ------------------------------------------- تهيئة البوابة للتطبيق
+
+def test_bootstrap_gives_the_app_what_only_the_html_knew(rep):
+    """أنواع الإجازات وصفة المدير كانت تُحقن في القالب عند التصيير فقط.
+
+    فما يقرأ JSON لا يعرف منها شيئًا، وكان التطبيق سيُخمّن أو يكشط
+    HTML. وكلاهما يفترق عن الصفحة عند أول تغيير فيها.
+    """
+    r = rep['client'].get('/portal/api/bootstrap')
+    j = r.get_json()
+
+    assert r.status_code == 200, j
+    assert j['success'] is True
+    assert j['employee']['name'] == 'مندوب الاختبار'
+    assert j['has_employee_record'] is True
+    assert isinstance(j['leave_types'], list) and j['leave_types'], 'لا أنواع إجازات'
+    assert all({'id', 'name'} <= set(t) for t in j['leave_types'])
+    assert 'enabled' in j['attendance']
+
+
+def test_bootstrap_marks_a_rep_as_a_rep(rep):
+    """وحدة المناديب مُفعَّلة في هذه التهيئة، وحقل work_mode هو الحكم."""
+    import sqlite3
+    con = sqlite3.connect(rep['db'])
+    con.execute('UPDATE employees SET work_mode = ? WHERE id = ?', ('field', rep['emp_id']))
+    con.commit()
+    con.close()
+
+    j = rep['client'].get('/portal/api/bootstrap').get_json()
+    assert j['is_field_rep'] is True
+
+
+def test_bootstrap_tells_an_account_without_an_employee_it_cannot_write(rep):
+    """حسابٌ بلا سجلّ موظف يقرأ ولا يكتب.
+
+    تُقال صراحةً ليُخفي التطبيق أزرار الكتابة، بدل أن يعرضها للمستخدم
+    ثم يردّها الخادم بـ400 بعد أن يملأ النموذج.
+    """
+    import sqlite3
+    from werkzeug.security import generate_password_hash
+    con = sqlite3.connect(rep['db'])
+    con.execute('INSERT INTO users (username, password, full_name, role, is_active,'
+                ' employee_id) VALUES (?,?,?,?,1,NULL)',
+                ('ghost2', generate_password_hash('x'), 'بلا موظف', 'user'))
+    uid = con.execute("SELECT id FROM users WHERE username='ghost2'").fetchone()[0]
+    con.commit()
+    con.close()
+
+    import app as A
+    c = A.app.test_client()
+    with c.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'user', 'employee_id': None})
+
+    j = c.get('/portal/api/bootstrap').get_json()
+    assert j['success'] is True
+    assert j['has_employee_record'] is False
+    assert j['employee'] is None
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-v']))

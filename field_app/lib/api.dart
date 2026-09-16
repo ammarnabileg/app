@@ -137,7 +137,9 @@ class Api {
     return json;
   }
 
-  Future<Map<String, dynamic>> _json(String path, Map<String, dynamic> body) {
+  /// مكشوفتان ليبني عليهما امتداد البوابة (`portal_api.dart`)
+  /// بدل أن يُنشئ عميلًا ثانيًا بجلسةٍ ثانية.
+  Future<Map<String, dynamic>> postJson(String path, Map<String, dynamic> body) {
     return _send(() {
       final req = http.Request('POST', _u(path))
         ..headers.addAll(_headers({'Content-Type': 'application/json'}))
@@ -146,7 +148,7 @@ class Api {
     });
   }
 
-  Future<Map<String, dynamic>> _get(String path) {
+  Future<Map<String, dynamic>> get(String path) {
     return _send(() {
       final req = http.Request('GET', _u(path))..headers.addAll(_headers());
       return _client.send(req);
@@ -156,10 +158,10 @@ class Api {
   // ------------------------------------------------------- الرحلة
 
   Future<Map<String, dynamic>> startTrip(String deviceUuid) =>
-      _json('/portal/api/field/start', {'device_uuid': deviceUuid});
+      postJson('/portal/api/field/start', {'device_uuid': deviceUuid});
 
   Future<int> track(int tripId, List<Map<String, dynamic>> points) async {
-    final j = await _json('/portal/api/field/track', {
+    final j = await postJson('/portal/api/field/track', {
       'trip_id': tripId,
       'points': points,
     });
@@ -167,15 +169,15 @@ class Api {
   }
 
   Future<Map<String, dynamic>> stopTrip(int tripId, {String reason = 'manual'}) =>
-      _json('/portal/api/field/stop', {'trip_id': tripId, 'reason': reason});
+      postJson('/portal/api/field/stop', {'trip_id': tripId, 'reason': reason});
 
-  Future<Map<String, dynamic>> plan() => _get('/portal/api/field/plan');
+  Future<Map<String, dynamic>> plan() => get('/portal/api/field/plan');
 
   // ------------------------------------------------------ المحطة
 
   /// رمز الزيارة — يُطلب قبل الصورة مباشرةً، وعمره دقائق.
   Future<String> visitToken(int stationId, String kind) async {
-    final j = await _json('/portal/api/field/token', {
+    final j = await postJson('/portal/api/field/token', {
       'station_id': stationId,
       'kind': kind,
     });

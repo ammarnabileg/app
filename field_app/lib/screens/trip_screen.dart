@@ -14,11 +14,15 @@ class TripScreen extends StatefulWidget {
     required this.api,
     required this.deviceUuid,
     required this.onSignOut,
+    this.embedded = false,
   });
 
   final Api api;
   final String deviceUuid;
   final VoidCallback onSignOut;
+
+  /// داخل الإطار: الشريط العلوي والخروج للإطار لا لهذه الشاشة.
+  final bool embedded;
 
   @override
   State<TripScreen> createState() => _TripScreenState();
@@ -143,30 +147,7 @@ class _TripScreenState extends State<TripScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final t = _tracker.state;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('رحلة اليوم'),
-        actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'تحديث',
-          ),
-          IconButton(
-            onPressed: () async {
-              if (t.running) {
-                _toast('أنهِ الرحلة أولًا');
-                return;
-              }
-              await Store.clearCreds();
-              widget.onSignOut();
-            },
-            icon: const Icon(Icons.logout),
-            tooltip: 'خروج',
-          ),
-        ],
-      ),
-      body: RefreshIndicator(
+    final body = RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -237,7 +218,34 @@ class _TripScreenState extends State<TripScreen> with WidgetsBindingObserver {
             const SizedBox(height: 32),
           ],
         ),
+      );
+
+    if (widget.embedded) return body;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('رحلة اليوم'),
+        actions: [
+          IconButton(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'تحديث',
+          ),
+          IconButton(
+            onPressed: () async {
+              if (t.running) {
+                _toast('أنهِ الرحلة أولًا');
+                return;
+              }
+              await Store.clearCreds();
+              widget.onSignOut();
+            },
+            icon: const Icon(Icons.logout),
+            tooltip: 'خروج',
+          ),
+        ],
       ),
+      body: body,
     );
   }
 }

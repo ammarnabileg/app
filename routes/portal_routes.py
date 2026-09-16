@@ -123,6 +123,79 @@ def dashboard():
         today_display=date.today().strftime('%A, %d %B %Y')
     )
 
+@portal_bp.route('/api/bootstrap')
+@login_required
+def api_bootstrap():
+    """ما تعرفه الشاشة عند فتحها: من أنت، وماذا يَظهر لك.
+
+    كل هذا كان يُحقن في `portal/index.html` عند التصيير فحسب — أنواع
+    الإجازات، وهل أنت مدير، وهل أنت مندوب، وهل تبصم في المكتب. فما
+    يقرأ JSON لا يعرف شيئًا منه، وكان التطبيق سيضطرّ إلى تخمينها أو
+    إلى كشط HTML.
+
+    ولا يُعاد هنا شيءٌ جديد: المصادر نفسها التي يقرؤها `dashboard`،
+    ليبقى ما يراه التطبيق هو ما تراه الصفحة لا نسخةً تفترق عنها.
+    """
+    conn = get_db_connection()
+    emp_id = get_portal_employee_id()
+    user = get_current_user()
+
+    employee = None
+    if emp_id:
+        row = conn.execute("""
+            SELECT e.id, e.name, e.arabic_name, e.employee_number, e.department,
+                   e.position, e.hire_date, e.phone, m.name AS manager_name
+            FROM employees e
+            LEFT JOIN employees m ON e.manager_id = m.id
+            WHERE e.id = ?
+        """, (emp_id,)).fetchone()
+        employee = dict(row) if row else None
+
+    subordinates = 0
+    if emp_id:
+        subordinates = conn.execute(
+            'SELECT COUNT(*) FROM employees WHERE manager_id = ? AND is_active = 1',
+            (emp_id,)).fetchone()[0]
+    is_manager = subordinates > 0 or bool(user and user['role'] == 'admin')
+
+    leave_types = [dict(r) for r in conn.execute(
+        'SELECT id, name, is_hourly_permission FROM leave_types ORDER BY id ASC')]
+
+    from utils.settings_utils import get_portal_attendance_settings
+    att = get_portal_attendance_settings(conn)
+
+    is_field_rep = False
+    office_punch = True
+    try:
+        from utils import field as _field
+        if emp_id:
+            office_punch = _field.punches_at_office(conn, emp_id)
+            if _field.module_enabled(conn):
+                is_field_rep = _field.is_field_rep(conn, emp_id)
+    except Exception:
+        is_field_rep, office_punch = False, True
+
+    return jsonify({
+        'success': True,
+        'employee': employee,
+        # حسابٌ بلا سجلّ موظف يقرأ ولا يكتب. تُقال للتطبيق صراحةً
+        # ليُخفي أزرار الكتابة بدل أن يعرضها ثم يردّها الخادم.
+        'has_employee_record': employee is not None,
+        'is_manager': is_manager,
+        'subordinates_count': subordinates,
+        'is_field_rep': is_field_rep,
+        'office_punch': office_punch,
+        'leave_types': leave_types,
+        'attendance': {
+            'enabled': att['enabled'],
+            'geofence_enabled': att['geofence_enabled'],
+            'radius': att['radius'],
+            'cooldown_minutes': att['cooldown_minutes'],
+        },
+        'today': date.today().strftime('%Y-%m-%d'),
+    })
+
+
 @portal_bp.route('/api/my-data')
 @login_required
 def api_my_data():
