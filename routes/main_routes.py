@@ -124,6 +124,14 @@ def update_settings():
         _field.set_module_enabled(
             conn, request.form.get('field_module_enabled') in ('1', 'on', 'true'))
 
+    # --- مصدر الخرائط: فارغ يعني OpenStreetMap الافتراضي ---
+    for _k in ('map_tile_url', 'map_tile_attribution'):
+        if _k in request.form:
+            conn.execute(
+                'INSERT INTO salary_settings_v2(setting_name, setting_value) VALUES(?, ?) '
+                'ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value',
+                (_k, request.form.get(_k, '').strip()))
+
     # --- إعدادات بصمة بوابة الموظف الذاتية (Portal Mobile Attendance) ---
     portal_enabled = '1' if request.form.get('portal_attendance_enabled') in ('1', 'on', 'true') else '0'
     geofence_enabled = '1' if request.form.get('portal_attendance_geofence_enabled') in ('1', 'on', 'true') else '0'

@@ -133,6 +133,25 @@
                             </div>
                         </div>
 
+                        <hr>
+                        <label class="form-label small mb-1">مصدر خرائط بديل (اختياري)</label>
+                        <input type="text" class="form-control form-control-sm"
+                               name="map_tile_url" dir="ltr" placeholder="https://.../{z}/{x}/{y}.png?key=..."
+                               value="{{ sal.get('map_tile_url', '') }}">
+                        <input type="text" class="form-control form-control-sm mt-2"
+                               name="map_tile_attribution" placeholder="نسب المصدر — يظهر أسفل الخريطة"
+                               value="{{ sal.get('map_tile_attribution', '') }}">
+                        <div class="form-text mt-1" style="font-size:.78rem">
+                            اتركه فارغًا لاستعمال <b>OpenStreetMap</b> — مجاني بلا مفتاح،
+                            وهو الافتراضي ويكفي أكثر الشركات. واملأه إن اشتركت بمزوّد
+                            (MapTiler أو Thunderforest مثلًا) أو كان لك خادم خرائط:
+                            عندها يُرفع حدّ التنزيل المسبق لأن الرخصة تصير رخصتك.
+                            <br>
+                            <b>لا يصلح رابط خرائط جوجل هنا:</b> شروطها تمنع عرض
+                            مربّعاتها في غير خرائطها، وتمنع حفظها — وهذا النظام يحفظ
+                            ليعمل بلا إنترنت.
+                        </div>
+
                         {% set fd = field_data or {} %}
                         {% if fd.get('stations') or fd.get('trips') or fd.get('visits') %}
                         <div class="alert alert-info py-2 px-3 small mt-3 mb-0">

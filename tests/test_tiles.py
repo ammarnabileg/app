@@ -201,6 +201,94 @@ def test_stats_count_only_tiles(tmp_path):
     assert t.cache_stats()['tiles'] == 1
 
 
+# ------------------------------------------- تبديل المزوّد من الشاشة
+
+def _admin_client(tmp_path):
+    """نظامٌ حقيقي بمسؤولٍ حقيقي — لأن السؤال هنا عن شاشة الإعدادات."""
+    import importlib
+    import sqlite3
+
+    os.environ['HR_DATA_DIR'] = str(tmp_path)
+
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+
+    import utils.db as db
+    importlib.reload(db)
+    db.init_db()
+
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [
+        f for f in A.app.before_request_funcs.get(None, [])
+        if f.__name__ != 'check_license_globally'
+    ]
+    A.app.config['TESTING'] = True
+
+    path = os.path.join(str(tmp_path), 'hr_system.db')
+    con = sqlite3.connect(path)
+    admin_id = con.execute("SELECT id FROM users WHERE role='admin'").fetchone()[0]
+    con.close()
+
+    c = A.app.test_client()
+    with c.session_transaction() as s:
+        s.update({'user_id': admin_id, 'role': 'admin', 'employee_id': None})
+    return c
+
+
+def test_the_settings_screen_actually_switches_the_provider(tmp_path):
+    """قلتُ للمستخدم «بدّله من الإعدادات» — فهذا اختبار قولي لا شيفرتي.
+
+    الحقل كان غائبًا عن الشاشة أصلًا، والقيمة تُقرأ من القاعدة وحدها،
+    فكان التبديل يعني تحرير SQLite باليد. والاختبار يمرّ بالنموذج
+    كما يمرّ المستخدم: يُرسِل، ثم يسأل `tile_source` ماذا صار المصدر.
+    """
+    t = _tiles(tmp_path)
+    assert t.tile_source()[2] is True, 'الافتراضي ليس OpenStreetMap'
+
+    c = _admin_client(tmp_path)
+    mine = 'https://tiles.example.com/{z}/{x}/{y}.png?key=abc'
+    r = c.post('/settings/update',
+               data={'map_tile_url': mine, 'map_tile_attribution': '© مزوّدي'},
+               follow_redirects=False)
+    assert r.status_code == 302, 'لم يُقبل النموذج'
+
+    url, attr, is_default = t.tile_source()
+    assert url == mine
+    assert attr == '© مزوّدي'
+    assert is_default is False
+    # والسقف يرتفع مع المصدر الخاص: الرخصة صارت رخصة العميل.
+    assert t.max_tiles() == t.MAX_TILES_CUSTOM
+
+
+def test_clearing_the_field_returns_to_the_free_default(tmp_path):
+    """من أفرغ الحقل يعود إلى OSM — لا يبقى عالقًا بمزوّدٍ ألغى اشتراكه."""
+    t = _tiles(tmp_path)
+    c = _admin_client(tmp_path)
+
+    c.post('/settings/update',
+           data={'map_tile_url': 'https://tiles.example.com/{z}/{x}/{y}.png'})
+    assert t.tile_source()[2] is False
+
+    c.post('/settings/update', data={'map_tile_url': '  ', 'map_tile_attribution': ''})
+    url, _attr, is_default = t.tile_source()
+    assert is_default is True
+    assert url == t.DEFAULT_TILE_URL
+    assert t.max_tiles() == t.MAX_TILES_OSM
+
+
+def test_a_url_without_placeholders_is_ignored_not_obeyed(tmp_path):
+    """لو لصق أحدهم رابط صفحة خرائط بدل قالب المربّعات، لا تصير الخريطة
+    رمادية: القيمة المعطوبة تُهمَل ويبقى الافتراضي."""
+    t = _tiles(tmp_path)
+    c = _admin_client(tmp_path)
+
+    c.post('/settings/update', data={'map_tile_url': 'https://maps.google.com/'})
+
+    assert t.tile_source()[2] is True
+
+
 if __name__ == '__main__':
     import pytest
     raise SystemExit(pytest.main([__file__, '-v']))

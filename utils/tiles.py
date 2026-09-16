@@ -31,7 +31,7 @@ import zipfile
 from utils.db import DB_PATH
 
 DEFAULT_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-DEFAULT_ATTRIBution = '© OpenStreetMap'
+DEFAULT_ATTRIBUTION = '© OpenStreetMap'
 
 SETTING_URL = 'map_tile_url'
 SETTING_ATTR = 'map_tile_attribution'
@@ -79,7 +79,7 @@ def tile_source(conn=None):
         pass
 
     if not url or '{z}' not in url or '{x}' not in url or '{y}' not in url:
-        return DEFAULT_TILE_URL, DEFAULT_ATTRIBution, True
+        return DEFAULT_TILE_URL, DEFAULT_ATTRIBUTION, True
     return url, (attr or 'مصدر خرائط خاص'), False
 
 
