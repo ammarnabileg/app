@@ -83,6 +83,20 @@ def tile_source(conn=None):
     return url, (attr or 'مصدر خرائط خاص'), False
 
 
+def source_host(conn=None):
+    """المضيف وحده — بلا مسار ولا استعلام.
+
+    رابط المزوّد يحمل المفتاح في `?key=`، والمفتاح يُدفع ثمنه بالطلبات.
+    فما يخرج إلى المتصفح هو ما يكفي للتشخيص: `api.maptiler.com` تقول
+    أيّ مزوّد مضبوط ولا تقول بأيّ مفتاح.
+    """
+    try:
+        from urllib.parse import urlparse
+        return urlparse(tile_source(conn)[0]).hostname or ''
+    except Exception:
+        return ''
+
+
 def max_tiles(conn=None):
     return MAX_TILES_OSM if tile_source(conn)[2] else MAX_TILES_CUSTOM
 
@@ -134,21 +148,51 @@ def store(z, x, y, data):
     return True
 
 
-def fetch(z, x, y, timeout=8, url=None):
-    """يجلب مربّعًا من الإنترنت. يعيد البايتات أو None.
+def fetch_ex(z, x, y, timeout=8, url=None):
+    """(البايتات أو None، سببُ الإخفاق أو None).
 
-    لا يرمي أبدًا: هذا المسار يُنادى أثناء عرض خريطة، وانقطاع الشبكة
-    حالةٌ عادية لا خطأ.
+    السبب ليس زينة. المزوّد المدفوع يرفض بـ403 حين لا يوافق المفتاحُ
+    قيودَه، والرفض والانقطاع يبدوان سواءً من هنا: كلاهما «لا مربّع».
+    فلو قيل للمستخدم «لا اتصال» وهو متّصل، طارد عطلًا في الشبكة لا
+    وجود له، والعطل في سطرٍ بلوحة المزوّد.
     """
     try:
         import requests
         r = requests.get((url or tile_source()[0]).format(z=z, x=x, y=y),
                          headers={'User-Agent': USER_AGENT}, timeout=timeout)
         if r.status_code == 200 and r.content[:4] == b'\x89PNG':
-            return r.content
+            return r.content, None
+        if r.status_code in (401, 403):
+            return None, 'key'
+        if r.status_code == 429:
+            return None, 'rate'
+        if r.status_code == 200:
+            return None, 'not_png'
+        return None, 'http_%d' % r.status_code
     except Exception:
-        pass
-    return None
+        return None, 'network'
+
+
+def fetch(z, x, y, timeout=8, url=None):
+    """يجلب مربّعًا من الإنترنت. يعيد البايتات أو None.
+
+    لا يرمي أبدًا: هذا المسار يُنادى أثناء عرض خريطة، وانقطاع الشبكة
+    حالةٌ عادية لا خطأ.
+    """
+    return fetch_ex(z, x, y, timeout=timeout, url=url)[0]
+
+
+# ما يُقال للمستخدم عند كل سبب — بالسبب لا بأقرب تخمين.
+FAIL_MESSAGES = {
+    'key': 'خادم الخرائط رفض المفتاح (403). راجع المفتاح وقيوده في لوحة '
+           'المزوّد: طلبات هذا النظام تأتي من **الخادم** لا من المتصفح، '
+           'فلا تحمل نطاقًا (Referer) — ومفتاحٌ مقيَّد بنطاقات يرفضها.',
+    'rate': 'خادم الخرائط يحدّ من الطلبات (429). أمهله ثم أعد — الموجود '
+            'محفوظ ولا يُعاد تنزيله.',
+    'not_png': 'الردّ ليس صورة. تأكّد أن الرابط قالب مربّعات ينتهي بـ '
+               '{z}/{x}/{y}.png لا صفحة خرائط.',
+    'network': 'لا اتصال بخادم الخرائط.',
+}
 
 
 # ------------------------------------------------- من المضلَّع إلى المربّعات
@@ -232,20 +276,25 @@ def download(bboxes, zmin=MIN_ZOOM, zmax=MAX_ZOOM, conn=None):
 
     def worker():
         ok = fail = 0
+        why = None
         try:
             for z, x, y in todo:
                 with _lock:
                     if _state['stopped']:
                         _state['message'] = 'أُوقف بطلبك'
                         break
-                data = fetch(z, x, y, url=url)
+                data, reason = fetch_ex(z, x, y, url=url)
                 if data and store(z, x, y, data):
                     ok += 1
                 else:
                     fail += 1
-                    if fail > 30 and ok == 0:
+                    why = reason or why
+                    # مفتاحٌ مرفوض لا يُصلحه التكرار: يُوقَف عند أوّله
+                    # بدل ثلاثين محاولة تنتهي إلى الرسالة نفسها.
+                    if why == 'key' or (fail > 30 and ok == 0):
                         with _lock:
-                            _state['message'] = 'لا اتصال بخادم الخرائط'
+                            _state['message'] = FAIL_MESSAGES.get(
+                                why, FAIL_MESSAGES['network'])
                         break
                 with _lock:
                     _state['done'] = ok + fail

@@ -1048,7 +1048,7 @@ def api_maps():
     from utils import geo, tiles
 
     conn = get_db_connection()
-    url, attr, is_osm = tiles.tile_source(conn)
+    _url, attr, is_osm = tiles.tile_source(conn)
 
     if request.method == 'GET':
         # رقع مناطق العميل: كل منطقة حدودُ مضلَّعها.
@@ -1066,8 +1066,11 @@ def api_maps():
         return jsonify({
             'success': True,
             'cache': tiles.cache_stats(),
-            'source': {'url': url, 'attribution': attr, 'is_default': is_osm,
-                       'max_tiles': tiles.max_tiles(conn)},
+            # الرابط **لا** يخرج: مفتاح المزوّد فيه، وهذا المسار مفتوح
+            # لكل من دخل لا للمسؤول وحده. والواجهة لا تستعمله أصلًا —
+            # المربّعات تُطلب من وسيطنا. ويكفي المضيف للتشخيص.
+            'source': {'host': tiles.source_host(conn), 'attribution': attr,
+                       'is_default': is_osm, 'max_tiles': tiles.max_tiles(conn)},
             'territories': {'count': len(boxes), 'names': names,
                             'tiles': want_t, 'have': have_t},
             'kuwait': {'tiles': kw_t, 'have': kw_have, 'zmax': 14},

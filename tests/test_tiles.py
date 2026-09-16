@@ -289,6 +289,111 @@ def test_a_url_without_placeholders_is_ignored_not_obeyed(tmp_path):
     assert t.tile_source()[2] is True
 
 
+def test_the_paid_key_never_reaches_a_browser(tmp_path):
+    """مفتاح المزوّد يُدفع ثمنه بالطلبات — فمن قرأه أنفق من حساب العميل.
+
+    و`/api/field/maps` كان يعيد `url` كاملًا وفيه `?key=...`، وحارسه
+    `login_required` لا `admin` — فكل موظف يفتح البوابة كان يستطيع
+    قراءة المفتاح من الشبكة. والواجهة لا تستعمل `url` أصلًا، إنما
+    `attribution` وحدها: حقلٌ يُسرِّب ولا يخدم.
+    """
+    import sqlite3
+    t = _tiles(tmp_path)
+    c = _admin_client(tmp_path)
+
+    secret = 'sUpErSeCrEtKey123'
+    c.post('/settings/update',
+           data={'map_tile_url': 'https://api.example.com/{z}/{x}/{y}.png?key=' + secret,
+                 'map_tile_attribution': '© مزوّدي'})
+    assert t.tile_source()[2] is False
+
+    # الوحدة تُفعَّل، ويُستعمل حسابٌ عاديّ لا مسؤول — هذا هو المهاجم.
+    from utils import field
+    con = sqlite3.connect(os.path.join(str(tmp_path), 'hr_system.db'))
+    field.init_schema(con)
+    field.set_module_enabled(con, True)
+    from werkzeug.security import generate_password_hash
+    con.execute("INSERT INTO users (username, password, full_name, role, is_active,"
+                " employee_id) VALUES (?,?,?,'user',1,NULL)",
+                ('plain', generate_password_hash('x'), 'موظف عادي'))
+    plain = con.execute("SELECT id FROM users WHERE username='plain'").fetchone()[0]
+    con.commit()
+    con.close()
+
+    import app as A
+    c2 = A.app.test_client()
+    with c2.session_transaction() as s:
+        s.update({'user_id': plain, 'role': 'user', 'employee_id': None})
+
+    r = c2.get('/api/field/maps')
+    assert r.status_code == 200, 'المسار لم يُفتح، فالاختبار لا يفحص شيئًا'
+    body = r.get_data(as_text=True)
+
+    assert secret not in body, 'المفتاح خرج إلى المتصفح'
+    assert 'api.example.com' in body, 'المضيف يجب أن يبقى — به يُشخَّص المزوّد'
+
+    src = r.get_json()['source']
+    assert src.get('attribution') == '© مزوّدي', 'النسب يجب أن يبقى — تستعمله الواجهة'
+    assert 'url' not in src, 'الرابط ما زال في الردّ'
+
+
+def _wait_idle(t, seconds=5):
+    import time
+    for _ in range(int(seconds * 50)):
+        if not t.progress()['running']:
+            return
+        time.sleep(0.02)
+    raise AssertionError('التنزيل لم ينتهِ')
+
+
+def test_a_rejected_key_is_not_reported_as_a_dead_network(tmp_path):
+    """٤٠٣ من المزوّد كان يُقال «لا اتصال بخادم الخرائط».
+
+    والمستخدم متّصل. فيذهب يفحص الجدار الناري والـDNS، والعطل سطرٌ في
+    لوحة المزوّد: مفتاحٌ مقيَّد بنطاقات، وطلباتنا تأتي من الخادم بلا
+    نطاق. رسالةٌ خاطئة أسوأ من لا رسالة، لأنها توجّه البحث إلى مكان
+    خالٍ.
+    """
+    t = _tiles(tmp_path)
+    t.fetch_ex = lambda z, x, y, timeout=8, url=None: (None, 'key')
+
+    started, _msg = t.download([(29.30, 47.95, 29.31, 47.96)], zmin=11, zmax=11)
+    assert started
+    _wait_idle(t)
+
+    msg = t.progress()['message']
+    assert '403' in msg
+    assert 'لا اتصال' not in msg, 'ما زال يُقال إن الشبكة مقطوعة'
+
+
+def test_a_real_outage_is_still_called_an_outage(tmp_path):
+    """ولا يُقلب الخطأ: انقطاعٌ حقيقي يُقال انقطاعًا."""
+    t = _tiles(tmp_path)
+    t.fetch_ex = lambda z, x, y, timeout=8, url=None: (None, 'network')
+
+    t.download([(29.30, 47.95, 29.40, 48.05)], zmin=11, zmax=14)
+    _wait_idle(t, 15)
+
+    assert 'لا اتصال' in t.progress()['message']
+
+
+def test_a_rejected_key_stops_at_once_not_after_thirty_tries(tmp_path):
+    """المفتاح المرفوض لا يُصلحه التكرار."""
+    calls = []
+
+    t = _tiles(tmp_path)
+
+    def counting(z, x, y, timeout=8, url=None):
+        calls.append(1)
+        return None, 'key'
+
+    t.fetch_ex = counting
+    t.download([(29.30, 47.95, 29.40, 48.05)], zmin=11, zmax=14)
+    _wait_idle(t, 15)
+
+    assert len(calls) == 1, f'حاول {len(calls)} مرة بمفتاح مرفوض'
+
+
 if __name__ == '__main__':
     import pytest
     raise SystemExit(pytest.main([__file__, '-v']))
