@@ -64,6 +64,55 @@ def device_addr():
         return request.remote_addr
 
 
+def resolve_device(conn, sn):
+    """صفُّ الجهاز الذي يكلّمنا — أو None.
+
+    مُحلِّلٌ واحد لكل المسارات. كان لكل مسارٍ بحثُه الخاصّ — تسعةٌ في
+    هذا الملف، كلٌّ يختلف عن الآخر قليلًا: بعضها بالاسم ثم العنوان،
+    وبعضها بالعنوان ثم الاسم، وبعضها بالاسم وحده. فصار جهازٌ يُعرَف
+    في مسار البصمات ولا يُعرَف في مسار الأوامر — وهو بالضبط ما وقع:
+    البصمات تصل والأوامر لا تُسلَّم.
+
+    والترتيب: الرقم التسلسلي أولًا لأنه هوية الجهاز الثابتة، ثم
+    العنوان لأن الأجهزة القائمة قد تكون مسجَّلةً به أو باسمٍ وصفيّ.
+
+    **ويُثبَّت الرقم التسلسلي على الجهاز حين يُطابَق بعنوانه**:
+    المطابقة بالعنوان هشّة — يتغيّر بإعادة تشغيل الشبكة، ويتشارك
+    عملاء خلف NAT عنوانًا واحدًا. فتُحفظ الهوية الصحيحة أول مرة،
+    ولا يعود الجهاز معتمدًا على عنوانه.
+    """
+    if not sn or sn == 'healthcheck':
+        return None
+
+    row = conn.execute(
+        'SELECT * FROM fingerprint_devices WHERE device_name = ?', (sn,)).fetchone()
+    if row:
+        return row
+
+    addr = device_addr()
+    if not addr:
+        return None
+
+    row = conn.execute(
+        'SELECT * FROM fingerprint_devices WHERE device_ip = ?', (addr,)).fetchone()
+    if not row:
+        return None
+
+    try:
+        if not row['device_name'] or row['device_name'] != sn:
+            conn.execute('UPDATE fingerprint_devices SET device_name = ? WHERE id = ?',
+                         (sn, row['id']))
+            conn.commit()
+            logger.info(
+                f"ADMS identity pinned | SN={sn} | device_id={row['id']} — "
+                f"طُوبِق بعنوانه فثُبِّت رقمه التسلسلي في اسمه، فلا يعتمد "
+                f"على عنوانٍ متغيّر بعد اليوم.")
+    except Exception:
+        pass
+
+    return row
+
+
 _unknown_seen = {}
 UNKNOWN_LOG_EVERY_SECONDS = 300
 
@@ -139,26 +188,7 @@ def device_gate(conn, sn):
     # قبل هذه البوّابة كان يقبل `device_ip = ? OR device_name = ?`.
     # الاقتصار على الاسم يرفض أجهزةً عاملة عند كل عميل قائم — وهو ما وقع
     # فعلًا بعد التحديث.
-    row = conn.execute(
-        'SELECT * FROM fingerprint_devices WHERE device_name = ?',
-        (sn,)).fetchone()
-
-    if not row and device_addr():
-        row = conn.execute(
-            'SELECT * FROM fingerprint_devices WHERE device_ip = ?',
-            (device_addr(),)).fetchone()
-        if row:
-            # يُثبَّت الرقم التسلسلي على الجهاز المعروف: المطابقة بعنوان IP
-            # هشّة — العنوان يتغيّر بإعادة تشغيل الشبكة، وقد يتشارك عملاء
-            # خلف NAT عنوانًا واحدًا. فتُحفظ الهوية الصحيحة أول مرة.
-            try:
-                if not row['device_name'] or row['device_name'] != sn:
-                    conn.execute(
-                        'UPDATE fingerprint_devices SET device_name = ? WHERE id = ?',
-                        (sn, row['id']))
-                    conn.commit()
-            except Exception:
-                pass
+    row = resolve_device(conn, sn)
 
     if not row:
         # غير مسجَّل: يُرفض ويُسجَّل. الرقم التسلسلي مطبوع على الجهاز
@@ -296,7 +326,7 @@ def cdata():
                 pass
 
             # 1a. Automatic Time Sync (Maintenance)
-            device_row = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ? OR device_name = ?', (device_addr(), sn)).fetchone()
+            device_row = resolve_device(conn, sn)
             device_id = device_row['id'] if device_row else None
             
             if device_id:
@@ -336,7 +366,7 @@ def cdata():
             conn = get_db_connection()
             
             # Find device ID
-            device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, device_addr())).fetchone()
+            device = resolve_device(conn, sn)
             device_id = device['id'] if device else 0
             
             for line in lines:
@@ -391,7 +421,7 @@ def cdata():
             lines = data.split('\n')
             
             conn = get_db_connection()
-            device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, device_addr())).fetchone()
+            device = resolve_device(conn, sn)
             device_id = device['id'] if device else 0
             
             if device_id:
@@ -504,7 +534,7 @@ def cdata():
                 conn = get_db_connection()
                 try:
                     # Find Device
-                    device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, device_addr())).fetchone()
+                    device = resolve_device(conn, sn)
                     device_id = device['id'] if device else 0
                     
                     if device_id:
@@ -609,26 +639,19 @@ def get_request():
     sn = request.args.get('SN')
     conn = get_db_connection()
     
-    # Check if we know this device (by IP or we need SN in DB)
-    # Let's try to find device by matching SN in pending or registered?
-    # Ideally, `fingerprint_devices` should have `device_sn`. 
-    # Current schema: device_name, device_ip. 
-    # We will assume user puts SN in Name or we limit by IP.
-    # BETTER: Use valid device lookup by IP for now.
-    
-    # Improved Device Lookup: Use SN from params first, then fallback to IP
-    # Standard ZK protocol sends SN in the query string
-    sn = request.args.get('SN')
-    
-    if sn:
-        device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ?', (sn,)).fetchone()
-    else:
-        # Fallback to IP identification if SN is missing
-        device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ?', (device_addr(),)).fetchone()
-    
-    # Second fallback: If SN lookup failed, try IP for this device anyway
-    if sn and not device:
-         device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ?', (device_addr(),)).fetchone()
+    # نفس مُحلِّل بقيّة المسارات — لا بحثٌ خاصّ بهذا المسار.
+    #
+    # كان له بحثه: بالاسم إن جاء الرقم التسلسلي، وإلا بالعنوان. فكان
+    # جهازٌ يُعرَف في مسار البصمات ولا يُعرَف هنا — فتصل بصماته ولا
+    # يُسلَّم إليه أمر. والمُحلِّل الموحَّد يثبّت رقمه التسلسلي أيضًا
+    # حين يطابقه بعنوانه، فلا يبقى معتمدًا على عنوانٍ متغيّر.
+    device = resolve_device(conn, sn)
+
+    # جهازٌ لم يرسل رقمه التسلسلي أصلًا: لا يبقى إلا عنوانه.
+    if not device and not sn:
+        device = conn.execute(
+            'SELECT * FROM fingerprint_devices WHERE device_ip = ?',
+            (device_addr(),)).fetchone()
 
     # جهازٌ يسأل ولا نعرفه: يُسجَّل بالرقم التسلسلي.
     #

@@ -150,6 +150,65 @@ def test_a_device_registered_by_address_only_is_reached_behind_a_proxy(app, monk
         f'الجهاز المعروف بعنوانه لم يُطابَق خلف الوسيط: {body!r}')
 
 
+# ------------------------------------------------ مُحلِّل واحد
+
+def test_the_command_path_pins_the_serial_so_the_address_stops_mattering(app, monkeypatch):
+    """أول مطابقةٍ بالعنوان تُثبِّت الرقم التسلسلي في اسم الجهاز.
+
+    المطابقة بالعنوان هشّة: يتغيّر بإعادة تشغيل الشبكة، ويتشارك
+    عملاء خلف NAT عنوانًا واحدًا. فتُحفظ الهوية الصحيحة أول مرة —
+    ويصل الأمر بعدها ولو تغيّر العنوان تمامًا.
+    """
+    a, db, adms = app
+    monkeypatch.setenv('HR_TRUSTED_PROXY_HOPS', '1')
+    _add_device(db, 'بصمة الاستقبال', DEVICE)
+    _queue(db, 1)
+
+    c = a.test_client()
+    c.get('/iclock/getrequest?SN=AJE1260400983',
+          environ_base={'REMOTE_ADDR': PROXY},
+          headers={'X-Forwarded-For': DEVICE})
+
+    conn = db.get_db_connection()
+    name = conn.execute(
+        'SELECT device_name FROM fingerprint_devices WHERE id = 1').fetchone()[0]
+    assert name == 'AJE1260400983', f'لم يُثبَّت الرقم التسلسلي: {name!r}'
+
+    # والعنوان صار بلا أثر: أمرٌ جديد يصل من عنوانٍ مختلف تمامًا.
+    _queue(db, 1)
+    r = c.get('/iclock/getrequest?SN=AJE1260400983',
+              environ_base={'REMOTE_ADDR': PROXY},
+              headers={'X-Forwarded-For': '172.16.9.9'})
+    assert 'SET OPTIONS DateTime=' in r.get_data(as_text=True)
+
+
+def test_both_paths_agree_on_the_same_device(app, monkeypatch):
+    """مسار البصمات ومسار الأوامر يتعرّفان على الجهاز نفسه.
+
+    كان لكلٍّ بحثُه، فوقع ما وقع: البصمات تصل والأوامر لا تُسلَّم.
+    """
+    a, db, adms = app
+    monkeypatch.setenv('HR_TRUSTED_PROXY_HOPS', '1')
+    _add_device(db, 'بصمة الفرع', DEVICE)
+
+    env = {'REMOTE_ADDR': PROXY}
+    hdr = {'X-Forwarded-For': DEVICE}
+
+    with a.test_request_context('/iclock/cdata?SN=AJE1260400983',
+                                environ_base=env, headers=hdr):
+        conn = db.get_db_connection()
+        ok, reason, row = adms.device_gate(conn, 'AJE1260400983')
+        assert ok is True, f'بوّابة البصمات رفضته: {reason}'
+        gate_id = row['id']
+
+    with a.test_request_context('/iclock/getrequest?SN=AJE1260400983',
+                                environ_base=env, headers=hdr):
+        conn = db.get_db_connection()
+        cmd_row = adms.resolve_device(conn, 'AJE1260400983')
+        assert cmd_row is not None, 'مسار الأوامر لم يتعرّف عليه'
+        assert cmd_row['id'] == gate_id
+
+
 # ------------------------------------------------ ولا صمت
 
 def test_an_unknown_device_is_named_in_the_log(app, monkeypatch, caplog):
