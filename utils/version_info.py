@@ -33,13 +33,13 @@
 
 VERSION_MAJOR = 2
 VERSION_MINOR = 10
-VERSION_PATCH = 55
-VERSION_BUILD = 1994
+VERSION_PATCH = 56
+VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
 
 # تاريخ البناء — يُحدَّث مع BUILD
-BUILD_DATE = "2026-09-14"
+BUILD_DATE = "2026-09-17"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
 RELEASE_NAME = "بوابة الموظف"

@@ -124,9 +124,17 @@ def test_client_sees_no_update_when_versions_match():
 
     local = parse_version(CURRENT_VERSION)
 
+    # الأرقام تُشتقّ من الإصدار لا تُكتب ثابتةً.
+    #
+    # كان «الأحدث» مكتوبًا 2.10.55.1995، فسقط الاختبار عند أول ترقية
+    # تتجاوزه — سقوطًا لا يعني أن شيئًا انكسر، وهو أسوأ نوع من
+    # الإخفاق: يُعلَّم تجاهلُه، فيُتجاهل يومًا يكون حقيقيًّا.
+    newer = '.'.join(str(p) for p in local[:-1]) + f'.{local[-1] + 1}'
+    older = '.'.join(str(p) for p in (local[0], local[1] - 1 if local[1] else 0, 0, 0))
+
     assert not (parse_version(CURRENT_VERSION) > local)      # نفسه
-    assert parse_version('2.10.55.1995') > local             # بناء أحدث
-    assert not (parse_version('2.10.0.0') > local)           # أقدم
+    assert parse_version(newer) > local                      # بناء أحدث
+    assert not (parse_version(older) > local)                # أقدم
 
 
 if __name__ == '__main__':
