@@ -351,5 +351,47 @@ def test_the_cron_script_runs_and_reports(desk, capsys):
     assert 'تذكيرات بصمة التواجد' in out
 
 
+def test_opening_the_web_portal_triggers_the_sweep(desk):
+    """العطل الذي أمسكه هذا الاختبار بعد أن دفعتُ الميزة.
+
+    وضعتُ المسح في `/portal/api/bootstrap` وحده — وهو مسارٌ بُنيَ
+    للتطبيق، والبوابة لا تناديه في سطر واحد. فالتطبيق لم يُبنَ بعد،
+    والويب لا يمرّ من هناك: المسح لم يكن يعمل عند أحد.
+
+    وصفحة البوابة هي ما يفتحه الناس فعلًا، فمن فتحها يجب أن يُنشئ
+    التذكير للجميع.
+    """
+    from utils import notifications as notif
+    from datetime import timedelta
+    import utils.db as db
+
+    desk['punch_at']('08:05')
+
+    # زميلٌ آخر يفتح البوابة — لا الموظف صاحب النافذة.
+    other = desk['client_for'](desk['user'], desk['free'])
+
+    # الخانق يقرأ الساعة الحقيقية داخل المسار، فيُصفَّر أولًا ليكون
+    # المسح مستحقًّا الآن.
+    db.set_setting(notif.SWEEP_SETTING, '')
+
+    r = other.get('/portal/dashboard')
+    assert r.status_code == 200
+
+    # لا تُفحص الرسالة هنا: الساعة الحقيقية قد تكون خارج النافذة.
+    # المفحوص أن المسح **جرى** — أي أن الخانق سُجِّل.
+    last = db.get_setting(notif.SWEEP_SETTING, '')
+    assert last, 'لم يجرِ المسح عند فتح البوابة'
+
+
+def test_the_portal_page_survives_a_broken_sweep(desk, monkeypatch):
+    """صفحة الموظف لا تسقط لأن تذكيرًا تعثّر."""
+    from utils import notifications as notif
+    monkeypatch.setattr(notif, 'sweep_presence',
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')))
+
+    c = desk['client_for'](desk['user'], desk['emp'])
+    assert c.get('/portal/dashboard').status_code == 200
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-v']))

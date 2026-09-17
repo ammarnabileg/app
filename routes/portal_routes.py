@@ -110,6 +110,20 @@ def dashboard():
         is_field_rep = False
         office_punch = True
 
+    # المسح الشامل هنا لا في `bootstrap` وحده.
+    #
+    # `bootstrap` مسارٌ بُني للتطبيق، والبوابة لا تناديه إطلاقًا —
+    # فوضعُ المسح فيه وحده جعله لا يعمل عند أحد: التطبيق لم يُبنَ
+    # بعد، والويب لا يمرّ من هناك. وهذه الصفحة هي ما يفتحه الناس
+    # فعلًا، فهي موضع المسح.
+    try:
+        from utils import notifications as _notif
+        if emp_id:
+            _notif.check_presence_for(conn, emp_id)
+        _notif.sweep_presence(conn)
+    except Exception:
+        pass      # صفحة الموظف لا تسقط لأن تذكيرًا تعثّر
+
     return render_template(
         'portal/index.html',
         employee=employee,
