@@ -273,6 +273,76 @@ def presence_reminder(conn, employee_id, state, start, end, now=None):
     return n
 
 
+# كل كم دقيقة يُسمح بمسحٍ شامل. المسح رخيص (استعلامان لكل موظف
+# ذي نافذة) لكنه ليس مجانيًّا، ولا فائدة من تكراره كل طلب.
+SWEEP_EVERY_MINUTES = 10
+SWEEP_SETTING = 'presence_sweep_last_at'
+
+
+def sweep_presence(conn, now=None, force=False):
+    """يفحص **كل** من له نافذة تواجد ويذكّر من يستحقّ.
+
+    السبب: لا مجدول في هذا النظام، فالفحص الفرديّ لا يقع إلا حين
+    يفتح الموظف البوابة أو التطبيق — ومن لم يفتح شيئًا لا يُذكَّر،
+    وهو بالضبط من يحتاج التذكير.
+
+    والمسح يُنادى من أي طلبٍ يفتحه **أيّ** مستخدم: فمكتبٌ فيه
+    عشرون موظفًا يفتحه أحدُهم كل بضع دقائق، فيصل التذكير إلى صندوق
+    الجميع ولو لم يفتحوا هم. ولا يزال الأصحّ أن يُنادى من cron —
+    `tools/presence_sweep.py` لذلك — لكن هذا يعمل بلا إعداد.
+
+    والخانق مُخزَّن في القاعدة لا في الذاكرة: الخادم قد يعمل بعدّة
+    عمّال، ولكلٍّ ذاكرته. يعيد عدد ما قُيّد.
+    """
+    now = now or datetime.now()
+
+    if not force and not _sweep_due(conn, now):
+        return 0
+
+    try:
+        rows = conn.execute("""
+            SELECT e.id FROM employees e
+            JOIN shift_types st ON e.shift_type = st.name
+            WHERE e.is_active = 1
+              AND st.presence_start_time IS NOT NULL
+              AND st.presence_end_time IS NOT NULL
+        """).fetchall()
+    except Exception:
+        log.exception('تعذّر حصر من لهم نافذة تواجد')
+        return 0
+
+    total = 0
+    for r in rows:
+        emp_id = r[0] if not hasattr(r, 'keys') else r['id']
+        _st, sent = check_presence_for(conn, emp_id, now=now)
+        total += sent
+    return total
+
+
+def _sweep_due(conn, now):
+    """أمضت المهلة منذ آخر مسح؟ ويُسجَّل الآن قبل المسح لا بعده.
+
+    التسجيل أولًا مقصود: لو مسح طويلٌ تعثّر في وسطه، لا يُعاد من
+    أول طلبٍ يلي — فالفشل لا يصير حلقة.
+    """
+    try:
+        from utils.db import get_setting, set_setting
+        last = get_setting(SWEEP_SETTING, '')
+        if last:
+            try:
+                prev = datetime.strptime(str(last)[:19], '%Y-%m-%d %H:%M:%S')
+                if (now - prev).total_seconds() < SWEEP_EVERY_MINUTES * 60:
+                    return False
+            except ValueError:
+                pass
+        set_setting(SWEEP_SETTING, now.strftime('%Y-%m-%d %H:%M:%S'))
+        return True
+    except Exception:
+        # تعذّر معرفة آخر مسح: لا يُمسح: مسحٌ فائت أهون من مسحٍ
+        # يتكرّر مع كل طلب.
+        return False
+
+
 def check_presence_for(conn, employee_id, now=None):
     """يفحص ويذكّر إن لزم. يعيد (الحال، عدد ما قُيّد).
 

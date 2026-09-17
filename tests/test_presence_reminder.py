@@ -286,5 +286,70 @@ def test_an_employee_without_a_window_gets_a_harmless_answer(desk):
     assert j['presence_window']['state'] == 'not_required'
 
 
+# ------------------------------------------------- المسح الشامل
+
+def test_the_sweep_reminds_someone_who_never_opened_anything(desk):
+    """بيت القصيد.
+
+    الفحص الفرديّ لا يقع إلا حين يفتح الموظف شيئًا — ومن لم يفتح
+    شيئًا هو بالضبط من يحتاج التذكير. فالمسح يمرّ على الجميع.
+    """
+    from utils import notifications as notif
+    desk['punch_at']('08:05')
+
+    sent = notif.sweep_presence(desk['con'], now=_at('12:30'), force=True)
+
+    assert sent == 1
+    assert 'مطلوبة الآن' in _inbox(desk)[0]['title']
+
+
+def test_the_sweep_skips_those_without_a_window(desk):
+    """الاستعلام يضمّ فقط من لشفته نافذة — لا يُفحص الباقون أصلًا."""
+    from utils import notifications as notif
+    desk['punch_at']('08:05')
+    desk['punch_at']('08:06', emp_id=desk['free'])
+
+    sent = notif.sweep_presence(desk['con'], now=_at('12:30'), force=True)
+    assert sent == 1, 'ذُكِّر من لا نافذة له'
+
+
+def test_the_sweep_is_throttled(desk):
+    """يُنادى من كل طلبٍ يفتحه أيّ مستخدم، فبلا خانقٍ يمرّ على كل
+    الموظفين مع كل نقرة."""
+    from utils import notifications as notif
+    desk['punch_at']('08:05')
+
+    first = notif.sweep_presence(desk['con'], now=_at('12:30'))
+    second = notif.sweep_presence(desk['con'], now=_at('12:31'))
+    third = notif.sweep_presence(desk['con'], now=_at('12:35'))
+
+    assert first == 1
+    assert second == 0 and third == 0, 'مرّ المسح رغم الخانق'
+
+
+def test_the_throttle_opens_again_after_the_interval(desk):
+    from utils import notifications as notif
+    from datetime import timedelta
+
+    desk['punch_at']('08:05')
+    notif.sweep_presence(desk['con'], now=_at('12:30'))
+
+    later = _at('12:30') + timedelta(minutes=notif.SWEEP_EVERY_MINUTES + 1)
+    # لا تذكير جديد لأن الأول قُيّد، لكن المسح نفسه يجري — ويُتحقَّق
+    # منه بأن الخانق سمح.
+    assert notif._sweep_due(desk['con'], later) is True
+
+
+def test_the_cron_script_runs_and_reports(desk, capsys):
+    """السكربت طريق cron. لو انكسر استيرادُه لم يظهر ذلك إلا ليلًا."""
+    import tools.presence_sweep as sweep
+
+    rc = sweep.main(['--force'])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert 'تذكيرات بصمة التواجد' in out
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-v']))

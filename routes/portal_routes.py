@@ -170,6 +170,10 @@ def api_bootstrap():
         # نفسه بدل أن ينتظر فتحةً ثانية.
         if emp_id:
             _notif.check_presence_for(conn, emp_id)
+        # ومسحٌ شامل مخنوق: من لم يفتح شيئًا لا يُذكَّر لو اكتُفي
+        # بالفحص الفرديّ — وهو من يحتاج التذكير. فأيّ زميلٍ يفتح
+        # البوابة يُنشئ التذكير للجميع.
+        _notif.sweep_presence(conn)
         _unread = _notif.unread_count(conn, session.get('user_id'))
     except Exception:
         _unread = 0
