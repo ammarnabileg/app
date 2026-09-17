@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 KIND_LEAVE_REQUESTED = 'leave_requested'
 KIND_LEAVE_DECIDED = 'leave_decided'
 KIND_EXCUSE_REQUESTED = 'excuse_requested'
+KIND_PRESENCE_DUE = 'presence_due'
+KIND_PRESENCE_MISSED = 'presence_missed'
 
 # سقفٌ لما يُعاد في الطلب الواحد: صندوقٌ بلا سقف يصير صفحةً بطيئة.
 MAX_LIST = 50
@@ -217,3 +219,73 @@ def excuse_requested(conn, manager_employee_id, employee_name, kind_label,
         f'{kind_label} — {employee_name}',
         f'بتاريخ {day}',
         target='team', ref_type='excuse', ref_id=None)
+
+
+def _already_sent(conn, user_id, kind, day_key):
+    """أقُيّد هذا النوع لهذا الحساب في هذا اليوم؟
+
+    التذكير يُنادى من كل طلبٍ يفتحه الموظف. فبلا هذا الفحص يمتلئ
+    الصندوق بعشرين نسخةً من رسالةٍ واحدة، ويصير الصندوق نفسه ضجيجًا
+    يُتجاهَل — وهو أسوأ من لا تذكير.
+    """
+    try:
+        init_schema(conn)
+        row = conn.execute(
+            'SELECT 1 FROM notifications WHERE user_id = ? AND kind = ?'
+            ' AND ref_type = ? AND DATE(created_at) = ? LIMIT 1',
+            (user_id, kind, 'presence_day', day_key)).fetchone()
+        return row is not None
+    except Exception:
+        # الشكّ يمنع الإرسال: تكرارٌ فائت أهون من صندوقٍ يفيض.
+        return True
+
+
+def presence_reminder(conn, employee_id, state, start, end, now=None):
+    """يذكّر ببصمة التواجد. يعيد عدد ما قُيّد.
+
+    مرّةً واحدة لكل حالة في اليوم: تذكيرٌ داخل النافذة، وإخبارٌ بعد
+    فواتها — والثاني ليس لومًا، بل ليطلب تصحيح بصمة قبل أن يُخصم.
+    """
+    from utils import presence as _p
+
+    now = now or datetime.now()
+    day_key = now.strftime('%Y-%m-%d')
+
+    if state == _p.STATE_DUE:
+        kind = KIND_PRESENCE_DUE
+        title = 'بصمة التواجد مطلوبة الآن'
+        body = f'نافذتها اليوم من {start} إلى {end}. اذهب إلى الجهاز أو سجّلها من التطبيق.'
+    elif state == _p.STATE_MISSED:
+        kind = KIND_PRESENCE_MISSED
+        title = 'فاتتك بصمة التواجد اليوم'
+        body = (f'نافذتها كانت من {start} إلى {end}، ولم تُسجَّل بصمة فيها. '
+                'إن كان لديك عذر فقدّم «تصحيح بصمة» قبل إقفال الشهر.')
+    else:
+        return 0
+
+    n = 0
+    for uid in users_of_employee(conn, employee_id):
+        if _already_sent(conn, uid, kind, day_key):
+            continue
+        if notify(conn, uid, kind, title, body, target='punch',
+                  ref_type='presence_day', ref_id=None):
+            n += 1
+    return n
+
+
+def check_presence_for(conn, employee_id, now=None):
+    """يفحص ويذكّر إن لزم. يعيد (الحال، عدد ما قُيّد).
+
+    لا يرمي: يُنادى من مسارات عادية يفتحها الموظف، وتعثّر التذكير
+    لا يجوز أن يمنعه من رؤية بوابته.
+    """
+    from utils import presence as _p
+    try:
+        st = _p.status(conn, employee_id, now=now)
+        sent = presence_reminder(conn, employee_id, st['state'],
+                                 st['start'], st['end'], now=now)
+        return st, sent
+    except Exception:
+        log.exception('تعذّر فحص بصمة التواجد للموظف %s', employee_id)
+        return {'state': 'not_required', 'start': None, 'end': None,
+                'punched_at': None}, 0

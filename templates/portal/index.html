@@ -1096,6 +1096,16 @@
             margin-top: 2px;
         }
 
+        .presence-card {
+            display: flex; align-items: center; gap: 10px;
+            margin: 14px auto 4px auto; max-width: 420px;
+            padding: 12px 14px; border-radius: 14px;
+            font-weight: 700; font-size: .88rem; text-align: start;
+            background: rgba(0,0,0,.05);
+        }
+        .presence-card.ok   { background: rgba(52,199,89,.15);  color: #1d6b32; }
+        .presence-card.due  { background: rgba(255,149,0,.18);  color: #8a4b00; }
+        .presence-card.miss { background: rgba(255,59,48,.15);  color: #9b1b12; }
         .punch-security-pill {
             display: inline-flex;
             align-items: center;
@@ -1350,6 +1360,8 @@
                 </div>
 
                 <!-- Security Assurance Pill -->
+                <div id="presenceCard" class="presence-card" style="display:none"></div>
+
                 <div class="punch-security-pill">
                     <i class="fas fa-shield-halved text-success me-1"></i>
                     <span>بصمة رسمية موثقة بنظام الحماية الجغرافية GPS ومسجلة بالسيرفر</span>
@@ -2300,6 +2312,42 @@
             }
         }
 
+        // نافذة بصمة التواجد. نسيانها يخصم كسرًا من اليوم
+        // (presence_penalty)، والموظف كان يعرف بها من قسيمة راتبه بعد
+        // أن فات الأوان — وهو في مكتبه على بعد خطوات من الجهاز.
+        function renderPresenceCard(p) {
+            const card = document.getElementById('presenceCard');
+            if (!card) return;
+            if (!p || !p.state || p.state === 'not_required') {
+                card.style.display = 'none';
+                return;
+            }
+
+            const win = p.start + ' – ' + p.end;
+            let cls = '', icon = 'fa-clock', text = 'نافذة بصمة التواجد اليوم: ' + win;
+
+            if (p.state === 'done') {
+                cls = 'ok'; icon = 'fa-circle-check';
+                text = 'بصمة التواجد مسجَّلة الساعة ' + p.punched_at;
+            } else if (p.state === 'due') {
+                cls = 'due'; icon = 'fa-hourglass-half';
+                text = 'بصمة التواجد مطلوبة الآن — نافذتها ' + win;
+            } else if (p.state === 'missed') {
+                cls = 'miss'; icon = 'fa-triangle-exclamation';
+                text = 'فاتتك بصمة التواجد (' + win + '). قدّم «تصحيح بصمة» إن كان لديك عذر.';
+            }
+
+            card.className = 'presence-card ' + cls;
+            card.innerHTML = '';
+            const i = document.createElement('i');
+            i.className = 'fas ' + icon;
+            const span = document.createElement('span');
+            span.textContent = text;   // النصّ يُدرج نصًّا لا وسمًا
+            card.appendChild(i);
+            card.appendChild(span);
+            card.style.display = 'flex';
+        }
+
         async function loadPunchStatus() {
             const punchSection = document.getElementById('view-punch');
             if (!punchSection) return;
@@ -2308,6 +2356,8 @@
                 const res = await fetch('/portal/api/punch-status');
                 const data = await res.json();
                 if (!data.success) return;
+
+                renderPresenceCard(data.presence_window);
 
                 punchSettings.enabled = data.enabled;
                 punchSettings.geofence_enabled = data.geofence_enabled;

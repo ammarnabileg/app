@@ -137,6 +137,53 @@ class _PunchScreenState extends State<PunchScreen> {
     }
   }
 
+  /// بطاقة نافذة التواجد، أو لا شيء لمن لا نافذة له.
+  List<Widget> _presenceCard(BuildContext context, Map<String, dynamic> s) {
+    final p = (s['presence_window'] as Map?)?.cast<String, dynamic>();
+    if (p == null) return const [];
+
+    final state = '${p['state']}';
+    if (state == 'not_required') return const [];
+
+    final window = '${p['start']} – ${p['end']}';
+    late final IconData icon;
+    late final String text;
+    Color? tint;
+
+    switch (state) {
+      case 'done':
+        icon = Icons.check_circle_outline;
+        text = 'بصمة التواجد مسجَّلة الساعة ${p['punched_at']}';
+        tint = Colors.green.withValues(alpha: 0.15);
+        break;
+      case 'due':
+        icon = Icons.pending_actions;
+        text = 'بصمة التواجد مطلوبة الآن — نافذتها $window';
+        tint = Colors.orange.withValues(alpha: 0.20);
+        break;
+      case 'missed':
+        icon = Icons.error_outline;
+        text = 'فاتتك بصمة التواجد ($window). قدّم «تصحيح بصمة» إن كان لديك عذر.';
+        tint = Theme.of(context).colorScheme.errorContainer;
+        break;
+      default: // before | absent
+        icon = Icons.schedule;
+        text = 'نافذة بصمة التواجد اليوم: $window';
+        break;
+    }
+
+    return [
+      const SizedBox(height: 12),
+      Card(
+        color: tint,
+        child: ListTile(
+          leading: Icon(icon),
+          title: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = _status;
@@ -228,6 +275,9 @@ class _PunchScreenState extends State<PunchScreen> {
               ),
             ),
           ),
+          // نافذة التواجد: نسيانها يخصم كسرًا من اليوم، فتُقال
+          // للموظف وهو في مكتبه لا في قسيمة راتبه.
+          ..._presenceCard(context, s),
           if (_result != null) ...[
             const SizedBox(height: 12),
             Card(

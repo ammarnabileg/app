@@ -166,9 +166,19 @@ def api_bootstrap():
 
     try:
         from utils import notifications as _notif
+        # الفحص قبل العدّ: لو استحقّ تذكيرٌ الآن، ظهر في العدّاد
+        # نفسه بدل أن ينتظر فتحةً ثانية.
+        if emp_id:
+            _notif.check_presence_for(conn, emp_id)
         _unread = _notif.unread_count(conn, session.get('user_id'))
     except Exception:
         _unread = 0
+
+    try:
+        from utils import presence as _pres
+        _presence = _pres.status(conn, emp_id) if emp_id else None
+    except Exception:
+        _presence = None
 
     is_field_rep = False
     office_punch = True
@@ -193,6 +203,7 @@ def api_bootstrap():
         'office_punch': office_punch,
         'leave_types': leave_types,
         'unread_notifications': _unread,
+        'presence': _presence,
         'attendance': {
             'enabled': att['enabled'],
             'geofence_enabled': att['geofence_enabled'],
@@ -783,6 +794,15 @@ def api_punch_status():
             'note': note
         })
         
+    # الموظف هنا ليبصم. فإن كانت نافذة التواجد مفتوحة ولم يبصم
+    # فيها، يُذكَّر الآن لا بعد أن يُخصم في آخر الشهر.
+    presence_state = None
+    try:
+        from utils import notifications as _notif
+        presence_state, _ = _notif.check_presence_for(conn, emp_id)
+    except Exception:
+        presence_state = None
+
     last_punch = punches[-1]['check_time'] if punches else None
     
     # Suggested next action
@@ -811,7 +831,10 @@ def api_punch_status():
         'has_presence': has_presence,
         'has_check_out': has_check_out,
         'presence_time': presence_time,
-        'is_present': bool(punches)
+        'is_present': bool(punches),
+        # نافذة التواجد وحالها: الشاشة تقول للموظف ماذا يُنتظر منه
+        # الآن بدل أن يعرفه من قسيمة راتبه.
+        'presence_window': presence_state,
     })
 
 @portal_bp.route('/api/punch', methods=['POST'])
