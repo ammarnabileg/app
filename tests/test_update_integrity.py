@@ -111,7 +111,11 @@ def test_the_check_carries_the_checksum_from_the_server(um, monkeypatch):
                     'release_notes': '', 'mandatory': False,
                     'sha256': um['digest']}
 
-    monkeypatch.setattr(m.requests, 'get', lambda *a, **k: Resp())
+    # post لا get: فحص النسخة صار POST ليحمل مفتاح الترخيص في جسم
+    # الطلب — فيأخذ العميل النسخة المسنَدة إليه، ولا يستقرّ مفتاحه في
+    # سجلّات الخوادم. أما تنزيل الحزمة فما زال GET (مُرقَّعًا في
+    # التجهيز أعلاه).
+    monkeypatch.setattr(m.requests, 'post', lambda *a, **k: Resp())
 
     available, url, _notes, _mand = m.check_for_updates()
 

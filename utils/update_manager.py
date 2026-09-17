@@ -42,12 +42,51 @@ def parse_version(v):
         parts.append(0)
     return tuple(parts[:4])
 
+def _license_key_param():
+    """مفتاح الترخيص ليُسأل عن نسخة *هذا* العميل لا عن نسخةٍ للجميع.
+
+    اللوحة تسمح بتثبيت عميلٍ على نسخة بعينها — لعميلٍ يؤجّل التحديث،
+    أو تُجرَّب عليه نسخةٌ قبل الباقين، أو أعطبته نسخةٌ فيُرجَع. وبلا
+    إرسال المفتاح لا تعرف اللوحة من السائل، فتردّ بالأحدث للجميع
+    ويصير التثبيت حبرًا على ورق.
+
+    ولا يُسقط الفحص إن تعذّرت القراءة: السؤال بلا مفتاح يعيد الأحدث،
+    وهو سلوك ما قبل التثبيت تمامًا — أما رمي الاستثناء فيقطع
+    التحديثات كلها عن جهازٍ لأن قاعدته المحلّية تعثّرت لحظة.
+    """
+    try:
+        from utils.license import get_saved_license_key
+        key = (get_saved_license_key() or '').strip()
+        return {'license_key': key} if key else {}
+    except Exception:
+        return {}
+
+
+def _ask_panel():
+    """يسأل اللوحة عن النسخة — بـPOST، وبـGET إن لزم.
+
+    **POST أولًا** لأن المفتاح يسافر في الجسم لا في سطر العنوان: سطر
+    العنوان يُكتب في سجلّات الخادم والوسطاء كاملًا، فمفتاحٌ فيه يصير
+    مفتاحًا في ملفّ نصّي يقرؤه من يبلغ السجلّات.
+
+    **وGET احتياطًا** لترتيبٍ سيقع: اللوحة كانت تسجّل هذا المسار
+    لـGET وحده، فنظامٌ حُدِّث قبل أن تُحدَّث لوحته سيقابل 404 —
+    ويتوقّف عن فحص التحديثات كلها، بلا أي عَرَض ظاهر لأحد. والسقوط
+    إلى GET بلا مفتاح هو الصواب هنا لا مجرّد اللطف: لوحةٌ قديمة لا
+    تعرف التثبيت أصلًا، فأحدث نسخة هي كل ما لديها لتقوله.
+    """
+    resp = requests.post(UPDATE_API_URL, data=_license_key_param(), timeout=5)
+    if resp.status_code == 200:
+        return resp
+    return requests.get(UPDATE_API_URL, timeout=5)
+
+
 def check_for_updates():
     """
     Returns: (update_available: bool, download_url: str, notes: str, mandatory: bool)
     """
     try:
-        resp = requests.get(UPDATE_API_URL, timeout=5)
+        resp = _ask_panel()
         if resp.status_code == 200:
             data = resp.json()
             if data.get('success'):
