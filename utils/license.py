@@ -585,6 +585,23 @@ def check_online_license_secure(key):
             'timestamp': timestamp,
             'signature': signature
         }
+
+        # النسخة ونوع التركيب — تقريرًا للوحة لا أكثر.
+        #
+        # **خارج التوقيع عمدًا.** السلسلة الموقَّعة هي
+        # `key+hwid+timestamp` وتتحقّق منها اللوحة بالحرف. فإضافة
+        # حقلٍ إليها تُفشل ترخيص **كل عميل قائم** حتى تُحدَّث اللوحة
+        # وتُحدَّث نسخته — وهو ترتيبٌ مستحيل: العميل لا يُحدَّث وهو
+        # مرفوض الترخيص.
+        #
+        # وليست هذه ثغرة: الطلب مُوثَّق أصلًا بالمفتاح والتوقيع،
+        # وأسوأ ما يفعله من عبث بهذه الحقول أن يكذب على لوحةٍ
+        # بنسخته هو. ولا يُبنى عليها قرار أمني — إنما عرضٌ وتشخيص.
+        try:
+            from utils.deployment import report as _deployment_report
+            payload.update(_deployment_report())
+        except Exception:
+            pass      # فحص الترخيص لا يسقط لأن التقرير تعثّر
         
         # Timeout 5s
         response = requests.post(API_URL, json=payload, timeout=5)
