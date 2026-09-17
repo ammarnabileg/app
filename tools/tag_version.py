@@ -1,21 +1,38 @@
-"""يضع وسم الإصدار على جيت هب — نظام النسخ الذي يُختار منه.
+"""يجعل نسخةً قابلةً للاختيار على جيت هب — وسمًا وفرعَ إصدار.
 
     python tools/tag_version.py [--push] [--force] [--dry-run]
 
 ## لماذا هذا موجود
 
 المستودع كان بلا وسمٍ واحد. و«اختر النسخة التي يشغّلها هذا العميل»
-لا معنى له ما لم يكن هناك ما يُختار منه: الوسم هو النسخة على جيت هب.
+لا معنى له ما لم يكن هناك ما يُختار منه.
 
 وهو ليس زينةً على `main`. عميل السحابة يُنشر من مرجع git — اللوحة
-تمرّر `git_branch` إلى Coolify وتسجّله في `provisioning_jobs.image_tag`
-— فالوسم هو ما يُنشر منه عميلٌ تُثبَّت نسخته، وما يُرجَع إليه عميلٌ
-أعطبته نسخة. وبلا وسوم لا يوجد إلا `main`: نقطةٌ واحدة متحرّكة لا
-يمكن تثبيت أحدٍ عليها ولا الرجوع إليها.
+تمرّر المرجع إلى Coolify في حقلٍ اسمه `git_branch` وتسجّله في
+`provisioning_jobs.image_tag` — فالمرجع هو ما يُنشر منه عميلٌ
+تُثبَّت نسخته، وما يُرجَع إليه عميلٌ أعطبته نسخة. وبلا مراجع لا
+يوجد إلا `main`: نقطةٌ واحدة متحرّكة لا يمكن تثبيت أحدٍ عليها ولا
+الرجوع إليها.
+
+## لماذا وسمٌ **وفرع** لا وسمٌ وحده
+
+الوسم هو الصواب اصطلاحًا: مرجعٌ لا يتحرّك. لكن حقل Coolify يقرأ
+`git_branch`، والفرع أضمن قبولًا عنده. والأهمّ عمليًّا: بعض
+الصلاحيات تسمح بدفع الفروع وتمنع الوسوم — وهي الحال في بيئة
+التطوير السحابية التي بُني منها هذا. فلو تعثّر دفع الوسم، يمضي
+الفرع، ويبقى ما تحتاجه اللوحة قائمًا.
+
+والاسم واحد في الحالين: `v` + الرقم. فاللوحة تبني المرجع من رقم
+النسخة ولا تسأل أهو وسمٌ أم فرع.
+
+**وفرع الإصدار مجمَّد.** لا يُودَع فيه شيء بعد إنشائه: عملاءُ
+مثبَّتون عليه، فإيداعٌ واحد فيه يغيّر ما يشغّلونه دون أن يطلبه
+أحد — وهو بالضبط ما يحرسه الوسم بطبيعته ويحتاج الفرعُ انضباطًا
+ليحرسه.
 
 ## لماذا أداة لا أمر يدوي
 
-الوسم يجب أن يطابق ما يعلنه `utils/version_info.py` بالحرف. فوسمٌ
+المرجع يجب أن يطابق ما يعلنه `utils/version_info.py` بالحرف. فمرجعٌ
 باسمٍ آخر يجعل اللوحة تُسند نسخةً لا وجود لها في جيت هب، فيفشل نشر
 عميل — والعطب يظهر عند العميل لا عند من أخطأ في الكتابة.
 
@@ -30,7 +47,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.version_info import BUILD_DATE, CURRENT_VERSION, RELEASE_NAME
 
-TAG_PREFIX = 'v'
+REF_PREFIX = 'v'
 
 
 def run(args, check=True):
@@ -41,43 +58,45 @@ def run(args, check=True):
     return p.stdout.strip()
 
 
-def tag_name(version=None):
-    return TAG_PREFIX + (version or CURRENT_VERSION)
+def try_run(args):
+    """مثلها، لكن يعيد (نجح، المخرجات) بدل أن يوقف كل شيء."""
+    p = subprocess.run(['git'] + args, capture_output=True, text=True)
+    return p.returncode == 0, (p.stdout + p.stderr).strip()
 
 
-def existing_tags():
-    out = run(['tag', '--list'])
-    return set(out.splitlines()) if out else set()
+def ref_name(version=None):
+    return REF_PREFIX + (version or CURRENT_VERSION)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--push', action='store_true',
-                    help='ادفع الوسم إلى origin (بدونه: محلّي فقط)')
+                    help='ادفع المرجعين إلى origin (بدونه: محلّي فقط)')
     ap.add_argument('--force', action='store_true',
-                    help='أعد وضع الوسم إن كان موجودًا')
+                    help='أعد وضع المرجع إن كان موجودًا')
     ap.add_argument('--dry-run', action='store_true',
                     help='قل ما سيحدث ولا تفعل شيئًا')
     args = ap.parse_args()
 
-    tag = tag_name()
+    ref = ref_name()
     head = run(['rev-parse', '--short', 'HEAD'])
     branch = run(['rev-parse', '--abbrev-ref', 'HEAD'])
 
     print(f"الإصدار المعلَن : {CURRENT_VERSION}  ({RELEASE_NAME}، {BUILD_DATE})")
-    print(f"الوسم          : {tag}")
+    print(f"المرجع         : {ref}   (وسمًا وفرعَ إصدار)")
     print(f"على            : {branch} @ {head}")
 
-    # شجرةٌ متّسخة تعني وسمًا لا يطابق ما سيُنشر منه: الوسم يشير إلى
-    # ما في المستودع، والتعديلات غير المودعة ليست فيه.
+    # شجرةٌ متّسخة تعني مرجعًا لا يطابق ما سيُنشر منه: المرجع يشير
+    # إلى ما في المستودع، والتعديلات غير المودعة ليست فيه.
     dirty = run(['status', '--porcelain'])
     if dirty:
         print("\nالشجرة فيها تعديلات غير مودعة:")
         print('\n'.join('  ' + line for line in dirty.splitlines()[:10]))
-        raise SystemExit("\nأودِع أو انظّف أولًا — الوسم يشير إلى ما أُودع لا إلى ما على القرص.")
+        raise SystemExit("\nأودِع أو انظّف أولًا — المرجع يشير إلى ما أُودع لا إلى ما على القرص.")
 
-    if tag in existing_tags() and not args.force:
-        raise SystemExit(f"\nالوسم {tag} موجود. ارفع الإصدار في "
+    tags = set(run(['tag', '--list']).splitlines())
+    if ref in tags and not args.force:
+        raise SystemExit(f"\nالمرجع {ref} موجود. ارفع الإصدار في "
                          "utils/version_info.py، أو استعمل --force.")
 
     if args.dry_run:
@@ -85,15 +104,35 @@ def main():
         return 0
 
     message = f"{CURRENT_VERSION} — {RELEASE_NAME} ({BUILD_DATE})"
-    run(['tag', '-a', tag, '-m', message] + (['-f'] if args.force else []))
-    print(f"\nأُنشئ الوسم {tag} محلّيًّا.")
+    run(['tag', '-a', ref, '-m', message] + (['-f'] if args.force else []))
+    print(f"\nأُنشئ الوسم {ref} محلّيًّا.")
 
-    if args.push:
-        run(['push', 'origin', tag] + (['--force'] if args.force else []))
-        print(f"دُفع إلى origin. صار متاحًا للاختيار في اللوحة.")
-    else:
+    if not args.push:
         print(f"لم يُدفع. للدفع:  python tools/tag_version.py --push")
+        return 0
 
+    # الفرع أولًا: هو ما تقرؤه اللوحة فعلًا، والوسم سجلٌّ فوقه.
+    ok_branch, out_branch = try_run(
+        ['push', 'origin', f'HEAD:refs/heads/{ref}']
+        + (['--force'] if args.force else []))
+    print(("دُفع فرع الإصدار " + ref) if ok_branch
+          else f"تعذّر دفع فرع الإصدار:\n  {out_branch.splitlines()[-1] if out_branch else '?'}")
+
+    ok_tag, out_tag = try_run(['push', 'origin', ref]
+                              + (['--force'] if args.force else []))
+    if ok_tag:
+        print(f"ودُفع الوسم {ref}")
+    else:
+        # ليس فشلًا يوقف كل شيء: اللوحة تقرأ المرجع بالاسم، والفرع
+        # يحمل الاسم نفسه. فتُقال الحقيقة ويمضي العمل.
+        print(f"لم يُدفع الوسم (صلاحية الدفع تمنع الوسوم غالبًا):"
+              f"\n  {out_tag.splitlines()[-1] if out_tag else '?'}"
+              f"\n  والفرع {ref} يكفي اللوحةَ — الوسم سجلٌّ لا أكثر.")
+
+    if not ok_branch:
+        raise SystemExit("\nفرع الإصدار لم يُدفع — واللوحة تحتاجه. عالج السبب أعلاه.")
+
+    print(f"\n{ref} صار متاحًا للاختيار في اللوحة.")
     return 0
 
 
