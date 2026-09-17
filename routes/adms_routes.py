@@ -40,6 +40,77 @@ if not adms_protocol_logger.handlers:
 
 adms_bp = Blueprint('adms_mgr', __name__)
 
+
+def device_addr():
+    """عنوان الجهاز كما وصل — لا عنوان الوسيط الذي نقله.
+
+    في التركيب المحلي يكلّم الجهازُ النظامَ مباشرةً، فـ`remote_addr`
+    هو عنوانه. أما في النشر السحابي فأمامنا وسيط (Traefik أو Plesk)،
+    و`remote_addr` يصير عنوانَ الوسيط — واحدًا لكل الأجهزة.
+
+    وهذا المسار يستعمل العنوان في التعرّف على الجهاز (بديلًا عن رقمه
+    التسلسلي) وفي تسجيله في قائمة الاكتشاف. فقراءة عنوان الوسيط
+    تعني: بديلًا ميتًا لا يطابق جهازًا أبدًا، وعنوانًا واحدًا يُكتب
+    لكل الأجهزة في صفوفها — و`device_ip` عمودٌ فريد.
+
+    يُقرأ بقدر ما أُعلن من وسطاء (HR_TRUSTED_PROXY_HOPS)، لا من
+    الترويسة كما جاءت: من يرسل الطلب يستطيع كتابتها، وهي هنا مفتاح
+    تعرّفٍ على جهاز.
+    """
+    try:
+        from utils.net import client_ip
+        return client_ip(request)
+    except Exception:
+        return request.remote_addr
+
+
+_unknown_seen = {}
+UNKNOWN_LOG_EVERY_SECONDS = 300
+
+
+def _note_unknown_device(sn, conn=None):
+    """يسجّل أن جهازًا يسأل عن أوامره ولا صفَّ له — مرّةً كل خمس دقائق.
+
+    ويقول كم أمرًا ينتظر: «١٢ أمرًا معلَّقًا وجهازٌ لا نعرفه» جملةٌ
+    تشخّص نفسها، وهي ما كان غائبًا تمامًا.
+    """
+    if not sn or sn == 'healthcheck':
+        return
+
+    import time as _t
+    now = _t.time()
+    last = _unknown_seen.get(sn, 0)
+    if now - last < UNKNOWN_LOG_EVERY_SECONDS:
+        return
+    _unknown_seen[sn] = now
+
+    pending = '?'
+    try:
+        if conn is not None:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM adms_commands WHERE status = 'PENDING'"
+            ).fetchone()
+            pending = row['c'] if row and hasattr(row, 'keys') else (row[0] if row else 0)
+    except Exception:
+        pass
+
+    # سلسلة العناوين كما وصلت، لا العنوان المستخلص وحده.
+    #
+    # عدد الوسطاء أمام المستأجر (HR_TRUSTED_PROXY_HOPS) لا يُعرف من
+    # الشيفرة: يختلف باختلاف المستضيف — Plesk أو Traefik، وربما
+    # وسيطٌ آخر أمامه. ورقمٌ أقلّ من الواقع يجعل العنوان المقروء
+    # عنوانَ وسيط، وأكبرُ منه يجعله عنوانًا يكتبه المرسل. فتُطبع
+    # السلسلة مرةً ليُضبط الرقم على ما وصل فعلًا لا على تخمين.
+    chain = request.headers.get('X-Forwarded-For') or '—'
+
+    logger.warning(
+        f"ADMS unknown device asking for commands | SN={sn} | ip={device_addr()} | "
+        f"remote={request.remote_addr} | xff={chain} | "
+        f"pending_commands={pending} — لا جهاز مسجَّل بهذا الرقم التسلسلي، "
+        f"فلن يُسلَّم إليه أي أمر. اكتب الرقم التسلسلي في اسم الجهاز "
+        f"(device_name) أو اعتمده من شاشة ADMS.")
+
+
 import re
 def device_gate(conn, sn):
     """بوّابة قبول الجهاز: مسجَّل؟ وضمن حدّ الرخصة؟
@@ -72,10 +143,10 @@ def device_gate(conn, sn):
         'SELECT * FROM fingerprint_devices WHERE device_name = ?',
         (sn,)).fetchone()
 
-    if not row and request.remote_addr:
+    if not row and device_addr():
         row = conn.execute(
             'SELECT * FROM fingerprint_devices WHERE device_ip = ?',
-            (request.remote_addr,)).fetchone()
+            (device_addr(),)).fetchone()
         if row:
             # يُثبَّت الرقم التسلسلي على الجهاز المعروف: المطابقة بعنوان IP
             # هشّة — العنوان يتغيّر بإعادة تشغيل الشبكة، وقد يتشارك عملاء
@@ -96,7 +167,7 @@ def device_gate(conn, sn):
             conn.execute(
                 "INSERT INTO adms_rejected_devices (serial, remote_ip, reason) "
                 "VALUES (?, ?, 'unregistered')",
-                (sn, request.remote_addr))
+                (sn, device_addr()))
             conn.commit()
         except Exception:
             pass
@@ -123,7 +194,7 @@ def device_gate(conn, sn):
                 conn.execute(
                     "INSERT INTO adms_rejected_devices (serial, remote_ip, reason) "
                     "VALUES (?, ?, 'over_license_limit')",
-                    (sn, request.remote_addr))
+                    (sn, device_addr()))
                 conn.commit()
             except Exception:
                 pass
@@ -150,9 +221,9 @@ def cdata():
     
     # Record raw data to a separate file for investigation
     if raw_data:
-        adms_protocol_logger.info(f"Table: {table} | SN: {sn} | IP: {request.remote_addr}\n{raw_data}")
+        adms_protocol_logger.info(f"Table: {table} | SN: {sn} | IP: {device_addr()}\n{raw_data}")
         # Print to console for real-time debugging as requested
-        print(f"\n[ADMS DATA] Received from {sn} (Table: {table}, IP: {request.remote_addr}):\n{raw_data[:200]}...\n")
+        print(f"\n[ADMS DATA] Received from {sn} (Table: {table}, IP: {device_addr()}):\n{raw_data[:200]}...\n")
 
     # بوّابة القبول — بعد تسجيل الاكتشاف لا قبله.
     #
@@ -171,7 +242,7 @@ def cdata():
         if not _gate_ok and _gate_reason != 'healthcheck':
             logger.warning(
                 f"ADMS pending | SN={sn} | reason={_gate_reason} | "
-                f"ip={request.remote_addr} — الجهاز في قائمة الاكتشاف بانتظار الاعتماد")
+                f"ip={device_addr()} — الجهاز في قائمة الاكتشاف بانتظار الاعتماد")
     except Exception as _ge:
         logger.error(f"device_gate error: {_ge}")
 
@@ -193,7 +264,7 @@ def cdata():
                 ON CONFLICT(device_sn) DO UPDATE SET
                 ip_address = excluded.ip_address,
                 last_activity = CURRENT_TIMESTAMP
-            ''', (sn, request.remote_addr))
+            ''', (sn, device_addr()))
 
             # الاكتشاف تمّ: الجهاز صار مرئيًّا في شاشة ADMS ليُعتمد.
             # وبياناته لا تُكتب قبل الاعتماد، فلا تدخل بصمات ملفّقة بمجرّد
@@ -210,7 +281,7 @@ def cdata():
                     last_activity = CURRENT_TIMESTAMP,
                     is_active = 1
                 WHERE device_ip = ? OR device_name = ?
-            ''', (request.remote_addr, sn))
+            ''', (device_addr(), sn))
             
             # جهازٌ يتصل عبر بروتوكول ADMS هو جهاز ADMS بحكم اتصاله، فتُضبط
             # الراية تلقائيًّا. كانت تُضبط من خانة اختيار في نموذج الإضافة
@@ -225,7 +296,7 @@ def cdata():
                 pass
 
             # 1a. Automatic Time Sync (Maintenance)
-            device_row = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ? OR device_name = ?', (request.remote_addr, sn)).fetchone()
+            device_row = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ? OR device_name = ?', (device_addr(), sn)).fetchone()
             device_id = device_row['id'] if device_row else None
             
             if device_id:
@@ -265,7 +336,7 @@ def cdata():
             conn = get_db_connection()
             
             # Find device ID
-            device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, request.remote_addr)).fetchone()
+            device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, device_addr())).fetchone()
             device_id = device['id'] if device else 0
             
             for line in lines:
@@ -299,7 +370,7 @@ def cdata():
                                 # Instead, just add to the local sync queue and let the background 
                                 # heartbeat in utils/oracle_db handle the flushing.
                                 from utils.oracle_db import add_to_sync_queue
-                                add_to_sync_queue(user_id, time_str, status, verify, request.remote_addr, sqlite_conn=conn)
+                                add_to_sync_queue(user_id, time_str, status, verify, device_addr(), sqlite_conn=conn)
             
             conn.commit()
             pass # conn.close() removed to prevent leak in Flask g
@@ -320,7 +391,7 @@ def cdata():
             lines = data.split('\n')
             
             conn = get_db_connection()
-            device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, request.remote_addr)).fetchone()
+            device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, device_addr())).fetchone()
             device_id = device['id'] if device else 0
             
             if device_id:
@@ -433,7 +504,7 @@ def cdata():
                 conn = get_db_connection()
                 try:
                     # Find Device
-                    device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, request.remote_addr)).fetchone()
+                    device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ? OR device_ip = ?', (sn, device_addr())).fetchone()
                     device_id = device['id'] if device else 0
                     
                     if device_id:
@@ -553,12 +624,28 @@ def get_request():
         device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_name = ?', (sn,)).fetchone()
     else:
         # Fallback to IP identification if SN is missing
-        device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ?', (request.remote_addr,)).fetchone()
+        device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ?', (device_addr(),)).fetchone()
     
     # Second fallback: If SN lookup failed, try IP for this device anyway
     if sn and not device:
-         device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ?', (request.remote_addr,)).fetchone()
-    
+         device = conn.execute('SELECT id FROM fingerprint_devices WHERE device_ip = ?', (device_addr(),)).fetchone()
+
+    # جهازٌ يسأل ولا نعرفه: يُسجَّل بالرقم التسلسلي.
+    #
+    # كان هذا المسار يرجع "OK" في صمتٍ تامّ — لا سطر في السجلّ ولا
+    # أثر. فالمسؤول يضغط «أرسل الوقت»، فتقول له الشاشة «تمت
+    # الجدولة» بصدق، ويبقى الأمر في الطابور إلى الأبد لأن الجهاز
+    # الذي يسأل غير مربوط بصفٍّ في `fingerprint_devices`. ولا شيء
+    # في النظام كلّه يقول ذلك.
+    #
+    # والسجلّ يحمل الرقم التسلسلي عمدًا: هو نفسه ما يجب أن يُكتب في
+    # اسم الجهاز ليُطابَق، فيصير السطر تشخيصًا وحلًّا معًا.
+    #
+    # ومرّة كل خمس دقائق لكل رقم: الجهاز يسأل كل ثوانٍ، وسطرٌ عند كل
+    # سؤال يغرق السجلّ فيخفي ما نبحث عنه — وهو الداء نفسه الذي نعالجه.
+    if not device:
+        _note_unknown_device(sn, conn)
+
     commands = []
     if device:
         # Fetch pending commands

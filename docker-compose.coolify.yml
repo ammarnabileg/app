@@ -89,6 +89,12 @@ services:
       - ADMS_PORT=8081
       - TZ=${TZ:-Asia/Kuwait}
       - COMPANY_NAME=${COMPANY_NAME:-tenant}
+      # كـhr_web: وسيط واحد أمامنا، فعنوان الجهاز هو آخر ما ألحقه
+      # بالسلسلة. وهنا العنوان ليس للعرض: به يُتعرَّف على الجهاز
+      # بديلًا عن رقمه التسلسلي، وبه يُسجَّل في قائمة الاكتشاف. فبلا
+      # هذا المتغيّر تُقرأ عناوين الأجهزة كلها عنوانَ الوسيط —
+      # عنوانًا واحدًا لا يطابق جهازًا، و`device_ip` عمودٌ فريد.
+      - HR_TRUSTED_PROXY_HOPS=${HR_TRUSTED_PROXY_HOPS:-1}
     command: python adms_server.py
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:8081/iclock/cdata?SN=healthcheck' -o /dev/null || exit 1"]
