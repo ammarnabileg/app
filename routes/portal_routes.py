@@ -164,6 +164,12 @@ def api_bootstrap():
     from utils.settings_utils import get_portal_attendance_settings
     att = get_portal_attendance_settings(conn)
 
+    try:
+        from utils import notifications as _notif
+        _unread = _notif.unread_count(conn, session.get('user_id'))
+    except Exception:
+        _unread = 0
+
     is_field_rep = False
     office_punch = True
     try:
@@ -186,6 +192,7 @@ def api_bootstrap():
         'is_field_rep': is_field_rep,
         'office_punch': office_punch,
         'leave_types': leave_types,
+        'unread_notifications': _unread,
         'attendance': {
             'enabled': att['enabled'],
             'geofence_enabled': att['geofence_enabled'],
@@ -194,6 +201,43 @@ def api_bootstrap():
         },
         'today': date.today().strftime('%Y-%m-%d'),
     })
+
+
+@portal_bp.route('/api/notifications')
+@login_required
+def api_notifications():
+    """صندوق الإشعارات لهذا الحساب.
+
+    الهدف حسابٌ لا موظف: من يقرأ هو من سجّل دخوله. ولا يُمرَّر رقم
+    حسابٍ في الطلب — يُؤخذ من الجلسة، فلا يقرأ أحدٌ صندوق غيره.
+    """
+    from utils import notifications as notif
+
+    conn = get_db_connection()
+    user_id = session.get('user_id')
+    unread_only = request.args.get('unread') in ('1', 'true')
+
+    return jsonify({
+        'success': True,
+        'items': notif.listing(conn, user_id, unread_only=unread_only),
+        'unread': notif.unread_count(conn, user_id),
+    })
+
+
+@portal_bp.route('/api/notifications/read', methods=['POST'])
+@login_required
+def api_notifications_read():
+    """يعلّم المقروء: أرقامًا بعينها، أو الكلّ حين لا تُذكر أرقام."""
+    from utils import notifications as notif
+
+    conn = get_db_connection()
+    user_id = session.get('user_id')
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids')
+
+    changed = notif.mark_read(conn, user_id, ids if isinstance(ids, list) else None)
+    return jsonify({'success': True, 'changed': changed,
+                    'unread': notif.unread_count(conn, user_id)})
 
 
 @portal_bp.route('/api/my-data')
@@ -422,6 +466,25 @@ def api_request_leave():
         
         save_leave_balance(conn, emp_id, start_dt.month, start_dt.year)
         conn.commit()
+
+        # الطلب حُفظ. والإخطار بعده لا قبله، ولا يُبطله إن تعثّر —
+        # فالمدير لا يفتح «فريقي» كل ساعة، والطلب كان ينتظر يومين لا
+        # لأنه مرفوض بل لأن أحدًا لم يره.
+        try:
+            from utils import notifications as _notif
+            if emp_info and emp_info['manager_id']:
+                who = conn.execute('SELECT name FROM employees WHERE id = ?',
+                                   (emp_id,)).fetchone()
+                lt = conn.execute('SELECT name FROM leave_types WHERE id = ?',
+                                  (leave_type_id,)).fetchone()
+                _notif.leave_requested(
+                    conn, emp_info['manager_id'],
+                    who['name'] if who else 'موظف',
+                    lt['name'] if lt else 'إجازة',
+                    start_date, end_date, days_count, req_id)
+        except Exception:
+            pass
+
         return jsonify({'success': True, 'message': 'تم تقديم طلب الإجازة بنجاح وهو بانتظار الاعتماد.'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'حدث خطأ: {e}'}), 500
@@ -445,6 +508,21 @@ def api_request_excuse():
             VALUES (?, ?, ?, ?, ?)
         ''', (emp_id, date_str, type_, reason, session.get('user_id')))
         conn.commit()
+
+        try:
+            from utils import notifications as _notif
+            row = conn.execute(
+                'SELECT e.name, e.manager_id FROM employees e WHERE e.id = ?',
+                (emp_id,)).fetchone()
+            if row and row['manager_id']:
+                labels = {'mission': 'مهمة عمل خارجية',
+                          'personal': 'استئذان شخصي',
+                          'manual_override': 'تصحيح بصمة'}
+                _notif.excuse_requested(conn, row['manager_id'], row['name'],
+                                        labels.get(type_, 'استئذان'), date_str)
+        except Exception:
+            pass
+
         return jsonify({'success': True, 'message': 'تم تسجيل طلب الاستئذان/المهمة بنجاح.'})
     except Exception as e:
         if 'UNIQUE' in str(e):
@@ -615,6 +693,20 @@ def api_approve_request():
         pass
     
     conn.commit()
+
+    # صاحب الطلب يُخطَر بالقرار. ومن قرّر لا يُخطَر بقراره هو.
+    try:
+        from utils import notifications as _notif
+        lt = conn.execute('SELECT name FROM leave_types WHERE id = ?',
+                          (req['leave_type_id'],)).fetchone()
+        _notif.leave_decided(
+            conn, req['employee_id'], action == 'approve',
+            lt['name'] if lt else 'إجازة',
+            req['start_date'], req['end_date'],
+            decided_by_user_id=session.get('user_id'), request_id=req_id)
+    except Exception:
+        pass
+
     msg = 'تمت الموافقة على الطلب بنجاح ✅' if action == 'approve' else 'تم رفض الطلب ❌'
     return jsonify({'success': True, 'message': msg, 'new_status': new_status})
 

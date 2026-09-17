@@ -39,6 +39,7 @@
 | `lib/screens/attendance_screen.dart` | سجلّ الحضور شهرًا شهرًا |
 | `lib/screens/requests_screen.dart` | طلب إجازة، واستئذان/مهمة |
 | `lib/screens/team_screen.dart` | الفريق والاعتمادات (للمدير) |
+| `lib/screens/notifications_screen.dart` | صندوق الإشعارات |
 | `lib/screens/profile_screen.dart` | حسابي: البيانات الوظيفية والمالية |
 | `lib/screens/trip_screen.dart` | ابدأ/أنهِ الرحلة، ومحطات اليوم (للمندوب) |
 | `lib/screens/station_screen.dart` | الصورة الحيّة والتسجيل |
@@ -55,7 +56,7 @@
 | البصمة | من يبصم في المكتب (`office_punch`) |
 | رحلة اليوم | المندوب، والوحدة مُفعَّلة |
 | فريقي | من له مرؤوسون، أو المسؤول |
-| حسابي | الجميع |
+| الإشعارات · حسابي | الجميع |
 
 ### ترتيب تسجيل الزيارة
 

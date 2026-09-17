@@ -180,6 +180,40 @@ void main() {
         'https://co.onz.one/portal/api/attendance');
   });
 
+  test('تعليم إشعارات بعينها يرسل أرقامها', () async {
+    final s = _Spy();
+    final api = await _api(s);
+
+    await api.markNotificationsRead(ids: [4, 9]);
+
+    expect(s.lastPath, '/portal/api/notifications/read');
+    expect(s.lastBody['ids'], [4, 9]);
+  });
+
+  test('تعليم الكل لا يرسل أرقامًا فيفهمها الخادم كلًّا', () async {
+    // الخادم يقرأ غياب `ids` على أنه «الكلّ». وإرسال قائمة فارغة
+    // بدلها يعني «لا شيء» — فلا يُعلَّم شيء والزرّ يبدو معطوبًا.
+    final s = _Spy();
+    final api = await _api(s);
+
+    await api.markNotificationsRead();
+
+    expect(s.lastBody.containsKey('ids'), isFalse);
+  });
+
+  test('الإشعارات غير المقروءة تُطلب بمعامل صريح', () async {
+    final s = _Spy();
+    final api = await _api(s);
+
+    await api.notifications(unreadOnly: true);
+    expect(s.lastPath, '/portal/api/notifications');
+    expect(s.lastQuery, contains('unread=1'));
+
+    await api.notifications();
+    expect(s.seen.last.url.toString(),
+        'https://co.onz.one/portal/api/notifications');
+  });
+
   test('كل مسارات البوابة تحت /portal/api', () async {
     // خطأٌ في مسارٍ واحد يظهر 404 فقط عند فتح تلك الشاشة، وقد لا
     // يُفتَح إلا عند العميل.

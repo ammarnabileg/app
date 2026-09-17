@@ -79,6 +79,17 @@ extension PortalApi on Api {
         'reason': reason,
       });
 
+  // ------------------------------------------------- الإشعارات
+
+  Future<Map<String, dynamic>> notifications({bool unreadOnly = false}) =>
+      get('/portal/api/notifications${unreadOnly ? '?unread=1' : ''}');
+
+  /// `ids` فارغة تعني الكلّ — الخادم يفهم غيابها كذلك.
+  Future<Map<String, dynamic>> markNotificationsRead({List<int>? ids}) =>
+      postJson('/portal/api/notifications/read', {
+        if (ids != null) 'ids': ids,
+      });
+
   // ---------------------------------------------------- الفريق
 
   Future<Map<String, dynamic>> teamSummary() => get('/portal/api/team-summary');

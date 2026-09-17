@@ -13,6 +13,7 @@ import '../portal_api.dart';
 import '../store.dart';
 import 'attendance_screen.dart';
 import 'home_screen.dart';
+import 'notifications_screen.dart';
 import 'profile_screen.dart';
 import 'punch_screen.dart';
 import 'requests_screen.dart';
@@ -21,11 +22,14 @@ import 'trip_screen.dart';
 import 'widgets.dart';
 
 class _Tab {
-  const _Tab(this.label, this.icon, this.build);
+  const _Tab(this.label, this.icon, this.build, {this.badge});
 
   final String label;
   final IconData icon;
   final Widget Function() build;
+
+  /// عددٌ يُعرض فوق الأيقونة، أو null فلا شارة.
+  final int Function()? badge;
 }
 
 class ShellScreen extends StatefulWidget {
@@ -49,6 +53,10 @@ class _ShellScreenState extends State<ShellScreen> {
   String? _error;
   int _index = 0;
 
+  /// عدّاد غير المقروء. يأتي مع التهيئة فتظهر الشارة عند الفتح بلا
+  /// طلبٍ ثانٍ، ويُحدَّث من شاشة الإشعارات بعد كل تعليم.
+  int _unread = 0;
+
   @override
   void initState() {
     super.initState();
@@ -59,7 +67,12 @@ class _ShellScreenState extends State<ShellScreen> {
     setState(() => _error = null);
     try {
       final j = await widget.api.bootstrap();
-      if (mounted) setState(() => _boot = j);
+      if (mounted) {
+        setState(() {
+          _boot = j;
+          _unread = (j['unread_notifications'] as num?)?.toInt() ?? 0;
+        });
+      }
     } on ApiError catch (e) {
       if (!mounted) return;
       if (e.needsLogin) {
@@ -103,6 +116,15 @@ class _ShellScreenState extends State<ShellScreen> {
 
       if (isManager)
         _Tab('فريقي', Icons.groups_outlined, () => TeamScreen(api: widget.api)),
+
+      _Tab('الإشعارات', Icons.notifications_none,
+          () => NotificationsScreen(
+                api: widget.api,
+                onChanged: (n) {
+                  if (mounted) setState(() => _unread = n);
+                },
+              ),
+          badge: () => _unread),
 
       _Tab('حسابي', Icons.person_outline,
           () => ProfileScreen(api: widget.api, boot: boot)),
@@ -167,7 +189,14 @@ class _ShellScreenState extends State<ShellScreen> {
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
           for (final t in tabs)
-            NavigationDestination(icon: Icon(t.icon), label: t.label),
+            NavigationDestination(
+              icon: Badge.count(
+                count: t.badge?.call() ?? 0,
+                isLabelVisible: (t.badge?.call() ?? 0) > 0,
+                child: Icon(t.icon),
+              ),
+              label: t.label,
+            ),
         ],
       ),
     );
