@@ -50,7 +50,7 @@ extension PortalApi on Api {
         'accuracy': accuracy,
         'timestamp': timestampMillis,
         'device_uuid': deviceUuid,
-        if (punchType != null) 'punch_type': punchType,
+        'punch_type': ?punchType,
       });
 
   // --------------------------------------------------- الطلبات
@@ -87,7 +87,7 @@ extension PortalApi on Api {
   /// `ids` فارغة تعني الكلّ — الخادم يفهم غيابها كذلك.
   Future<Map<String, dynamic>> markNotificationsRead({List<int>? ids}) =>
       postJson('/portal/api/notifications/read', {
-        if (ids != null) 'ids': ids,
+        'ids': ?ids,
       });
 
   // ---------------------------------------------------- الفريق

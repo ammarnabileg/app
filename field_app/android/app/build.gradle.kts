@@ -17,9 +17,14 @@ android {
     defaultConfig {
         applicationId = "one.onz.field"
 
-        // ٢٣ لا الافتراضي: أذونات وقت التشغيل (الموقع والكاميرا)
-        // مضمونة من هذا الإصدار، والهواتف الأقدم لا تُستعمل ميدانيًّا.
-        minSdk = 23
+        // ٢٤ (أندرويد ٧٫٠): يفرضه flutter_secure_storage 11 —
+        // وُجد بقراءة `minSdk` في build.gradle الخاص به، لا ببناءٍ
+        // هنا (حزم Android SDK محجوبة في بيئة التطوير هذه).
+        //
+        // وكان ٢٣ لأن أذونات وقت التشغيل مضمونة منه. والقفزة إلى
+        // ٢٤ لا تكلّف شيئًا عمليًّا: أندرويد ٦ صدر ٢٠١٥، ولا يكاد
+        // يوجد في هواتف الميدان اليوم.
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)

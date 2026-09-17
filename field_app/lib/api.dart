@@ -51,7 +51,7 @@ class Api {
   Map<String, String> _headers([Map<String, String>? extra]) => {
         'Accept': 'application/json',
         'User-Agent': 'OnPointHR-FieldApp/1.0',
-        if (cookie != null) 'Cookie': cookie!,
+        'Cookie': ?cookie,
         ...?extra,
       };
 

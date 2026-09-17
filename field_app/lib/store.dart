@@ -20,9 +20,11 @@ class Creds {
 }
 
 class Store {
-  static const _secure = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  // منذ flutter_secure_storage 11 صار التعمية هي الافتراض على
+  // أندرويد (AES-GCM بمفتاحٍ ملفوف بـRSA في الـKeyStore)، وزال
+  // `encryptedSharedPreferences` الذي كان يُطلب صراحةً. فالافتراض
+  // الآن أقوى مما كنّا نطلبه، لا أضعف.
+  static const _secure = FlutterSecureStorage();
 
   // ------------------------------------------------ بيانات الدخول
 
