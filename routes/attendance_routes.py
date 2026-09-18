@@ -725,7 +725,14 @@ def oracle_control():
     from utils.oracle_db import get_sync_queue_stats
     enabled = str(get_setting('oracle_enabled', '1')).strip() == '1'
     stats = get_sync_queue_stats()
-    from utils.oracle_db import _oracle_conf
+
+    # «مفعَّلة» و«مضبوطة» شيئان.
+    #
+    # المفتاح مفتوح افتراضيًّا، فالشاشة كانت تقول «مفعَّلة» على نظامٍ
+    # لم يُضبط فيه مضيفٌ ولا مستخدم — لا يُزامَن فيه شيء ولا يُكتب
+    # طابور. فتُقال الحال كما هي بدل شارةٍ خضراء تكذب.
+    from utils.oracle_db import _oracle_conf, oracle_configured
+    configured = oracle_configured()
     cfg = {
         'host': _oracle_conf('oracle_host', 'ORACLE_HOST', 'localhost'),
         'port': _oracle_conf('oracle_port', 'ORACLE_PORT', '1521'),
@@ -735,7 +742,8 @@ def oracle_control():
         'lib_dir': str(get_setting('oracle_lib_dir', '') or ''),
         'password_set': bool(str(get_setting('oracle_password', '') or '').strip()),
     }
-    return render_template('oracle_control.html', enabled=enabled, stats=stats, cfg=cfg)
+    return render_template('oracle_control.html', enabled=enabled,
+                           configured=configured, stats=stats, cfg=cfg)
 
 @attendance_bp.route('/attendance/oracle/toggle', methods=['POST'])
 @login_required

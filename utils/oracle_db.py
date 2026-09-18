@@ -9,9 +9,76 @@ import sys
 
 # ================= MASTER SWITCH =================
 _oracle_enabled_cache = {'value': None, 'ts': 0}
+_oracle_configured_cache = {'value': None, 'ts': 0}
+_unconfigured_said = {'done': False}
+
+# ما يدلّ على أن أحدًا ضبط أوراكل فعلًا — إعدادًا مخزَّنًا أو متغيّر بيئة.
+_ORACLE_CONF_KEYS = (
+    ('oracle_host',     'ORACLE_HOST'),
+    ('oracle_user',     'ORACLE_USER'),
+    ('oracle_password', 'ORACLE_PASSWORD'),
+    ('oracle_service',  'ORACLE_SERVICE'),
+)
+
+
+def oracle_configured():
+    """أضبط أحدٌ أوراكل على هذا النظام؟
+
+    المزامنة مفتوحة افتراضيًّا، والمضيف الافتراضي `localhost`. فنظامٌ
+    لم يُضبط فيه شيء كان يحاول الاتصال بـ`localhost:1521` كل خمس
+    دقائق ويسجّل «Connection refused» — مدى الحياة، عند كل عميل لا
+    يستعمل أوراكل أصلًا. وأكثر العملاء كذلك.
+
+    وليست الضجّة وحدها المشكلة: سجلٌّ يمتلئ بخطأٍ معروفٍ لا يعني
+    شيئًا هو سجلٌّ يُتعلَّم تجاهله — فيُتجاهل يوم يحمل عطبًا حقيقيًّا.
+    وقد وقع ذلك هنا فعلًا: أخطاء أوراكل أخفت تشخيص ADMS يومًا كاملًا.
+
+    والقياس على «هل ضُبط» لا على «أهو localhost»: من يشغّل أوراكل على
+    الجهاز نفسه — تركيبٌ محلّي بـXE — مضيفُه localhost عن قصد، وقطعُه
+    عنه بحجّة أن العنوان افتراضيّ يُعطّل ميزةً يستعملها.
+    """
+    now = time.time()
+    if (_oracle_configured_cache['value'] is None
+            or (now - _oracle_configured_cache['ts']) > 30):
+        found = False
+        for key, env_key in _ORACLE_CONF_KEYS:
+            try:
+                if str(get_setting(key, '') or '').strip():
+                    found = True
+                    break
+            except Exception:
+                # تعذّرت قراءة الإعدادات: يُفترض مضبوطًا.
+                #
+                # الفشل مفتوح عن قصد — قاعدةٌ متعثّرة لحظةً يجب ألّا
+                # توقف مزامنةَ من يعتمد عليها، والضجّة أهون من
+                # بصماتٍ لا تصل نظام العميل.
+                found = True
+                break
+            if str(os.environ.get(env_key, '') or '').strip():
+                found = True
+                break
+
+        _oracle_configured_cache['value'] = found
+        _oracle_configured_cache['ts'] = now
+
+        if not found and not _unconfigured_said['done']:
+            _unconfigured_said['done'] = True
+            oracle_logger.info(
+                'مزامنة أوراكل غير مضبوطة على هذا النظام — لا مضيف ولا '
+                'مستخدم في الإعدادات ولا في متغيّرات البيئة. فلا تُحاوَل '
+                'اتصالات ولا يُكتب طابور. اضبطها من شاشة أوراكل إن كانت '
+                'مطلوبة، أو أطفئها لتختفي هذه الرسالة.')
+
+    return _oracle_configured_cache['value']
+
 
 def is_oracle_enabled():
-    """Master kill-switch: when off there are no connections, no queueing, no log noise."""
+    """Master kill-switch: when off there are no connections, no queueing, no log noise.
+
+    ويشمل «لم تُضبط بعد»: أثرها واحد في كل المسارات — لا اتصال ولا
+    طابور ولا ضجّة — فتوحيدهما هنا يُغني عن فحصٍ ثانٍ في كل موضع،
+    وموضعٌ يُنسى منها هو بالضبط ما يعيد الخطأ كل خمس دقائق.
+    """
     now = time.time()
     if _oracle_enabled_cache['value'] is None or (now - _oracle_enabled_cache['ts']) > 10:
         try:
@@ -19,7 +86,8 @@ def is_oracle_enabled():
         except Exception:
             _oracle_enabled_cache['value'] = True
         _oracle_enabled_cache['ts'] = now
-    return _oracle_enabled_cache['value']
+
+    return _oracle_enabled_cache['value'] and oracle_configured()
 # =================================================
 
 def _oracle_conf(key, env_key, default):
