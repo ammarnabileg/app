@@ -504,8 +504,35 @@ def restore(path, tables, keep_license=True):
     finally:
         conn.execute('PRAGMA foreign_keys=ON')
 
+    # الترحيل بعد الاستعادة — وهذا ليس احتياطًا.
+    #
+    # استعادة ملف قاعدة تُسقط الجدول القائم وتعيد بناءه **بمخطَّط
+    # الملف المرفوع** (`_restore_from_db` أدناه: DROP ثم DDL المصدر).
+    # فنسخةٌ من إصدارٍ قديم تعيد الجداول كما كانت يومها — بلا الأعمدة
+    # التي أضافتها الترحيلات بعدها.
+    #
+    # والنتيجة ليست نقصًا صامتًا: الشيفرة الحالية تسأل عن تلك الأعمدة،
+    # فيردّ SQLite «no such column» وتصير كل صفحة تلمسها خطأ 500. وهذا
+    # ما وقع فعلًا — استعادة نسخة من v59 تُسقط `employees.work_mode`
+    # و`shift_types.is_split` و`fingerprint_devices.branch_id`،
+    # و`work_mode` تُقرأ في مسارات كثيرة.
+    #
+    # ونسخةٌ حديثة لا تُظهر العطب لأن مخطَّطها هو المخطَّط الحالي —
+    # فيبدو النظام سليمًا عند من يجرّب بنسخةٍ أخذها اليوم.
+    #
+    # `init_db` هي نفسها ما يُشغَّل عند كل إقلاع، فنداؤها هنا آمنٌ
+    # بحكم أنه يقع في كل مرة أصلًا.
+    migrated = True
+    try:
+        from utils.db import init_db
+        init_db()
+    except Exception as e:                      # pragma: no cover - حارس
+        migrated = False
+        errors.append(f'تعذّر ترحيل المخطَّط بعد الاستعادة: {str(e)[:180]}')
+
     return {'ok': not errors, 'ran': ran, 'skipped': skipped,
             'tables': sorted(wanted), 'errors': errors,
+            'migrated': migrated,
             'safety_copy': os.path.basename(safety)}
 
 
