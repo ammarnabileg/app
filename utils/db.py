@@ -1808,6 +1808,15 @@ def init_db():
     except Exception as e:
         print(f"RBAC Seeding Error: {e}")
 
+    # دفتر التغييرات للرفع السحابي. يُثبَّت في كل إقلاع لأن استعادة نسخةٍ
+    # احتياطية تُسقط الجدول ومُشغِّلاته معًا، فلولا إعادةُ التثبيت لصمت
+    # الدفتر عن كل تغييرٍ بعدها بلا ما يُنبّه.
+    try:
+        from utils.cloud_outbox import install as _install_outbox
+        _install_outbox(conn)
+    except Exception as e:
+        print(f'cloud outbox install failed: {e}')
+
     # Stamp the schema version last: reaching this point means every
     # migration above completed without raising.
     try:

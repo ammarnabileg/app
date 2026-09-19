@@ -80,8 +80,36 @@ def settings():
     from utils import field as _field
     return render_template('settings.html', settings=settings_data, sal=sal,
                            pp_now=pp_now,
+                           cloud=_cloud_sync_state(conn),
                            field_on=_field.module_enabled(conn),
                            field_data=_field.module_footprint(conn))
+
+
+def _cloud_sync_state(conn):
+    """حال الرفع السحابي كما تُعرض — **بلا المفتاح**.
+
+    المفتاح يسمح برفع بيانات الشركة كلِّها، وإعادتُه إلى الصفحة
+    تعني ظهورَه في مصدر HTML لكل من فتح الشاشة، وفي ذاكرة المتصفّح،
+    وفي أيّ لقطةٍ للشاشة. فيُقال «محفوظ» ولا يُقال ما هو.
+    """
+    from utils.db import get_setting
+    from utils import cloud_sync as cs
+
+    try:
+        from utils.cloud_outbox import pending_count
+        pending = pending_count(conn)
+    except Exception:
+        pending = 0
+
+    return {
+        'enabled': str(get_setting(cs.SETTING_ENABLED, '0') or '0') in ('1', 'true', 'True'),
+        'url': get_setting(cs.SETTING_URL, '') or '',
+        'client_id': get_setting(cs.SETTING_CLIENT, '') or '',
+        'has_key': bool((get_setting(cs.SETTING_KEY, '') or '').strip()),
+        'last_ok': get_setting(cs.SETTING_LAST_OK, '') or '',
+        'last_error': get_setting(cs.SETTING_LAST_ERROR, '') or '',
+        'pending': pending,
+    }
 
 @main_bp.route('/settings/update', methods=['POST'])
 @login_required
@@ -141,6 +169,23 @@ def update_settings():
             'ON CONFLICT(setting_name) DO UPDATE SET setting_value=excluded.setting_value',
             (_tiles.SETTING_CACHE,
              '1' if request.form.get('map_tile_cache_allowed') in ('1', 'on', 'true') else '0'))
+
+    # --- الرفع السحابي ---
+    # خانةٌ غير معلَّمة لا تُرسَل، فالحقل المخفيّ يميّز أن النموذج أُرسل.
+    if request.form.get('cloud_sync_form_present'):
+        from utils.db import set_setting
+        from utils import cloud_sync as _cs
+        set_setting(_cs.SETTING_ENABLED,
+                    '1' if request.form.get('cloud_sync_enabled') in ('1', 'on', 'true') else '0')
+        for _field_name, _key in (('cloud_sync_url', _cs.SETTING_URL),
+                                  ('cloud_sync_client_id', _cs.SETTING_CLIENT)):
+            set_setting(_key, request.form.get(_field_name, '').strip())
+        # المفتاح لا يُعاد إلى الصفحة، فحقلٌ فارغ يعني «لم يُغيَّر» لا
+        # «امحُه» — وإلا محا كلُّ حفظٍ للإعدادات مفتاحَ الرفع وتوقّف
+        # الرفع بلا سبب ظاهر.
+        _new_key = request.form.get('cloud_sync_api_key', '').strip()
+        if _new_key:
+            set_setting(_cs.SETTING_KEY, _new_key)
 
     # --- إعدادات بصمة بوابة الموظف الذاتية (Portal Mobile Attendance) ---
     portal_enabled = '1' if request.form.get('portal_attendance_enabled') in ('1', 'on', 'true') else '0'

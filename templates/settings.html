@@ -106,6 +106,85 @@
                     </div>
                 </div>
 
+                {# الرفع السحابي — مُطفأ افتراضًا، ولا يُشغَّل إلا بطلب #}
+                <div class="card mb-3" id="cloud-sync">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-cloud-arrow-up text-secondary me-2"></i>
+                            <strong>الرفع السحابي — بياناتك على client.onz.one</strong>
+                        </div>
+                        <span class="badge bg-secondary">اختياري</span>
+                    </div>
+                    <div class="card-body">
+                        <input type="hidden" name="cloud_sync_form_present" value="1">
+                        <div class="form-check form-switch p-2 bg-light rounded border">
+                            <input class="form-check-input ms-0 me-2" type="checkbox"
+                                   id="cloudSyncSwitch" name="cloud_sync_enabled" value="1"
+                                   {% if cloud.enabled %}checked{% endif %}>
+                            <label class="form-check-label fw-bold" for="cloudSyncSwitch">
+                                تفعيل رفع البيانات
+                            </label>
+                            <div class="form-text mt-1 text-muted" style="font-size:.78rem">
+                                يرفع بياناتك إلى مساحتك على
+                                <b dir="ltr">client.onz.one</b> فتراها من أي مكان —
+                                من هاتفك، أو محاسبك من بيته. الدخول بالاسم وكلمة
+                                المرور نفسيهما اللذين لك على onz.one.
+                            </div>
+                        </div>
+
+                        <hr>
+                        <label class="form-label small mb-1">وجهة الرفع</label>
+                        <input type="text" class="form-control form-control-sm" dir="ltr"
+                               name="cloud_sync_url" placeholder="https://client.onz.one/api/sync"
+                               value="{{ cloud.url }}">
+
+                        <label class="form-label small mb-1 mt-2">مُعرِّف العميل</label>
+                        <input type="text" class="form-control form-control-sm" dir="ltr"
+                               name="cloud_sync_client_id" value="{{ cloud.client_id }}">
+
+                        <label class="form-label small mb-1 mt-2">مفتاح الرفع</label>
+                        {# المفتاح لا يُعاد إلى الصفحة: من فتح الشاشة على شاشةٍ
+                           مشتركة لا يقرؤه، ومن أراد تغييره يكتب الجديد. وتركُ
+                           الحقل فارغًا يُبقي المحفوظ كما هو. #}
+                        <input type="password" class="form-control form-control-sm" dir="ltr"
+                               name="cloud_sync_api_key" autocomplete="new-password"
+                               placeholder="{% if cloud.has_key %}محفوظ — اكتب مفتاحًا جديدًا لتغييره{% else %}sk_live_…{% endif %}">
+                        <div class="form-text mt-1" style="font-size:.78rem">
+                            الثلاثة تجدها في صفحة «الرفع» داخل
+                            <b dir="ltr">client.onz.one</b>.
+                        </div>
+
+                        <hr>
+                        <div class="small">
+                            {% if cloud.last_ok %}
+                                <span class="text-success">
+                                    <i class="fas fa-check-circle"></i>
+                                    آخر رفعٍ ناجح: <span dir="ltr">{{ cloud.last_ok }}</span>
+                                </span>
+                            {% else %}
+                                <span class="text-muted">لم يقع رفعٌ ناجح بعد.</span>
+                            {% endif %}
+                            {% if cloud.last_error %}
+                                <div class="text-danger mt-1">
+                                    <i class="fas fa-triangle-exclamation"></i>
+                                    {{ cloud.last_error }}
+                                </div>
+                            {% endif %}
+                            {% if cloud.pending %}
+                                <div class="text-muted mt-1">
+                                    في انتظار الرفع: {{ cloud.pending }} تغيير.
+                                </div>
+                            {% endif %}
+                        </div>
+                        <div class="form-text mt-2" style="font-size:.78rem">
+                            يُرفع: الموظفون والحضور والأجهزة والفروع والورديّات
+                            والإجازات والرواتب. <b>ولا يُرفع</b>: كلمات مرور
+                            النظام، ولا مفتاح الترخيص، ولا قوالب البصمة الحيويّة
+                            — تبقى على هذا الجهاز.
+                        </div>
+                    </div>
+                </div>
+
                 <!-- بطاقة إعدادات بصمة بوابة الموظف الذاتية (Mobile GPS Attendance) -->
                 {# وحدة المناديب — اختيارية ومُطفأة افتراضًا #}
                 <div class="card mb-3" id="field-module">

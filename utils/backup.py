@@ -530,6 +530,16 @@ def restore(path, tables, keep_license=True):
         migrated = False
         errors.append(f'تعذّر ترحيل المخطَّط بعد الاستعادة: {str(e)[:180]}')
 
+    # الاستعادة استبدلت محتوى الجداول، فما رُفع إلى السحابة يخصّ قاعدةً
+    # أخرى. والصفوف المستعادة لم تمرّ بمُشغِّلٍ فلا أثر لها في الدفتر —
+    # فمتابعةُ الرفع من حيث وقف تترك السحابةَ على بياناتٍ لم تعد قائمة.
+    # إعادةُ المشي الأوّل تُصالحها من جديد.
+    try:
+        from utils.cloud_outbox import reset_baseline
+        reset_baseline(get_db_connection())
+    except Exception as e:                          # pragma: no cover - حارس
+        errors.append(f'تعذّر تصفير مؤشّر الرفع السحابي: {str(e)[:120]}')
+
     return {'ok': not errors, 'ran': ran, 'skipped': skipped,
             'tables': sorted(wanted), 'errors': errors,
             'migrated': migrated,

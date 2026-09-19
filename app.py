@@ -50,6 +50,44 @@ def background_backup_worker():
         time.sleep(3600)
 
 
+def background_cloud_sync_worker():
+    """الرفع السحابي. خيط مستقلّ، ولا يعمل إلا إن فُعِّل.
+
+    مستقلّ عن النسخ الاحتياطي وعن فاحص الترخيص لأن وتيرته مختلفة:
+    الرفع كلّ دقيقتين لتبقى شاشةُ العميل قريبةً من الحقيقة، والنسخ
+    كلّ ساعة.
+
+    والإعداد يُقرأ في كل دورة لا مرّةً عند الإقلاع: من فعّل الرفع من
+    الإعدادات يريده أن يبدأ الآن، لا بعد إعادة تشغيل الخدمة.
+    """
+    time.sleep(60)          # لا يُزاحم الإقلاع
+
+    while True:
+        delay = 120
+        try:
+            from utils.cloud_sync import run_once
+            res = run_once()
+            if res.get('skipped') == 'disabled':
+                # مُطفأ: ننام أطول فلا نسأل القاعدة كلّ دقيقتين بلا داع.
+                delay = 600
+            elif not res.get('ok'):
+                # الفشل لا يُسرّع المحاولة: خادمٌ ساقط لا يُعالَج بإلحاح.
+                delay = 300
+                print(f"[cloud] تعذّر الرفع: {res.get('error')}")
+            elif not res.get('idle'):
+                print(f"[cloud] رُفع {res.get('sent')} سجلًّا، "
+                      f"وحُذف {res.get('deleted')}، وبقي {res.get('pending')}")
+                # بقيت دفعات: نتابع فورًا بدل انتظار الدورة القادمة.
+                if res.get('pending'):
+                    delay = 5
+        except Exception as e:
+            # خيطٌ مات يعني رفعًا توقّف بصمت، ولا يُكتشف إلا حين يسأل
+            # العميل لِمَ بياناته قديمة.
+            print(f'[cloud] خطأ في الخيط الخلفي: {e}')
+            delay = 300
+        time.sleep(delay)
+
+
 def background_license_checker():
     """
     Periodically checks license status online (every 2 minutes).
@@ -360,6 +398,9 @@ def main():
 
     backup_thread = threading.Thread(target=background_backup_worker, daemon=True)
     backup_thread.start()
+
+    cloud_thread = threading.Thread(target=background_cloud_sync_worker, daemon=True)
+    cloud_thread.start()
 
     try:
         print(f"تشغيل خادم HR System على http://{host}:{port} (debug={debug})")
