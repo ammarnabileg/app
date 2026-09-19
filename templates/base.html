@@ -976,26 +976,32 @@
                                         </a>
                                     </li>
                                     {% endif %}
-                                    {# المناديب: وحدة اختيارية. المدير المباشر يرى
-                                       مرؤوسيه والمسؤول يرى الجميع — وكل مسار
-                                       يتحقّق بنفسه من الاثنين. #}
-                                    {% if field_module_on %}
-                                    <li class="nav-item">
-                                        <a class="nav-link py-2 text-dark" href="{{ url_for('field.monitor') }}">
-                                            <i class="fas fa-route small me-2"></i>متابعة المناديب
-                                        </a>
-                                    </li>
-                                    {% if session.get('role') == 'admin' %}
-                                    <li class="nav-item">
-                                        <a class="nav-link py-2 text-dark" href="{{ url_for('field.setup') }}">
-                                            <i class="fas fa-map-pin small me-2"></i>المحطات وخطة المناديب
-                                        </a>
-                                    </li>
-                                    {% endif %}
-                                    {% endif %}
                                 </ul>
                             </div>
                         </li>
+                        {% endif %}
+                        {# المناديب: وحدة اختيارية، وتختفي بإطفائها.
+                           في المستوى الأول لا داخل قائمة «النظام»: «متابعة
+                           المناديب» شاشة تشغيلٍ يوميّة تُفتح كل صباح، لا أداة
+                           إدارةٍ تُفتح مرّة في الشهر — ودفنُها مع الأدوار
+                           والنسخ الاحتياطي جعل من فعّل الوحدة لا يجدها. #}
+                        {% if field_module_on %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'field.monitor' %}active{% endif %}"
+                                href="{{ url_for('field.monitor') }}">
+                                <i class="fas fa-route"></i>
+                                متابعة المناديب
+                            </a>
+                        </li>
+                        {% if session.get('role') == 'admin' %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'field.setup' %}active{% endif %}"
+                                href="{{ url_for('field.setup') }}">
+                                <i class="fas fa-map-pin"></i>
+                                المحطات وخطة المناديب
+                            </a>
+                        </li>
+                        {% endif %}
                         {% endif %}
                         {% if has_permission('page.settings') %}
                         <li class="nav-item">

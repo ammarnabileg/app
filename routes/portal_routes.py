@@ -41,6 +41,39 @@ def get_portal_employee_id(for_write=False):
     return None
 
 
+def portal_preview_of():
+    """اسم الموظف الذي يستعرض المسؤولُ بوابتَه — أو None.
+
+    المسؤول الذي لا سجلّ موظف له يسقط إلى «أول موظف نشط» ليرى شكل
+    البوابة. والسقوط نفسه مقبول، **وصمتُه ليس**: المسؤول يفتح البوابة
+    فيرى راتبًا وحضورًا وطلباتٍ ليست له، ولا شيء في الشاشة يقول ذلك.
+    فيقرأ بيانات موظفٍ بعينه وهو يحسبها بياناته — أو يظنّ النظام
+    معطوبًا لأن «بياناته» غريبة عنه.
+
+    فتُعاد هنا هوية من يُستعرَض، ليقولها القالب في أعلى الصفحة.
+    """
+    if session.get('employee_id'):
+        return None
+
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+
+    try:
+        conn = get_db_connection()
+        row = conn.execute('SELECT employee_id, role FROM users WHERE id = ?',
+                           (user_id,)).fetchone()
+        if not row or row['employee_id'] or row['role'] != 'admin':
+            return None
+
+        emp = conn.execute(
+            'SELECT name FROM employees WHERE is_active = 1 LIMIT 1').fetchone()
+        return emp['name'] if emp else None
+    except Exception:
+        # لافتةٌ تعذّر بناؤها لا تُسقط البوابة.
+        return None
+
+
 def has_own_employee_record():
     """هل لصاحب الجلسة سجلّ موظف يخصّه هو؟
 
@@ -134,7 +167,8 @@ def dashboard():
         leave_types=leave_types,
         portal_att=portal_att,
         today_date=date.today().strftime('%Y-%m-%d'),
-        today_display=date.today().strftime('%A, %d %B %Y')
+        today_display=date.today().strftime('%A, %d %B %Y'),
+        preview_of=portal_preview_of()
     )
 
 @portal_bp.route('/api/bootstrap')
