@@ -85,6 +85,30 @@ def background_cloud_sync_worker():
             # العميل لِمَ بياناته قديمة.
             print(f'[cloud] خطأ في الخيط الخلفي: {e}')
             delay = 300
+
+        # بوّابة الرسائل في الخيط نفسه، وفي كتلةِ حراسةٍ **خاصّةٍ بها**.
+        #
+        # الخيط نفسه: نافذةُ شبكةٍ واحدة تكفي الاثنين، وخيطٌ ثانٍ
+        # لدفعةٍ من خمسين حدثًا كلَّ دقيقتين تركيبٌ بلا عائد.
+        #
+        # وحراسةٌ خاصّة: لو شاركا `try` واحدة لأسقط تعثُّرُ أحدهما
+        # الآخر. وهما مستقلّان — من يريد الرسائل بلا رفعٍ سحابيّ
+        # يُفعّل هذه وحدها.
+        try:
+            from utils.message_outbox import run_once as _msg_once
+            m = _msg_once()
+            if m.get('sent') or m.get('expired'):
+                print(f"[msg] رُفع {m.get('sent')} حدثًا، "
+                      f"وأُسقط {m.get('expired')} لانتهاء عمره، "
+                      f"وبقي {m.get('pending')}")
+            elif not m.get('ok') and m.get('skipped') != 'disabled':
+                print(f"[msg] تعذّر رفع الأحداث: {m.get('error')}")
+            # صندوقٌ ممتلئ يُستعجَل، ولو كان الرفعُ السحابيّ نائمًا.
+            if m.get('pending'):
+                delay = min(delay, 30)
+        except Exception as e:
+            print(f'[msg] خطأ في بوّابة الرسائل: {e}')
+
         time.sleep(delay)
 
 

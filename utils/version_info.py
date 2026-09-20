@@ -32,7 +32,7 @@
 """
 
 VERSION_MAJOR = 2
-VERSION_MINOR = 11
+VERSION_MINOR = 12
 VERSION_PATCH = 0
 VERSION_BUILD = 0
 
@@ -42,7 +42,7 @@ CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUI
 BUILD_DATE = "2026-09-19"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "بوابة العميل السحابية"
+RELEASE_NAME = "بوّابة الرسائل"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"

@@ -185,6 +185,85 @@
                     </div>
                 </div>
 
+                {# بوّابة الرسائل — مُطفأة افتراضًا. لا رقمَ يُكتب هنا
+                   ولا نصَّ رسالة: الوجهةُ والصياغةُ تُضبطان في لوحة
+                   onz.one لأن الرسائل تخرج من رقمنا. #}
+                <div class="card mb-3" id="msg-gateway">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fab fa-whatsapp text-secondary me-2"></i>
+                            <strong>إشعارات واتساب — تخرج من رقم onz.one</strong>
+                        </div>
+                        <span class="badge bg-secondary">اختياري</span>
+                    </div>
+                    <div class="card-body">
+                        <input type="hidden" name="msggw_form_present" value="1">
+                        <div class="form-check form-switch p-2 bg-light rounded border">
+                            <input class="form-check-input ms-0 me-2" type="checkbox"
+                                   id="msgGwSwitch" name="msggw_enabled" value="1"
+                                   {% if msggw.enabled %}checked{% endif %}>
+                            <label class="form-check-label fw-bold" for="msgGwSwitch">
+                                تفعيل إرسال الإشعارات
+                            </label>
+                            <div class="form-text mt-1 text-muted" style="font-size:.78rem">
+                                طلبُ إجازةٍ جديد، وقرارٌ فيه، والاستئذان،
+                                وتذكيرُ بصمة التواجد — تصل واتسابًا لمن لا
+                                يفتح البوّابة.
+                            </div>
+                        </div>
+
+                        <hr>
+                        <div class="alert alert-light border small mb-3" style="font-size:.78rem">
+                            <i class="fas fa-shield-halved text-secondary me-1"></i>
+                            <b>لا يخرج من هنا نصُّ رسالةٍ ولا رقمُ هاتف.</b>
+                            يخرج <b>وقوعُ الحدث</b> فقط، واللوحة تختار المستقبِل
+                            من بياناتك المرفوعة وتصوغ النصّ. فمن ضبط الرسائل
+                            بلا رفعٍ سحابيّ لا تجد اللوحةُ أرقامَ موظّفيه،
+                            وتظهر «لا مستقبِل» تحت.
+                        </div>
+
+                        <label class="form-label small mb-1">وجهة البوّابة</label>
+                        <input type="text" class="form-control form-control-sm" dir="ltr"
+                               name="msggw_url" placeholder="تُستنبط من وجهة الرفع"
+                               value="{{ msggw.url }}">
+                        <div class="form-text mt-1" style="font-size:.78rem">
+                            اتركه فارغًا: يُؤخذ من وجهة الرفع أعلاه.
+                            والمفتاح ومُعرِّف العميل هما نفساهما — فلا يُكرَّران.
+                        </div>
+
+                        <hr>
+                        <div class="small">
+                            {% if msggw.last_ok %}
+                                <span class="text-success">
+                                    <i class="fas fa-check-circle"></i>
+                                    آخر إرسالٍ ناجح: <span dir="ltr">{{ msggw.last_ok }}</span>
+                                </span>
+                            {% else %}
+                                <span class="text-muted">لم يقع إرسالٌ ناجح بعد.</span>
+                            {% endif %}
+                            {% if msggw.last_error %}
+                                <div class="text-danger mt-1">
+                                    <i class="fas fa-triangle-exclamation"></i>
+                                    {{ msggw.last_error }}
+                                </div>
+                            {% endif %}
+                            {% if msggw.last_refusal %}
+                                {# الرفضُ ليس عطبًا: اللوحة قرأت وقرّرت. لكنه
+                                   السطرُ الذي يُعرف منه لِمَ لم تصل رسالة. #}
+                                <div class="text-warning-emphasis mt-1">
+                                    <i class="fas fa-circle-info"></i>
+                                    آخر رفض: <span dir="ltr">{{ msggw.last_refusal }}</span>
+                                </div>
+                            {% endif %}
+                            {% if msggw.pending %}
+                                <div class="text-muted mt-1">
+                                    في انتظار الإرسال: {{ msggw.pending }} حدثًا.
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
                 <!-- بطاقة إعدادات بصمة بوابة الموظف الذاتية (Mobile GPS Attendance) -->
                 {# وحدة المناديب — اختيارية ومُطفأة افتراضًا #}
                 <div class="card mb-3" id="field-module">

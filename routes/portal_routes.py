@@ -582,7 +582,8 @@ def api_request_excuse():
                           'personal': 'استئذان شخصي',
                           'manual_override': 'تصحيح بصمة'}
                 _notif.excuse_requested(conn, row['manager_id'], row['name'],
-                                        labels.get(type_, 'استئذان'), date_str)
+                                        labels.get(type_, 'استئذان'), date_str,
+                                        employee_id=emp_id)
         except Exception:
             pass
 

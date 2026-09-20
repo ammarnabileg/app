@@ -81,6 +81,7 @@ def settings():
     return render_template('settings.html', settings=settings_data, sal=sal,
                            pp_now=pp_now,
                            cloud=_cloud_sync_state(conn),
+                           msggw=_message_gateway_state(conn),
                            field_on=_field.module_enabled(conn),
                            field_data=_field.module_footprint(conn))
 
@@ -109,6 +110,31 @@ def _cloud_sync_state(conn):
         'last_ok': get_setting(cs.SETTING_LAST_OK, '') or '',
         'last_error': get_setting(cs.SETTING_LAST_ERROR, '') or '',
         'pending': pending,
+    }
+
+
+def _message_gateway_state(conn):
+    """حال بوّابة الرسائل — وهي تستعمل مفتاح الرفع نفسه.
+
+    فلا حقلَ مفتاحٍ هنا: مفتاحان لخادمٍ واحد يجعل أحدَهما يُنسى
+    فيتوقّف نصفُ النظام بلا سبب ظاهر.
+    """
+    from utils.db import get_setting
+    from utils import message_outbox as mo
+
+    try:
+        pending = mo.pending_count(conn)
+    except Exception:
+        pending = 0
+
+    return {
+        'enabled': str(get_setting(mo.SETTING_ENABLED, '0') or '0')
+                   in ('1', 'true', 'True'),
+        'url': get_setting(mo.SETTING_URL, '') or '',
+        'pending': pending,
+        'last_ok': get_setting(mo.SETTING_LAST_OK, '') or '',
+        'last_error': get_setting(mo.SETTING_LAST_ERROR, '') or '',
+        'last_refusal': get_setting(mo.SETTING_REFUSED, '') or '',
     }
 
 @main_bp.route('/settings/update', methods=['POST'])
@@ -186,6 +212,18 @@ def update_settings():
         _new_key = request.form.get('cloud_sync_api_key', '').strip()
         if _new_key:
             set_setting(_cs.SETTING_KEY, _new_key)
+
+    # --- بوّابة الرسائل ---
+    # مستقلّةٌ عن الرفع في التفعيل، ومشتركةٌ معه في المفتاح: العميلُ
+    # واحدٌ عند اللوحة. ومن أراد الرسائل بلا رفعٍ يُفعّل هذه وحدها —
+    # وحينها لا جدولَ موظّفين عند اللوحة، فما وجهتُه موظّفٌ يُردّ
+    # بـ`no_recipient` وهو ما يظهر في «آخر رفض».
+    if request.form.get('msggw_form_present'):
+        from utils.db import set_setting
+        from utils import message_outbox as _mo
+        set_setting(_mo.SETTING_ENABLED,
+                    '1' if request.form.get('msggw_enabled') in ('1', 'on', 'true') else '0')
+        set_setting(_mo.SETTING_URL, request.form.get('msggw_url', '').strip())
 
     # --- إعدادات بصمة بوابة الموظف الذاتية (Portal Mobile Attendance) ---
     portal_enabled = '1' if request.form.get('portal_attendance_enabled') in ('1', 'on', 'true') else '0'

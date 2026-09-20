@@ -20,6 +20,7 @@
 والإخفاق يُبتلع ويُسجَّل في السجلّ لا في وجه المستخدم.
 """
 
+import hashlib
 import logging
 from datetime import datetime
 
@@ -188,37 +189,113 @@ def mark_read(conn, user_id, ids=None):
         return 0
 
 
+# ------------------------------------------------- الدفع إلى واتساب
+
+def _push(conn, event, key, data=None, to=None):
+    """يقيّد الحدثَ في صندوق البوّابة — بلا نصٍّ وبلا رقم.
+
+    ## لماذا هنا لا في `notify`
+
+    `notify` تقيّد لكل **حساب**، و`notify_employee` تكرّرها لحسابات
+    الموظّف. فمن له ثلاثةُ حسابات كان سيأخذ ثلاثَ رسائل واتساب عن
+    حدثٍ واحد. والحدثُ واحد، فيُطلق مرّةً عند الصياغة حيث يُعرف
+    الموظّفُ المقصود.
+
+    ## وما لا يُرسل من هنا
+
+    لا نصّ: الصياغةُ قالبٌ في اللوحة لأن الرسائل تخرج من رقمنا.
+    ولا رقم: `to` فيه `employee_id` واللوحةُ تحلّه من بياناتها.
+    انظر `utils/message_outbox.py`.
+
+    ولا يرمي: تعثّرُ الدفع لا يجوز أن يمنع قيدَ الإشعار الذي نجح.
+    """
+    try:
+        from utils import message_outbox as _mo
+        return _mo.emit(conn, event, key, data=data, to=to)
+    except Exception:
+        log.exception('تعذّر دفع الحدث %s', event)
+        return None
+
+
+def _employee_name(conn, employee_id):
+    """اسمُ الموظّف للقالب. فراغٌ إن لم يوجد — واللوحة تضع «—».
+
+    وبالشرطة السفليّة عمدًا: `leave_requested` لها وسيطٌ بالاسم
+    نفسه، واسمان متطابقان في ملفٍّ واحد يجعلان القارئَ يخمّن أيُّهما
+    يُنادى.
+    """
+    if not employee_id:
+        return ''
+    try:
+        row = conn.execute('SELECT name FROM employees WHERE id = ?',
+                           (employee_id,)).fetchone()
+        return (row[0] or '') if row else ''
+    except Exception:
+        return ''
+
+
 # ------------------------------------------------- صياغات جاهزة
 
 def leave_requested(conn, manager_employee_id, employee_name, leave_type,
                     start_date, end_date, days, request_id):
     """إلى المدير: طلبٌ ينتظرك."""
-    return notify_employee(
+    n = notify_employee(
         conn, manager_employee_id, KIND_LEAVE_REQUESTED,
         f'طلب إجازة من {employee_name}',
         f'{leave_type} · {days} يوم · من {start_date} إلى {end_date}',
         target='team', ref_type='leave_request', ref_id=request_id)
+    # إلى صاحب الحساب — لا إلى المدير بوصفه موظّفًا: سياسةُ اللوحة
+    # هي من يقرّر الوجهة، والتركيبُ لا يسمّي مستقبِلًا.
+    if request_id:
+        _push(conn, 'leave_requested', f'lv{request_id}-req',
+              data={'employee_name': employee_name, 'start': start_date,
+                    'end': end_date, 'days': days})
+    return n
 
 
 def leave_decided(conn, employee_id, approved, leave_type, start_date,
                   end_date, decided_by_user_id=None, request_id=None):
     """إلى الموظف: قُرِّر في طلبك."""
-    return notify_employee(
+    n = notify_employee(
         conn, employee_id, KIND_LEAVE_DECIDED,
         'اعتُمد طلب إجازتك' if approved else 'رُفض طلب إجازتك',
         f'{leave_type} · من {start_date} إلى {end_date}',
         target='home', ref_type='leave_request', ref_id=request_id,
         exclude_user_id=decided_by_user_id)
+    # القرار يُبدَّل: يُعتمد ثم يُرفض. فالمفتاح يحمل القرارَ نفسه،
+    # وإلّا ابتلع التفرُّدُ الرسالةَ الثانية وبقي الموظّف على أن
+    # إجازته معتمَدة.
+    if request_id and employee_id:
+        _push(conn, 'leave_decided',
+              f"lv{request_id}-{'ok' if approved else 'no'}",
+              data={'employee_name': _employee_name(conn, employee_id),
+                    'status': 'approved' if approved else 'rejected',
+                    'start': start_date, 'days': ''},
+              to={'employee_id': employee_id})
+    return n
 
 
 def excuse_requested(conn, manager_employee_id, employee_name, kind_label,
-                     day):
+                     day, employee_id=None):
     """إلى المدير: استئذانٌ سُجِّل."""
-    return notify_employee(
+    n = notify_employee(
         conn, manager_employee_id, KIND_EXCUSE_REQUESTED,
         f'{kind_label} — {employee_name}',
         f'بتاريخ {day}',
         target='team', ref_type='excuse', ref_id=None)
+    # لا رقمَ للاستئذان في المخطَّط، فالمفتاح يُبنى من الموظّف واليوم
+    # والنوع — وهي ثلاثةٌ تكفي لتمييزه، وتجعل إعادةَ تسجيل اليوم
+    # نفسه رسالةً واحدة.
+    #
+    # و`md5` لا `hash()`: الثانيةُ مملوحةٌ لكل عمليّة (PYTHONHASHSEED)،
+    # فالنوعُ نفسُه يعطي رقمًا مختلفًا بعد كل إعادة تشغيل — ومفتاحُ
+    # تفرّدٍ يتبدّل ليس مفتاحَ تفرّد. و`md5` هنا اختصارٌ لا حمايةٌ.
+    if employee_id:
+        digest = hashlib.md5(str(kind_label).encode('utf-8')).hexdigest()[:6]
+        _push(conn, 'excuse_requested', f'ex{employee_id}-{day}-{digest}',
+              data={'employee_name': employee_name, 'date': day,
+                    'reason': kind_label})
+    return n
 
 
 def _already_sent(conn, user_id, kind, day_key):
@@ -270,6 +347,19 @@ def presence_reminder(conn, employee_id, state, start, end, now=None):
         if notify(conn, uid, kind, title, body, target='punch',
                   ref_type='presence_day', ref_id=None):
             n += 1
+
+    # **خارج الحلقة.** المسحُ يُنادى من كلّ طلبٍ يفتحه أيُّ مستخدم،
+    # فهذا أكثرُ حدثٍ إطلاقًا في النظام. والحلقةُ لحسابات الموظّف —
+    # وقيدُه داخلها كان يُطلق حدثًا لكلّ حساب.
+    #
+    # ومفتاحُ اليوم والحال: تذكيرٌ واحد لكلّ موظّفٍ في اليوم مهما
+    # نُودي. وهو العمودُ الفريد من يفرضه، لا هذا الشرط — الفحصُ قبل
+    # الإدراج سباقٌ بين عمّال الخادم.
+    _push(conn, 'presence_due' if state == _p.STATE_DUE else 'presence_missed',
+          f'pr{employee_id}-{day_key}-{"d" if state == _p.STATE_DUE else "m"}',
+          data={'employee_name': _employee_name(conn, employee_id),
+                'due_at': f'{start} — {end}', 'date': day_key},
+          to={'employee_id': employee_id})
     return n
 
 
