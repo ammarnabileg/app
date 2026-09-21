@@ -105,7 +105,10 @@ def test_the_screen_says_what_does_not_leave_the_premises():
     html = open(os.path.join(ROOT, 'templates', 'settings.html'),
                 encoding='utf-8').read()
     i = html.index('id="cloud-sync"')
-    card = html[i:i + 5000]
+    # حتى بداية البطاقة التالية، لا عددًا ثابتًا من المحارف: نافذةٌ
+    # بطولٍ سحريّ تسقط حين تكبر البطاقةُ سطرًا — وقد سقطت فعلًا حين
+    # أُضيف زرُّ «ارفع الآن»، والنصُّ المطلوب لم يتغيّر.
+    card = html[i:html.index('id="msg-gateway"')]
     assert 'ولا يُرفع' in card
     assert 'مفتاح الترخيص' in card
 

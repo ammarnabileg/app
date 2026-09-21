@@ -357,14 +357,16 @@ def payload_for(events, client_id):
     }
 
 
-def run_once(conn=None, session=None, now=None):
+def run_once(conn=None, session=None, now=None, force=False):
     """دورةٌ واحدة. تُرجع dict يصف ما جرى — ولا تُطلق استثناءً للشبكة.
 
     الوكيل يعمل بلا مُراقب، فسقوطُه على انقطاعٍ عابر يعني توقّفَ
     الرسائل إلى أن ينتبه أحد. والانتباه لا يقع.
+
+    و`force` لزرّ «أرسل الآن» — انظر `cloud_sync.run_once`.
     """
     cfg = _settings()
-    if not cfg['enabled']:
+    if not cfg['enabled'] and not force:
         return {'ok': True, 'skipped': 'disabled', 'sent': 0}
     if not (cfg['url'] and cfg['client_id'] and cfg['api_key']):
         return {'ok': False, 'skipped': 'unconfigured', 'sent': 0,

@@ -176,6 +176,20 @@
                                 </div>
                             {% endif %}
                         </div>
+                        {# زرّ التجربة. وخارج نموذج الإعدادات عمدًا: نموذجٌ
+                           بزرّين يجعل «احفظ» و«ارفع» يتنازعان، فيُرسل
+                           أحدُهما الآخر. #}
+                        <div class="mt-3">
+                            <button type="submit" form="cloudSyncRunForm"
+                                    class="btn btn-sm btn-outline-primary fw-bold">
+                                <i class="fas fa-cloud-arrow-up me-1"></i> ارفع الآن
+                            </button>
+                            <span class="small text-muted ms-2">
+                                احفظ أولًا ثم جرّب — يعمل ولو كان الرفع مُطفأً،
+                                فالترتيب الطبيعيّ أن تجرّب قبل أن تُفعّل.
+                            </span>
+                        </div>
+
                         <div class="form-text mt-2" style="font-size:.78rem">
                             يُرفع: الموظفون والحضور والأجهزة والفروع والورديّات
                             والإجازات والرواتب. <b>ولا يُرفع</b>: كلمات مرور
@@ -260,6 +274,16 @@
                                     في انتظار الإرسال: {{ msggw.pending }} حدثًا.
                                 </div>
                             {% endif %}
+                        </div>
+
+                        <div class="mt-3">
+                            <button type="submit" form="msgGwRunForm"
+                                    class="btn btn-sm btn-outline-primary fw-bold">
+                                <i class="fas fa-paper-plane me-1"></i> أرسل الآن
+                            </button>
+                            <span class="small text-muted ms-2">
+                                يصرّف ما في الصندوق ويقول ماذا جرى.
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -564,6 +588,17 @@
             <button type="submit" class="btn btn-success"><i class="fas fa-save me-2"></i>{{ _('btn.save_settings') }}</button>
         </div>
     </form>
+
+    {# ## لماذا هنا لا داخل البطاقة
+       #
+       # الصفحةُ كلُّها نموذجٌ واحد، و`<form>` داخل `<form>` يُسقطه
+       # المتصفّحُ صامتًا — فيصير الزرُّ يحفظ الإعدادات بدل أن يرفع.
+       # وخاصيّةُ `form=` في الزرّ تربطه بنموذجٍ خارجه، وهي HTML
+       # قياسيّة بلا جافاسكربت. #}
+    <form id="cloudSyncRunForm" method="POST"
+          action="{{ url_for('main.run_cloud_sync_now') }}" class="d-none"></form>
+    <form id="msgGwRunForm" method="POST"
+          action="{{ url_for('main.run_message_gateway_now') }}" class="d-none"></form>
 </div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {

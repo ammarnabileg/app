@@ -253,6 +253,78 @@ def update_settings():
     flash(_('msg.settings_saved'), 'success')
     return redirect(url_for('main.settings'))
 
+@main_bp.route('/settings/cloud-sync/run', methods=['POST'])
+@login_required
+@require_permission('admin.settings')
+def run_cloud_sync_now():
+    """يرفع الآن ويقول ماذا جرى — بدل انتظار دورةٍ كلّ دقيقتين.
+
+    ## لماذا زرّ
+
+    من يضبط المفتاح يريد أن يعرف **الآن** أصحَّ أم لا. والخيطُ الخلفيّ
+    يعمل كلّ ١٢٠ ثانية ولا يقول شيئًا في الشاشة، فكان الضبطُ تخمينًا
+    ثم انتظارًا ثم تحديثَ صفحةٍ لعلّ «آخر رفعٍ ناجح» تغيّر. وأشيعُ
+    الأخطاء — مفتاحٌ ناقصُ حرف، أو عنوانٌ فيه مسافة — لا يُكتشف إلا
+    بمحاولةٍ حقيقيّة.
+
+    ## ويعمل ولو كان الرفعُ مُطفأً
+
+    فالترتيبُ الطبيعيّ: أضبط، أجرّب، ثم أُفعّل. وزرٌّ يشترط التفعيلَ
+    أوّلًا يقلب الترتيب ويجعل أوّل تجربةٍ على بياناتٍ تُرفع فعلًا.
+    """
+    from utils import cloud_sync as _cs
+
+    conn = get_db_connection()
+    try:
+        res = _cs.run_once(conn=conn, force=True)
+    except Exception as e:                      # noqa: BLE001
+        # لا يُرمى في وجه المستخدم: زرٌّ يُسقط الصفحة أسوأ من زرٍّ
+        # يقول «تعذّر».
+        flash(f'تعذّر الرفع: {str(e)[:160]}', 'danger')
+        return redirect(url_for('main.settings') + '#cloud-sync')
+
+    if res.get('skipped') == 'unconfigured':
+        flash('أكمل وجهة الرفع ومُعرِّف العميل والمفتاح أولًا.', 'warning')
+    elif not res.get('ok'):
+        flash(f"تعذّر الرفع: {res.get('error') or 'سبب غير معروف'}", 'danger')
+    elif res.get('idle'):
+        flash('الاتصال سليم — ولا تغييرات تنتظر الرفع.', 'success')
+    else:
+        flash(f"رُفع {res.get('sent', 0)} سجلًّا، وحُذف {res.get('deleted', 0)}، "
+              f"وبقي {res.get('pending', 0)}.", 'success')
+    return redirect(url_for('main.settings') + '#cloud-sync')
+
+
+@main_bp.route('/settings/message-gateway/run', methods=['POST'])
+@login_required
+@require_permission('admin.settings')
+def run_message_gateway_now():
+    """يصرّف صندوق الأحداث الآن. المنطقُ نفسُه — انظر أعلاه."""
+    from utils import message_outbox as _mo
+
+    conn = get_db_connection()
+    try:
+        res = _mo.run_once(conn=conn, force=True)
+    except Exception as e:                      # noqa: BLE001
+        flash(f'تعذّر الإرسال: {str(e)[:160]}', 'danger')
+        return redirect(url_for('main.settings') + '#msg-gateway')
+
+    if res.get('skipped') == 'unconfigured':
+        flash('أكمل إعداد الرفع السحابي أولًا — البوّابة تستعمل مفتاحه.', 'warning')
+    elif not res.get('ok'):
+        flash(f"تعذّر الإرسال: {res.get('error') or 'سبب غير معروف'}", 'danger')
+    elif res.get('idle'):
+        flash('الاتصال سليم — ولا أحداث تنتظر الإرسال.', 'success')
+    else:
+        msg = f"رُفع {res.get('sent', 0)} حدثًا"
+        if res.get('expired'):
+            msg += f"، وأُسقط {res.get('expired')} لانتهاء عمره"
+        if res.get('refusals'):
+            msg += f". ورُفض: {' · '.join(res['refusals'][:3])}"
+        flash(msg + '.', 'success')
+    return redirect(url_for('main.settings') + '#msg-gateway')
+
+
 # ==============================================================
 # معالج التهيئة السريعة الشامل للشركة (Setup Wizard)
 # ==============================================================

@@ -149,14 +149,19 @@ def commit_batch(conn, batch):
         ob.ack(conn, batch['up_to_seq'])
 
 
-def run_once(conn=None, session=None):
+def run_once(conn=None, session=None, force=False):
     """دورةٌ واحدة. تُرجع dict يصف ما جرى — لا تُطلق استثناءً للشبكة.
 
     الوكيل يعمل بلا مُراقب، فسقوطُه على خطأ شبكةٍ عابر يعني توقّفَ
     الرفع إلى أن ينتبه أحد. والانتباه لا يقع.
+
+    و`force` لزرّ «ارفع الآن»: الترتيبُ الطبيعيّ عند الضبط أن
+    يُجرَّب قبل أن يُفعَّل، وزرٌّ يشترط التفعيلَ أوّلًا يجعل أوّلَ
+    تجربةٍ على بياناتٍ تُرفع فعلًا. ولا يمسّ الخيطَ الخلفيّ: هو
+    يُنادى بلا `force` فيبقى المفتاحُ في الشاشة هو ما يحكمه.
     """
     cfg = _settings()
-    if not cfg['enabled']:
+    if not cfg['enabled'] and not force:
         return {'ok': True, 'skipped': 'disabled', 'sent': 0}
     if not (cfg['url'] and cfg['client_id'] and cfg['api_key']):
         return {'ok': False, 'skipped': 'unconfigured', 'sent': 0,
