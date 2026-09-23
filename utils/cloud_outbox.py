@@ -51,6 +51,31 @@ SYNC_TABLES = {
     'attendance_records': set(),
     'leave_requests': set(),
     'salaries': set(),
+    # كشفُ الرواتب كما حسبه المحرّك — لا حسابٌ ثانٍ له في السحابة.
+    #
+    # `*_by` أرقامُ مستخدمين، وجدولُ `users` لا يُرفع أصلًا (فيه
+    # كلماتُ المرور)، فالأرقامُ هناك بلا معنى. و`unlock_reason`
+    # ملاحظةٌ إداريّةٌ داخليّة لا شأن للعرض بها.
+    'payroll_runs': {'created_by', 'approved_by', 'unlocked_by',
+                     'unlock_reason'},
+    'payroll_run_lines': set(),
+}
+
+# ------------------------------------------------------------ الترشيح
+#
+# جداولُ لا يخرج منها كلُّ صفّ.
+#
+# **والمسودّةُ لا تغادر المقرّ.** كشفٌ لم يُعتمد بعدُ شغلٌ جارٍ:
+# أرقامُه تتبدّل، وقد يُلغى. وعرضُه للعميل على أنه راتبُ شهره
+# يجعله يبني عليه ثم يجده تغيّر — وذلك أسوأ من ألّا يراه.
+#
+# والصفُّ الذي يسقط من الترشيح **يُرسَل حذفًا**: `build_batch` تعامل
+# ما لا يعود مقروءًا معاملةَ المحذوف. فكشفٌ اعتُمد ثم فُكّ قفلُه
+# يختفي من السحابة بدل أن يبقى معتمَدًا فيها وحدها.
+SYNC_FILTERS = {
+    'payroll_runs': "status = 'approved'",
+    'payroll_run_lines':
+        "run_id IN (SELECT id FROM payroll_runs WHERE status = 'approved')",
 }
 
 # اسم الجدول الذي يحمل الدفتر، ومؤشّرات المشي الأوّل.
@@ -212,8 +237,12 @@ def baseline_batch(conn, table, size=200):
     if table not in SYNC_TABLES or not _table_exists(conn, table):
         return []
     cursor = int(get_state(conn, f'baseline:{table}', 0) or 0)
+    # المشيُ الأوّل يُرشَّح كما يُرشَّح الدفتر — وإلّا خرجت المسودّات
+    # القديمة كلُّها في أوّل رفعٍ ولم يمنعها شيء.
+    where = SYNC_FILTERS.get(table)
+    extra = f' AND ({where})' if where else ''
     rows = conn.execute(
-        f'SELECT id FROM "{table}" WHERE id > ? ORDER BY id ASC LIMIT ?',
+        f'SELECT id FROM "{table}" WHERE id > ?{extra} ORDER BY id ASC LIMIT ?',
         (cursor, size)).fetchall()
     return [r[0] for r in rows]
 
@@ -245,7 +274,11 @@ def read_rows(conn, table, row_ids):
     col_sql = ', '.join(f'"{c}"' for c in cols)
     marks = ', '.join('?' for _ in row_ids)
     conn.row_factory = None
+    # الصفُّ الذي يسقط من الترشيح لا يُقرأ، و`build_batch` ترسله
+    # حذفًا — انظر شرح `SYNC_FILTERS`.
+    where = SYNC_FILTERS.get(table)
+    extra = f' AND ({where})' if where else ''
     rows = conn.execute(
-        f'SELECT {col_sql} FROM "{table}" WHERE id IN ({marks})',
+        f'SELECT {col_sql} FROM "{table}" WHERE id IN ({marks}){extra}',
         list(row_ids)).fetchall()
     return [dict(zip(cols, r)) for r in rows]
