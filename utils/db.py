@@ -1495,6 +1495,36 @@ def init_db():
                 FOREIGN KEY(employee_id) REFERENCES employees(id)
             )''')
 
+        # تفصيلُ الكشف يومًا بيوم — **ما عدّه المحرّك**، لا حسابٌ ثانٍ.
+        #
+        # يُكتب مع سطور الكشف في `save_monthly_payroll` من الحساب نفسِه،
+        # فمجموعُ أيّام الموظّف يساوي سطرَه بالبناء. ولا عمودَ مالٍ هنا:
+        # البصمةُ الناقصة متدرّجةٌ بترتيبها في الشهر، والتواجدُ والإضافيّ
+        # مسقوفان شهريًّا — فلا رقمَ صحيحًا لليوم الواحد. انظر
+        # `compute_month_metrics`.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS payroll_run_days (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                employee_id INTEGER NOT NULL,
+                day TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                note TEXT,
+                first_punch TEXT,
+                last_punch TEXT,
+                punches INTEGER DEFAULT 0,
+                span_hours REAL DEFAULT 0,
+                required_hours REAL DEFAULT 0,
+                actual_hours REAL DEFAULT 0,
+                late_mins INTEGER DEFAULT 0,
+                early_mins INTEGER DEFAULT 0,
+                ot_mins INTEGER DEFAULT 0,
+                presence_missing INTEGER DEFAULT 0,
+                delta_json TEXT,
+                UNIQUE(run_id, employee_id, day),
+                FOREIGN KEY(run_id) REFERENCES payroll_runs(id) ON DELETE CASCADE
+            )''')
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS payroll_hours_approvals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

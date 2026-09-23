@@ -237,7 +237,7 @@ def resolve_period(conn, month, year):
     return start, end
 
 
-def compute_month_metrics(conn, month, year, employees=None):
+def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
     """
     Deterministic monthly metrics per active employee, computed ONLY from
     documented sources. Returns {employee_id: metrics dict} with keys:
@@ -251,6 +251,20 @@ def compute_month_metrics(conn, month, year, employees=None):
       sick_days, unpaid_days         (working days inside approved leaves,
                                       classified by leave type / paid flag)
       excuse_days                    (working days covered by an excuse)
+
+    `day_sink` (قائمة) — إن مُرِّرت، يُلحَق بها صفٌّ لكلّ يوم: ما أضافه
+    **هذا اليومُ** إلى عدّادات الشهر.
+
+    ## ولماذا بالفرق لا بإعادة الحساب
+
+    يُؤخذ `m` قبل اليوم وبعده، والصفُّ هو الفرق. فلا يُكتب هنا فرعٌ
+    ثانٍ يصنّف اليوم ويعدّه — نسختان من قاعدةٍ واحدة تفترقان يومًا.
+    الفرقُ **هو** ما أضافه الفرعُ الحقيقيّ، فمجموعُ الأيّام يساوي الشهرَ
+    بالبناء لا بالحرص. وبلا `day_sink` لا يتغيّر شيء: لا لقطة ولا ضمّ.
+
+    والمالُ لا يُقسَم على الأيّام: البصمةُ الناقصة متدرّجةٌ بترتيبها
+    في الشهر، وجزاءُ التواجد والإضافيّ مسقوفان شهريًّا، وشرائحُ
+    المرضيّة تتبع أشهرًا سابقة. فلا رقمَ صحيحًا لليوم الواحد.
     """
     month = int(month)
     year = int(year)
@@ -363,10 +377,35 @@ def compute_month_metrics(conn, month, year, employees=None):
                                 sal.get('grace_early_minutes', 5)) or 5))
         _ot_step = int(float(sal.get('overtime_round_to_minutes', 15) or 0))
 
+        _pend = None   # [ds, kind, note, rec, snap] — يوم ينتظر التفريغ
+
+        def _flush(p):
+            ds_, kind_, note_, rec_, snap_ = p
+            delta = {}
+            for k, v in m.items():
+                dv = v - snap_.get(k, 0)
+                if dv:
+                    delta[k] = round(dv, 4) if isinstance(dv, float) else dv
+            day_sink.append({
+                'employee_id': emp_id, 'date': ds_, 'kind': kind_, 'note': note_,
+                'first': rec_[1] if rec_ else None,
+                'last': rec_[2] if rec_ else None,
+                'punches': len(rec_[3]) if rec_ else 0,
+                'span_hours': round(rec_[0], 4) if rec_ else 0.0,
+                'delta': delta,
+            })
+
         for d in _period_days:
+            # يُفرَّغ اليومُ السابق هنا: كلُّ فرعٍ ينتهي بـ`continue`، فرأسُ
+            # الدورة هو الموضعُ الوحيد الذي يبلغه كلُّ يومٍ بعد انتهائه.
+            if day_sink is not None and _pend is not None:
+                _flush(_pend)
+                _pend = None
             ds = d.isoformat()
             rec = span_map.get((emp_id, ds))
             span = rec[0] if rec is not None else None
+            if day_sink is not None:
+                _pend = [ds, 'outside', '', rec, dict(m)]
 
             if hire_dt and d < hire_dt:
                 continue
@@ -374,6 +413,7 @@ def compute_month_metrics(conn, month, year, employees=None):
                 continue
             _wk = (d - timedelta(days=(d.isoweekday() % 7))).isoformat()
             if (d.isoweekday() % 7) in off_days:
+                if _pend is not None: _pend[1] = 'rest'
                 m['weekly_off_days'] += 1
                 _worked = span is not None and span > 0
                 if _worked:
@@ -383,6 +423,7 @@ def compute_month_metrics(conn, month, year, employees=None):
                 _day_log.append((_wk, 'rest', _worked))
                 continue
             if ds in holidays:
+                if _pend is not None: _pend[1] = 'holiday'
                 m['holiday_days'] += 1
                 _worked = span is not None and span > 0
                 if _worked:
@@ -395,6 +436,10 @@ def compute_month_metrics(conn, month, year, employees=None):
             leave_hit = next((lv for lv in emp_leaves if lv[0] <= d <= lv[1]), None)
             if leave_hit:
                 _, _, is_paid, is_sick, _ = leave_hit
+                if _pend is not None:
+                    _pend[1] = ('leave_sick' if is_sick
+                                else 'leave_paid' if is_paid else 'leave_unpaid')
+                    _pend[2] = str(leave_hit[4] or '')
                 _day_log.append((_wk, 'work', bool(is_paid or is_sick)))
                 if is_sick:
                     m['sick_days'] += 1
@@ -410,6 +455,7 @@ def compute_month_metrics(conn, month, year, employees=None):
             excused = exc_side != '__none__'
 
             if excused and not punched:
+                if _pend is not None: _pend[1] = 'excused'
                 _day_log.append((_wk, 'work', True))
                 # Whole-day excuse on an absent day -> not required at all
                 m['excuse_days'] += 1
@@ -417,6 +463,8 @@ def compute_month_metrics(conn, month, year, employees=None):
             # (side value used below for waivers)
 
             # A scheduled, required working day
+            if _pend is not None:
+                _pend[1] = 'work' if punched else 'absent'
             _day_log.append((_wk, 'work', punched))
             m['required_days'] += 1
             m['required_hours'] += hpd
@@ -483,6 +531,9 @@ def compute_month_metrics(conn, month, year, employees=None):
             elif span <= 0:
                 m['partial_days'] += 1  # punched, but missing in/out
 
+        if day_sink is not None and _pend is not None:
+            _flush(_pend)
+            _pend = None
         m['required_hours'] = round(max(m['required_hours'], 0.0), 2)
         m['actual_hours'] = round(m['actual_hours'], 2)
         m['hourly_perm_hours'] = round(m['hourly_perm_hours'], 2)
@@ -679,7 +730,7 @@ def _prior_sick_map(conn, employees, p_start, basis='calendar'):
     return out
 
 
-def compute_monthly_payroll(conn, month, year):
+def compute_monthly_payroll(conn, month, year, day_sink=None):
     """
     Returns {month, year, rows, totals, hours_approval:{approved, stale, total}}.
     Hours shown for an APPROVED employee come from the attested snapshot;
@@ -735,7 +786,7 @@ def compute_monthly_payroll(conn, month, year):
     def _rnd(v):
         return round(float(v or 0), _dec)
     start_iso, end_iso = p_start.isoformat(), p_end.isoformat()
-    metrics = compute_month_metrics(conn, month, year, employees)
+    metrics = compute_month_metrics(conn, month, year, employees, day_sink=day_sink)
     approvals = get_hours_approvals(conn, month, year)
 
     # Date-scoped: a fixed item applies only to periods its [start_date,
@@ -1075,7 +1126,10 @@ def save_monthly_payroll(conn, month, year, user_id):
     if existing and existing['status'] == 'approved':
         raise RunLockedError(existing)
 
-    data_check = compute_monthly_payroll(conn, month, year)
+    # الأيّامُ من الحساب **نفسِه** الذي يُحفظ سطرُه — لا من حسابٍ
+    # ثانٍ بعده، فلا يفترقان ولو تغيّرت بصمةٌ بين الاثنين.
+    day_rows = []
+    data_check = compute_monthly_payroll(conn, month, year, day_sink=day_rows)
     missing = [{'employee_id': r['employee_id'],
                 'employee_number': r['employee_number'],
                 'name': r['name'], 'arabic_name': r['arabic_name'],
@@ -1086,6 +1140,7 @@ def save_monthly_payroll(conn, month, year, user_id):
 
     if existing:
         cur.execute('DELETE FROM payroll_run_lines WHERE run_id = ?', (existing['id'],))
+        cur.execute('DELETE FROM payroll_run_days WHERE run_id = ?', (existing['id'],))
     cur.execute("DELETE FROM loan_payments WHERE source = 'payroll' AND month = ? AND year = ?",
                 (month, year))
     cur.execute('''UPDATE employee_loans SET status = 'active'
@@ -1141,6 +1196,28 @@ def save_monthly_payroll(conn, month, year, user_id):
                                (loan_id, month, year, amount, source, created_by)
                                VALUES (?, ?, ?, ?, 'payroll', ?)''',
                             (d['loan_id'], month, year, d['amount'], user_id))
+
+    # سطرٌ لكلّ يومٍ عدّه المحرّك. و«خارج الخدمة» (قبل التعيين أو بعد
+    # نهاية الخدمة) لا يُكتب: لم يُعدَّ أصلًا، وصفُّه صفرٌ لا يقول شيئًا.
+    in_run = {row['employee_id'] for row in data['rows']}
+    for dr in day_rows:
+        if dr['kind'] == 'outside' or dr['employee_id'] not in in_run:
+            continue
+        dl = dr['delta']
+        cur.execute('''INSERT INTO payroll_run_days
+                       (run_id, employee_id, day, kind, note, first_punch,
+                        last_punch, punches, span_hours, required_hours,
+                        actual_hours, late_mins, early_mins, ot_mins,
+                        presence_missing, delta_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (run_id, dr['employee_id'], dr['date'], dr['kind'], dr['note'],
+                     dr['first'], dr['last'], dr['punches'], dr['span_hours'],
+                     dl.get('required_hours', 0), dl.get('actual_hours', 0),
+                     dl.get('late_mins', 0), dl.get('early_mins', 0),
+                     dl.get('ot_weekday_mins', 0) + dl.get('ot_weekend_mins', 0)
+                     + dl.get('ot_holiday_mins', 0),
+                     dl.get('presence_missing', 0),
+                     json.dumps(dl, ensure_ascii=False)))
 
     cur.execute('''UPDATE employee_loans SET status = 'settled'
                    WHERE status = 'active'

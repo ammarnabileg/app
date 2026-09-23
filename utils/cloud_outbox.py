@@ -59,6 +59,8 @@ SYNC_TABLES = {
     'payroll_runs': {'created_by', 'approved_by', 'unlocked_by',
                      'unlock_reason'},
     'payroll_run_lines': set(),
+    # الكشفُ يومًا بيوم — ما عدّه المحرّك، بلا مال (انظر db.py).
+    'payroll_run_days': set(),
 }
 
 # ------------------------------------------------------------ الترشيح
@@ -76,6 +78,28 @@ SYNC_FILTERS = {
     'payroll_runs': "status = 'approved'",
     'payroll_run_lines':
         "run_id IN (SELECT id FROM payroll_runs WHERE status = 'approved')",
+    'payroll_run_days':
+        "run_id IN (SELECT id FROM payroll_runs WHERE status = 'approved')",
+}
+
+# ------------------------------------------------------------ التتابع
+#
+# ترشيحٌ يتبع صفًّا **آخر** لا يكفيه مشغّلُ صفّه: اعتمادُ الكشف يغيّر
+# `payroll_runs` وحده، والسطورُ لم تتغيّر فلا يسجّلها مشغّلُها. فخرجت
+# حذفًا وهي مسودّة، ولا شيء يُخرجها بعد الاعتماد.
+#
+# وكان المشيُ الأوّل يُخفي ذلك مصادفةً: مؤشّرُه لا يتقدّم إلّا على ما
+# أرسل، فيلتقط الكشفَ المعتمَد لاحقًا ما دامت صفوفُه أحدث. حتى يُعتمد
+# كشفٌ بعد كشفٍ أحدث منه — فتقع صفوفُه تحت المؤشّر وتبقى في المقرّ.
+#
+# فتغيُّرُ **الحالة** يُعيد تسجيلَ الأبناء في الدفتر، والترشيحُ يقرّر:
+# معتمَدٌ فيُرسل، أو فُكّ قفلُه فيُحذف. والحالةُ وحدها — لمسةُ حقلٍ آخر
+# في الكشف لا تُخرج ثلاثين صفًّا لكلّ موظّف.
+#
+# {الأب: (العمود, ((الابن, عمودُ الربط), ...))}
+SYNC_CASCADES = {
+    'payroll_runs': ('status', (('payroll_run_lines', 'run_id'),
+                                ('payroll_run_days', 'run_id'))),
 }
 
 # اسم الجدول الذي يحمل الدفتر، ومؤشّرات المشي الأوّل.
@@ -135,8 +159,66 @@ def install(conn):
                 END''')
         installed.append(table)
 
+    for parent, (col, children) in SYNC_CASCADES.items():
+        if not _table_exists(conn, parent):
+            continue
+        for child, fk in children:
+            if not _table_exists(conn, child):
+                continue
+            conn.execute(f'''CREATE TRIGGER IF NOT EXISTS "cloud_out_{child}_via_{parent}"
+                AFTER UPDATE OF "{col}" ON "{parent}"
+                WHEN OLD."{col}" IS NOT NEW."{col}"
+                BEGIN
+                    INSERT INTO {OUTBOX_TABLE} (table_name, row_id, op)
+                    SELECT '{child}', id, 'upsert' FROM "{child}"
+                    WHERE "{fk}" = NEW.id;
+                END''')
+
     conn.commit()
     return installed
+
+
+def resend_when_accepted(conn, accepts):
+    """إعادةُ إرسال الكشوف المعتمَدة وأبنائها — مرّةً واحدة، **حين يقبلها
+    الخادم**. تُرجع True إن سُجّلت الإعادة الآن.
+
+    ## لماذا
+
+    عيبان قبل ٢.١٤ حبسا الكشوفَ في المقرّ ودفترُه يظنّها وصلت:
+
+    - **الخادم (v86) كان يتخطّى جداولَ الرواتب بلا خطأ** — ليست في
+      قائمته. فالرفعُ يُجاب بنجاح ويُقَرّ الدفتر، ولا شيء وصل.
+    - **وبلا تتابع** لم يكن اعتمادُ كشفٍ يُخرج سطورَه (انظر
+      `SYNC_CASCADES`).
+
+    ## ولماذا «حين يقبلها» لا عند الإقلاع
+
+    لو أُعيدت عند أوّل إقلاعٍ بـ٢.١٤ وخادمُ اللوحة ما زال v86 لرُميت
+    ثانيةً — وضاعت الفرصةُ الوحيدة. وترتيبُ الترقيتين ليس بيدنا:
+    العميلُ يُحدّث متى شاء. فالخادمُ الجديد يُعلن في ردّه ما يقبل
+    (`accepts`)، والإعادةُ تنتظر أن ترى جداولَها فيه. والقديمُ لا يُعلن
+    شيئًا، فتنتظر.
+    """
+    key = 'payroll_resend:1'
+    if get_state(conn, key) is not None:
+        return False
+    if not isinstance(accepts, (list, tuple)):
+        return False
+    wanted = []
+    for parent, (_col, children) in SYNC_CASCADES.items():
+        wanted.append(parent)
+        wanted.extend(child for child, _fk in children)
+    if not all(t in accepts for t in wanted):
+        return False
+    for table in wanted:
+        if not _table_exists(conn, table):
+            continue
+        where = SYNC_FILTERS.get(table)
+        extra = f' WHERE ({where})' if where else ''
+        conn.execute(f'''INSERT INTO {OUTBOX_TABLE} (table_name, row_id, op)
+            SELECT '{table}', id, 'upsert' FROM "{table}"{extra}''')
+    set_state(conn, key, 'done')
+    return True
 
 
 def uninstall_triggers(conn):

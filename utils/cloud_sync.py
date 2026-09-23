@@ -225,6 +225,13 @@ def _run_once(conn, session=None):
 
     commit_batch(conn, batch)
     _note(SETTING_LAST_OK, time.strftime('%Y-%m-%d %H:%M:%S'))
+    # القبولُ يُقرأ من ردٍّ ناجح وحده. وما تُسجّله الإعادةُ يأخذ `seq`
+    # بعد `up_to_seq`، فلا يمحوه الإقرار — ويخرج في الدورة التالية.
+    try:
+        from utils import cloud_outbox as ob
+        ob.resend_when_accepted(conn, body.get('accepts'))
+    except Exception as e:
+        logger.warning(f'cloud sync: payroll resend skipped: {e}')
     _note(SETTING_LAST_ERROR, '')
 
     from utils import cloud_outbox as ob
