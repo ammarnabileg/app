@@ -9451,3 +9451,15 @@ msgstr "No data in the selected range"
 
 #~ msgid "header.payroll_generation"
 #~ msgstr "Payroll Generation"
+
+msgid "x.f_employee_limit_reached"
+msgstr "Your subscription covers %(cap)s employees and %(used)s are active — the limit is reached. Increase it under “My subscription”: %(url)s"
+
+msgid "x.f_employee_limit_row"
+msgstr "Not added — active employees reached the subscription limit (%(cap)s)"
+
+msgid "x.employee_usage"
+msgstr "Active employees: %(used)s of %(cap)s in your subscription"
+
+msgid "x.increase_employees"
+msgstr "Increase"

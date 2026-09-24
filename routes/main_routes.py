@@ -488,7 +488,14 @@ def license_page():
                 flash(_('error.license_activation_failed') + f': {msg}', 'error')
     
     info = get_current_license_info()
-    return render_template('license.html', info=info)
+    # عددُ الموظفين النشطين من حدّ الاشتراك — ليرى العميلُ أين هو قبل أن يُمنع.
+    emp_usage = None
+    try:
+        from utils.plan_limits import usage
+        emp_usage = usage(get_db_connection())
+    except Exception as e:
+        print(f"[limits] {e}")
+    return render_template('license.html', info=info, emp_usage=emp_usage)
 
 # نقاط النهاية API
 @main_bp.route('/api/stats')

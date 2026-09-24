@@ -30,6 +30,14 @@
         {% else %}
         <div class="alert alert-warning mb-2">{{ _('x.no_active_license') }}</div>
         {% endif %}
+        {% if emp_usage and emp_usage.cap %}
+        <div class="alert {{ 'alert-danger' if emp_usage.blocked else ('alert-warning' if emp_usage.over else 'alert-info') }} mb-2" id="employee-usage">
+          {{ _('x.employee_usage', used=emp_usage.used, cap=emp_usage.cap) }}
+          {% if emp_usage.over %}
+            — <a href="https://onz.one/client/subscription" target="_blank" rel="noopener">{{ _('x.increase_employees') }}</a>
+          {% endif %}
+        </div>
+        {% endif %}
 
       </div>
       <ul class="nav nav-tabs mb-3" id="licenseTabs" role="tablist">

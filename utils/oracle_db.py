@@ -215,7 +215,7 @@ def process_sync_queue(oracle_conn=None):
         records = sqlite_conn.execute("SELECT * FROM oracle_sync_queue WHERE status = 'PENDING' LIMIT 100").fetchall()
         
         if not records:
-            sqlite_pass # conn.close() removed to prevent leak in Flask g
+            pass  # اتصالُ SQLite من g — لا يُغلق. (كان اسمًا غير معرَّف: كل طابورٍ فارغ يُسجَّل «خطأً».)
             return
             
         oracle_logger.info(f"Found {len(records)} pending records in local queue. Attempting to flush to Oracle...")
@@ -290,7 +290,12 @@ def process_sync_queue(oracle_conn=None):
             oracle_logger.info(f"Flushed {len(processed_ids)} records from queue to Oracle.")
             
         if should_close:
-            oracle_pass # conn.close() removed to prevent leak in Flask g
+            # اتصالُ Oracle فتحته هذه الدالة فتغلقه — ليس اتصالَ g. كان هنا
+            # اسمٌ غير معرَّف: يتسرّب الاتصال، ويُسجَّل «خطأ» بعد دفعٍ ناجح.
+            try:
+                oracle_conn.close()
+            except Exception:
+                pass
             
     except Exception as e:
         oracle_logger.error(f"Error processing sync queue: {e}")

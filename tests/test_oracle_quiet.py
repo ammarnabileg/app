@@ -166,3 +166,60 @@ def test_an_unreadable_settings_table_does_not_stop_a_real_user(oracle, monkeypa
 
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-v']))
+
+
+# ------------------------------------------------ دفعُ الطابور
+
+class _FakeOracle:
+    def __init__(self):
+        self.rows, self.closed, self.committed = [], False, False
+
+    def cursor(self):
+        outer = self
+
+        class C:
+            def execute(self, sql, params):
+                outer.rows.append(params)
+        return C()
+
+    def commit(self):
+        self.committed = True
+
+    def close(self):
+        self.closed = True
+
+
+def test_an_empty_queue_is_not_an_error(oracle, monkeypatch, caplog):
+    """كان سطرٌ يسمّي متغيّرًا غير معرَّف (`sqlite_pass`) يرمي NameError عند
+    الطابور الفارغ — فكلُّ نبضةٍ بلا جديد تُسجَّل «Error processing sync queue»."""
+    o, db = oracle
+    monkeypatch.setattr(o, 'is_oracle_enabled', lambda: True)
+    import logging
+    with caplog.at_level(logging.ERROR, logger='oracle_sync'):
+        r = o.process_sync_queue(oracle_conn=_FakeOracle())
+    assert r is not False
+    assert 'Error processing sync queue' not in caplog.text
+
+
+def test_a_flush_closes_the_connection_it_opened(oracle, monkeypatch, caplog):
+    """واتصالُ Oracle الذي فتحته الدالةُ تغلقه — وكان في موضعه اسمٌ غير معرَّف
+    (`oracle_pass`): يتسرّب الاتصال، ويُسجَّل خطأٌ بعد دفعٍ ناجح."""
+    o, db = oracle
+    fake = _FakeOracle()
+    monkeypatch.setattr(o, 'is_oracle_enabled', lambda: True)
+    monkeypatch.setattr(o, 'get_oracle_connection', lambda: fake)
+    conn = db.get_db_connection()
+    conn.execute("INSERT INTO oracle_sync_queue (user_id, check_time, check_type, verify_code, device_id) "
+                 "VALUES ('77', '2026-09-24 08:00:00', '0', '1', 3)")
+    conn.commit()
+
+    import logging
+    with caplog.at_level(logging.ERROR, logger='oracle_sync'):
+        r = o.process_sync_queue()
+
+    assert r is True
+    assert len(fake.rows) == 1 and fake.committed
+    assert fake.closed, 'الاتصالُ الذي فتحته الدالةُ يُغلق'
+    st = db.get_db_connection().execute("SELECT status FROM oracle_sync_queue").fetchone()[0]
+    assert st == 'SYNCED'
+    assert 'Error processing sync queue' not in caplog.text

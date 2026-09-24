@@ -580,6 +580,14 @@ class FingerprintSyncManager:
         total_employees_skipped = 0
         successful_devices = 0
         
+        # حدُّ الاشتراك يُقرأ **قبل** فتح معاملة الكتابة أدناه: قراءتُه تفتح
+        # اتصالًا يكتب، فتنتظر قفلَ هذا الاتصال حتى المهلة لكلّ موظفٍ جديد.
+        try:
+            from utils.plan_limits import employee_cap
+            _cap = employee_cap()
+        except Exception:
+            _cap = None
+
         # الحصول على الموظفين الحاليين لمنع التكرار
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -636,14 +644,14 @@ class FingerprintSyncManager:
                             cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY FINGERTMP', '{}', 'PENDING')", (device_id,))
                         
                         cmd_conn.commit()
-                        cmd_pass # conn.close() removed to prevent leak in Flask g
+                        pass  # الاتصال من g — لا يُغلق هنا. (كان سطرًا يسمّي متغيّرًا غير معرَّف فيرمي NameError.)
                     except Exception as e:
                         self.log_message("ERROR", device_ip, "فشل إرسال أوامر ADMS", str(e))
                         
                     # Load Local Users
                     local_conn = self.get_db_connection()
                     local_rows = local_conn.execute('SELECT * FROM fingerprint_users WHERE device_id = ?', (device_id,)).fetchall()
-                    local_pass # conn.close() removed to prevent leak in Flask g
+                    pass  # الاتصال من g — لا يُغلق هنا. (كان سطرًا يسمّي متغيّرًا غير معرَّف فيرمي NameError.)
                     
                     class MockUser:
                         def __init__(self, uid, name, priv, pwd, grp, card):
@@ -734,12 +742,20 @@ class FingerprintSyncManager:
             
             # إضافة الموظف الجديد
             try:
+                # فوق حدّ الاشتراك يُضاف **غيرَ نشط**: البصماتُ تجد صاحبها
+                # ولا تضيع، ويفعّله المسؤول بعد زيادة العدد.
+                try:
+                    from utils.plan_limits import can_activate
+                    _new_active = 1 if can_activate(conn, cap=_cap)[0] else 0
+                except Exception:
+                    _new_active = 1
                 cursor.execute('''
                     INSERT INTO employees (
                         employee_number, name, department, position, 
                         hire_date, salary, default_start_time, default_end_time, 
-                        shift_type, password, group_id, card_number, privilege, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        shift_type, password, group_id, card_number, privilege, created_at,
+                        is_active
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
                 ''', (
                     user_id,
                     user_name,
@@ -753,7 +769,8 @@ class FingerprintSyncManager:
                     user_info.get('password', ''), # password
                     user_info.get('group_id', ''), # group_id
                     user_info.get('card', 0),      # card_number
-                    user_info.get('privilege', 0)  # privilege
+                    user_info.get('privilege', 0), # privilege
+                    _new_active
                 ))
                 
                 # إضافة السجلات في fingerprint_users لجميع الأجهزة

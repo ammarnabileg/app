@@ -459,18 +459,28 @@ def cdata():
                                     
                                     # 2. Update Main Employees Table (Auto-Sync)
                                     # Ensure record exists so attendance can be logged
+                                    #
+                                    # فوق حدّ الاشتراك: يُنشأ غيرَ نشط — البصمةُ
+                                    # تجد صاحبها ولا تُرفض. والموجودُ لا يتغيّر
+                                    # نشاطُه (ON CONFLICT لا يلمس is_active).
+                                    try:
+                                        from utils.plan_limits import can_activate
+                                        _new_active = 1 if can_activate(conn)[0] else 0
+                                    except Exception:
+                                        _new_active = 1
                                     conn.execute('''
                                         INSERT INTO employees (
                                             employee_number, name, department, position, 
                                             hire_date, salary, default_start_time, default_end_time, 
                                             is_active, password, group_id, card_number, privilege
-                                        ) VALUES (?, ?, 'General', 'Employee', CURRENT_DATE, 0, '09:00', '17:00', 1, ?, ?, ?, ?)
+                                        ) VALUES (?, ?, 'General', 'Employee', CURRENT_DATE, 0, '09:00', '17:00', ?, ?, ?, ?, ?)
                                         ON CONFLICT(employee_number) DO UPDATE SET
                                         card_number = excluded.card_number,
                                         privilege = excluded.privilege
                                     ''', (
                                         info.get('PIN'),
                                         info.get('Name', 'New User'),
+                                        _new_active,
                                         info.get('Passwd', ''),
                                         info.get('Grp', ''),
                                         info.get('Card', 0),

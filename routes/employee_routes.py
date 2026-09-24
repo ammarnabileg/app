@@ -109,6 +109,15 @@ def add_employee():
             arabic_name = (request.form.get('arabic_name') or '').strip()
             shift_type = request.form.get('shift_type', 'صباحي')
             is_active = int(request.form.get('is_active', 1))
+
+            # حدّ الاشتراك: يُمنع إضافةُ موظفٍ **نشط** فوق الحدّ والهامش.
+            # غيرُ النشط يُضاف دائمًا — ملفٌّ لا يُحتسب.
+            if is_active == 1:
+                from utils.plan_limits import can_activate, blocked_message
+                _ok, _u = can_activate(conn)
+                if not _ok:
+                    flash(blocked_message(_u), 'error')
+                    return redirect(url_for('employee.add_employee'))
             
             # New 35 Fields
             national_id = request.form.get('national_id', '').strip()
@@ -442,6 +451,14 @@ def edit_employee(id):
             
             _before = conn.execute('SELECT * FROM employees WHERE id = ?',
                                    (id,)).fetchone()
+            # إعادةُ التفعيل تُحتسب كإضافة. أمّا تعديلُ موظفٍ نشطٍ أصلًا
+            # فلا يُمنع أبدًا — ولو كان العددُ فوق الحدّ.
+            if is_active == 1 and _before is not None and not _before['is_active']:
+                from utils.plan_limits import can_activate, blocked_message
+                _ok, _u = can_activate(conn)
+                if not _ok:
+                    flash(blocked_message(_u), 'error')
+                    return redirect(url_for('employee.edit_employee', id=id))
             conn.execute('''
                 UPDATE employees SET 
                     name=?, department=?, position=?, hire_date=?, salary=?, cost_center=?, phone=?, email=?, address=?, arabic_name=?, 
@@ -975,6 +992,16 @@ def import_employees():
                             except Exception as _e:
                                 print(f'audit log failed on import: {_e}')
                         else:
+                            # الجديدُ نشطٌ بالافتراض، فيُحتسب. والعدُّ من
+                            # الاتصال نفسه يرى ما أُدرج من الملف قبل هذا السطر.
+                            from utils.plan_limits import can_activate
+                            _ok, _u = can_activate(conn)
+                            if not _ok:
+                                error_count += 1
+                                row_errors.append(
+                                    f'سطر {index + 2}: '
+                                    + gettext('x.f_employee_limit_row') % {'cap': _u['cap']})
+                                continue
                             cols = ['employee_number'] + base_cols + list(extra.keys())
                             vals = [emp_no] + base_vals + list(extra.values())
                             ph = ', '.join('?' for _ in cols)

@@ -38,6 +38,10 @@ CLIENT_LOGIN_URL = "https://onz.one/PHP/client_login.php"
 API_SECRET = 'hr-system-license-secret-2024' # Shared with PHP
 ONLINE_CHECK_ENABLED = True
 
+# رسالة انقضاء تاريخ المفتاح — يقارنها `verify_license_full_flow` ليعرف أن
+# المفتاح سليم وتاريخه وحده انقضى (فقد يكون جُدِّد في اللوحة).
+EXPIRED_MSG = 'انتهت مدة الترخيص'
+
 # كم يومًا يُسمح بالعمل دون وصول ناجح لخادم التراخيص.
 # تُقاس من آخر تحقق ناجح، لا من آخر محاولة. انظر check_online_license_secure.
 OFFLINE_GRACE_DAYS = 14
@@ -489,7 +493,7 @@ def verify_license_key(key: str):
 
         expiry = datetime.strptime(date_part, '%Y%m%d').date()
         if date.today() > expiry:
-            return False, 'انتهت مدة الترخيص'
+            return False, EXPIRED_MSG
         return True, None
     except Exception as e:
         return False, str(e)
@@ -789,6 +793,9 @@ def get_current_license_info():
         _LICENSE_CACHE_TIME = now
         return res
 
+    # بعد التجديد يبقى تاريخ المفتاح الأصليّ مكتوبًا فيه؛ التاريخ الحقيقي
+    # في الرمز الموقَّع. وإلّا ظلّ الشريط يقول «انتهى» لمن دفع.
+    expiry = _signed_expiry(chosen_key) or expiry
     days_left = (expiry - date.today()).days
     
     try:
@@ -812,6 +819,45 @@ def get_current_license_info():
     
     return res
 
+def signed_license_for(key):
+    """الرخصة الموقَّعة المحفوظة إن كانت سارية **ولهذا المفتاح** — أو None.
+
+    هي مرجع التجديد: تاريخ مفتاح LE2 مكتوب داخله عند إصداره ولا يتغيّر،
+    أمّا اللوحة فتمدّد `expiry_date` عند كل دفع وتوقّع رمزًا بالتاريخ
+    الجديد. فالرمز هو ما يعرف أن العميل دفع.
+
+    ويُشترط أن يكون الرمز لهذا المفتاح نفسه: رمزٌ ساري لمفتاحٍ آخر لا يُحيي
+    مفتاحًا منتهيًا.
+    """
+    try:
+        from utils.db import get_setting
+        from utils.license_verify import verify_license_token
+        tok = get_setting('license_token')
+        if not tok or not key:
+            return None
+        hwid = None
+        try:
+            hwid = get_system_hwid()
+        except Exception:
+            pass
+        r = verify_license_token(tok, current_hwid=hwid)
+        if r.get('ok') and str((r.get('data') or {}).get('key') or '') == key:
+            return r
+    except Exception as e:
+        print(f"[License] تعذّر قراءة الرخصة الموقَّعة: {e}")
+    return None
+
+
+def _signed_expiry(key):
+    r = signed_license_for(key)
+    if not r:
+        return None
+    try:
+        return datetime.strptime(str(r['data']['expiry'])[:10], '%Y-%m-%d').date()
+    except Exception:
+        return None
+
+
 def verify_license_full_flow(key):
     """
     1. Local Format/Date Check
@@ -821,8 +867,22 @@ def verify_license_full_flow(key):
     # print(f"[License] Checking Key Locally: {key}")
     local_ok, local_msg = verify_license_key(key)
     if not local_ok:
-        # print(f"[License] Local Check Failed: {local_msg}")
-        return False, local_msg
+        # التجديد: مفتاحٌ سليم التوقيع انقضى **تاريخُه المكتوب فيه** — واللوحة
+        # قد مدّدته. كان هذا يُرفض هنا قبل أن يُسأل الخادم أصلًا، فيُقفل على
+        # من دفع في يوم تاريخ مفتاحه الأصليّ (آخرِ يوم تجربته).
+        #
+        # فيُسأل الخادم، ويُقبل المفتاح إن حمل رمزًا موقَّعًا ساريًا له. ولا
+        # يكفي أن يقول الخادم «ساري» بلا رمز: عند انقطاعه تمنح
+        # `check_online_license_secure` مهلةَ أيّام، ومهلةٌ لمفتاحٍ منتهٍ ثغرة.
+        if local_msg != EXPIRED_MSG or not key.startswith(('LE2-', 'LE-')):
+            return False, local_msg
+        if signed_license_for(key) is None:
+            try:
+                check_online_license_secure(key)      # يحفظ الرمز الجديد إن جُدِّد
+            except Exception as e:
+                print(f"[License] تعذّر سؤال الخادم عن التجديد: {e}")
+            if signed_license_for(key) is None:
+                return False, local_msg
         
     # 2. Online Check (Now Cached)
     # print(f"[License] Verify Online (Cached 24h)...")
