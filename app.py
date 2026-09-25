@@ -301,6 +301,37 @@ def check_license_globally():
     if not license_info.get('ok', False):
         return redirect(url_for('main.license_page'))
 
+@app.before_request
+def enforce_plan_features():
+    """شاشاتُ ميزةٍ ليست في خطّة الاشتراك — تُقفل، والبياناتُ باقية.
+
+    منفصلةٌ عن فحص الترخيص عمدًا: ذاك يُقرّر أيعمل النظام، وهذه أيُّ شاشاته.
+    انظر utils/plan_features.py.
+    """
+    from utils.plan_features import missing_for_request, LABELS, SUBSCRIPTION_URL
+    from flask_babel import gettext
+    rule = request.url_rule.rule if request.url_rule is not None else None
+    feature = missing_for_request(request.endpoint, rule)
+    if feature is None:
+        return None
+    label = LABELS.get(feature, feature)
+    wants_json = (request.path.startswith('/api/') or '/api/' in request.path
+                  or request.is_json or request.accept_mimetypes.best == 'application/json')
+    if wants_json:
+        from flask import jsonify
+        return jsonify({'success': False, 'error': 'feature_not_in_plan', 'feature': feature,
+                        'message': gettext('x.feature_not_in_plan', feature=label),
+                        'upgrade_url': SUBSCRIPTION_URL}), 403
+    return render_template('errors/feature_locked.html', feature=feature, feature_label=label,
+                           upgrade_url=SUBSCRIPTION_URL), 403
+
+
+@app.context_processor
+def inject_plan_features():
+    from utils.plan_features import has_feature
+    return {'has_feature': has_feature}
+
+
 @app.route('/')
 def index():
     return redirect(url_for('main.index'))

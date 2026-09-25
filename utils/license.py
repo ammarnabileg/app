@@ -387,6 +387,12 @@ def invalidate_license_cache():
     global _LICENSE_CACHE, _LICENSE_CACHE_TIME
     _LICENSE_CACHE = None
     _LICENSE_CACHE_TIME = 0
+    # ومزايا الخطّة من الرخصة نفسِها — تُقرأ من جديد بعد تفعيلٍ أو تغيير.
+    try:
+        from utils.plan_features import invalidate
+        invalidate()
+    except Exception:
+        pass
 
 
 def save_license_key(key: str, username: str = None, api_key: str = None):

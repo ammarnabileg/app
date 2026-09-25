@@ -9463,3 +9463,15 @@ msgstr "Active employees: %(used)s of %(cap)s in your subscription"
 
 msgid "x.increase_employees"
 msgstr "Increase"
+
+msgid "x.feature_not_in_plan_title"
+msgstr "Not in your plan"
+
+msgid "x.feature_not_in_plan"
+msgstr "“%(feature)s” is not in your subscription plan"
+
+msgid "x.feature_not_in_plan_details"
+msgstr "Your data is kept and nothing was deleted. Upgrade under “My subscription” and this screen returns within an hour."
+
+msgid "x.upgrade_plan"
+msgstr "Upgrade your plan"

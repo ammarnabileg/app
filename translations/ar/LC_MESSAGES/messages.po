@@ -9454,3 +9454,15 @@ msgstr "الموظفون النشطون: %(used)s من %(cap)s في اشتراك
 
 msgid "x.increase_employees"
 msgstr "زِد العدد"
+
+msgid "x.feature_not_in_plan_title"
+msgstr "غير متاح في خطّتك"
+
+msgid "x.feature_not_in_plan"
+msgstr "«%(feature)s» ليست في خطّة اشتراكك"
+
+msgid "x.feature_not_in_plan_details"
+msgstr "بياناتُك محفوظة ولم يُحذف منها شيء. رقِّ خطّتك من «اشتراكي» وتعود الشاشة خلال ساعة."
+
+msgid "x.upgrade_plan"
+msgstr "رقِّ خطّتك"
