@@ -83,3 +83,40 @@ def test_each_coolify_service_exposes_its_own_port():
     assert re.search(r'expose:\s*\n\s*-\s*"5000"', block('hr_web'))
     assert re.search(r'expose:\s*\n\s*-\s*"8081"', block('hr_adms'))
     assert '"5000"' not in block('hr_adms')
+
+
+# ------------------------------------------------ HTTPS: الجهازُ يصل hr_web
+
+@pytest.fixture
+def web(adms, monkeypatch):
+    """التطبيقُ الكامل بحارس الترخيص — والرخصةُ **غيرُ صالحة** عمدًا."""
+    import importlib
+    import app as A
+    importlib.reload(A)
+    monkeypatch.setattr(A, 'get_current_license_info', lambda: {'ok': False})
+    A.app.config['TESTING'] = True
+    return A.app.test_client(), adms[1]
+
+
+@pytest.mark.parametrize('prefix', ['/iclock', ''])
+def test_a_device_on_https_reaches_the_web_service_too(web, prefix):
+    """موجِّهُ /iclock في Coolify على HTTP وحده؛ الجهازُ على HTTPS يصل hr_web —
+    فيُسجَّل هنا في القاعدة نفسِها، ولو تعثّرت الرخصة: الجهازُ لا يتبع تحويلة."""
+    c, path = web
+    r = c.post(f'{prefix}/cdata?SN=SNPROXY1&table=ATTLOG&Stamp=1',
+               data='101\t2026-09-25 09:15:00\t0\t1\t0\t0\n', content_type='text/plain')
+    assert r.status_code == 200 and r.get_data(as_text=True).startswith('OK'), (r.status_code, r.headers.get('Location'))
+    assert c.get(f'{prefix}/getrequest?SN=SNPROXY1').status_code == 200
+    assert c.get(f'{prefix}/cdata?SN=healthcheck').status_code == 200
+    con = sqlite3.connect(path)
+    try:
+        assert con.execute('SELECT COUNT(*) FROM attendance_records').fetchone()[0] == 1
+    finally:
+        con.close()
+
+
+def test_adms_admin_screens_stay_behind_the_license(web):
+    c, _ = web
+    for u in ('/iclock/adms/commands', '/adms/commands', '/iclock/api/adms/commands'):
+        r = c.get(u)
+        assert r.status_code == 302 and '/license' in r.headers.get('Location', ''), (u, r.status_code)

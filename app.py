@@ -211,6 +211,10 @@ app.register_blueprint(fl_bp)
 from routes.manpower_routes import manpower_bp
 app.register_blueprint(manpower_bp)
 app.register_blueprint(adms_bp)
+# وتحت /iclock كذلك: جهازٌ مضبوطٌ على HTTPS يصل عبر Coolify إلى hr_web لا
+# إلى hr_adms — موجِّهُ /iclock هناك على HTTP وحده (أجهزةٌ كثيرة لا تتكلّم
+# TLS). فيُسجَّل ما يرسله هنا في القاعدة نفسِها، والجهازُ يعمل على الاثنين.
+app.register_blueprint(adms_bp, url_prefix='/iclock', name='adms_iclock')
 app.register_blueprint(eos_bp)
 from routes.payroll_routes import payroll_bp
 app.register_blueprint(payroll_bp)
@@ -287,10 +291,21 @@ def inject_version():
 
 
 from flask import request, redirect, url_for, flash, render_template
+ADMS_DEVICE_ENDPOINTS = frozenset(
+    f'{bp}.{ep}' for bp in ('adms_mgr', 'adms_iclock')
+    for ep in ('cdata', 'get_request', 'device_cmd', 'registry'))
+
+
 @app.before_request
 def check_license_globally():
     # Allow assets, static files, login/logout, and the license page itself
     if request.endpoint in ['main.license_page', 'auth.login', 'auth.logout', 'auth.reset_password', 'static'] or request.path.startswith('/static/'):
+        return
+    # بروتوكولُ جهاز البصمة: الجهازُ لا يتبع تحويلةً إلى صفحة الترخيص، فتضيع
+    # بصماتُه. وخادمُ البصمة المستقلّ (adms_server) لا يفحص الترخيص أصلًا —
+    # فالمسارُ نفسُه عبر الويب لا يُعامَل بغير ما يُعامَل به هناك. شاشاتُ
+    # ADMS الإداريّة تبقى خلف الترخيص.
+    if request.endpoint in ADMS_DEVICE_ENDPOINTS:
         return
 
     # Check license
