@@ -8766,7 +8766,7 @@ msgid "x.eosp_leave_days_in"
 msgstr "Leave balance (days) — auto-suggested, review before saving"
 
 msgid "x.eosp_legal"
-msgstr "Computed per Kuwait Labor Law 6/2010 (26-day basis; 15 days/yr first five years then one month/yr; 18-month cap; resignation tiers). Internal document, not legal advice."
+msgstr "Computed per Kuwait Labor Law 6/2010 (26-day basis; 15 days/yr first five years then one month/yr; 18-month cap; resignation tiers; Art. 41 forfeits the indemnity; for Kuwaitis the PIFSS-paid part is deducted). Internal document, not legal advice."
 
 msgid "x.f_eos_bad_dates"
 msgstr "Invalid dates for the EOS computation"
@@ -9493,3 +9493,72 @@ msgstr "warning"
 
 msgid "x.late_policy_actual_time"
 msgstr "actual time"
+
+msgid "x.eos_resign_marriage"
+msgstr "Female worker resigning within one year of marriage (full)"
+
+msgid "x.eos_resign_art48"
+msgstr "Resignation for employer breach — Art. 48 (full)"
+
+msgid "x.eos_art41"
+msgstr "Dismissal — Art. 41 (no indemnity)"
+
+msgid "x.eos_art41_clause"
+msgstr "Article 41 clause"
+
+msgid "x.eos_art41_a"
+msgstr "(a) Serious misconduct"
+
+msgid "x.eos_art41_b"
+msgstr "(b) Act against honour, trust or morals"
+
+msgid "x.eos_art41_c"
+msgstr "(c) Breach of public morals at the workplace"
+
+msgid "x.eos_art41_d"
+msgstr "(d) Assault on a colleague or the employer"
+
+msgid "x.eos_art41_e"
+msgstr "(e) Breach of statutory, contractual or regulatory duties"
+
+msgid "x.eos_art41_warning"
+msgstr "Forfeits indemnity, notice and compensation. Keep the evidence (investigation, warning, report): the burden of proof is on the employer."
+
+msgid "x.eos_art41_evidence"
+msgstr "Incident and evidence (required)"
+
+msgid "x.eos_pifss"
+msgstr "Social insurance (PIFSS) deduction — Kuwaitis"
+
+msgid "x.eos_pifss_hint"
+msgstr "Kuwaiti employees only: what the employer paid PIFSS toward the indemnity, from the PIFSS statement. Deducted from the indemnity, not from leave pay."
+
+msgid "x.eos_pifss_kuwaiti"
+msgstr "Kuwaiti employee: the employer pays only the difference between the indemnity and what was paid to PIFSS — enter the amount from the PIFSS statement."
+
+msgid "x.eos_hint_resignation"
+msgstr "Under 3 yrs: none · 3 to 5 yrs: half · over 5 and under 10: two-thirds · 10+: full."
+
+msgid "x.eos_hint_marriage"
+msgstr "Full indemnity regardless of service length, if within one year of marriage."
+
+msgid "x.eos_hint_art48"
+msgstr "Full indemnity: unpaid wages, work outside the contract, assault, or safety hazard (Art. 48)."
+
+msgid "x.eos_hint_art41"
+msgstr "No indemnity. The clause, the incident and the evidence are required."
+
+msgid "x.eosp_before_pifss"
+msgstr "Indemnity before PIFSS"
+
+msgid "x.f_eos_bad_reason"
+msgstr "Unknown termination reason"
+
+msgid "x.f_eos_art41_clause"
+msgstr "Art. 41 dismissal requires the clause"
+
+msgid "x.f_eos_art41_evidence"
+msgstr "Art. 41 dismissal requires the incident and evidence in the notes"
+
+msgid "x.f_eos_marriage_female"
+msgstr "Marriage resignation applies to female workers only"

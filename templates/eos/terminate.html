@@ -24,13 +24,34 @@
                         <label class="form-label">{{ _('x.termination_reason') }}</label>
                         <select name="reason" id="reason" class="form-select" required>
                             <option value="resignation">{{ _('x.resignation') }}</option>
+                            <option value="resignation_marriage">{{ _('x.eos_resign_marriage') }}</option>
+                            <option value="resignation_art48">{{ _('x.eos_resign_art48') }}</option>
                             <option value="termination">{{ _('x.dismissal') }}</option>
+                            <option value="art41">{{ _('x.eos_art41') }}</option>
                             <option value="retirement">{{ _('x.retirement') }}</option>
                             <option value="contract_end">{{ _('x.contract_end') }}</option>
                             <option value="death">{{ _('x.eos_death') }}</option>
                             <option value="disability">{{ _('x.eos_disability') }}</option>
                             <option value="other">{{ _('x.other') }}</option>
                         </select>
+                        <div class="form-text" id="reasonHint"></div>
+                    </div>
+
+                    <div class="col-md-6 mb-3 d-none" id="art41Box">
+                        <label class="form-label">{{ _('x.eos_art41_clause') }}</label>
+                        <select name="art41_clause" id="art41_clause" class="form-select">
+                            <option value="">—</option>
+                            {% for k in ['a','b','c','d','e'] %}
+                            <option value="{{ k }}">{{ k|art41_clause }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text text-danger">{{ _('x.eos_art41_warning') }}</div>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">{{ _('x.eos_pifss') }}</label>
+                        <input type="number" step="0.001" min="0" class="form-control font-monospace" name="pifss_deduction" id="pifss_deduction" placeholder="0.000">
+                        <div class="form-text" id="pifssHint">{{ _('x.eos_pifss_hint') }}</div>
                     </div>
                         <div class="mb-3">
                             <label class="form-label">{{ _('x.eosp_leave_days_in') }}</label>
@@ -49,8 +70,8 @@
                     </div>
 
                     <div class="col-md-12 mb-3">
-                        <label class="form-label">{{ _('x.notes') }}</label>
-                        <textarea name="notes" class="form-control" rows="2"></textarea>
+                        <label class="form-label">{{ _('x.notes') }} <span class="text-danger d-none" id="notesReq">— {{ _('x.eos_art41_evidence') }}</span></label>
+                        <textarea name="notes" id="notes" class="form-control" rows="2"></textarea>
                     </div>
                 </div>
 
@@ -108,16 +129,41 @@ document.addEventListener('DOMContentLoaded', function() {
 
     btnCalc.addEventListener('click', calculateEos);
 
+    const HINTS = {
+        resignation: {{ _('x.eos_hint_resignation')|tojson }},
+        resignation_marriage: {{ _('x.eos_hint_marriage')|tojson }},
+        resignation_art48: {{ _('x.eos_hint_art48')|tojson }},
+        art41: {{ _('x.eos_hint_art41')|tojson }}
+    };
+    function onReason() {
+        const r = reasonSelect.value, art41 = r === 'art41';
+        document.getElementById('art41Box').classList.toggle('d-none', !art41);
+        document.getElementById('art41_clause').required = art41;
+        document.getElementById('notes').required = art41;
+        document.getElementById('notesReq').classList.toggle('d-none', !art41);
+        document.getElementById('reasonHint').textContent = HINTS[r] || '';
+        calculateEos();
+    }
+    reasonSelect.addEventListener('change', onReason);
+    termDateInput.addEventListener('change', calculateEos);
+    ['leave_days', 'pifss_deduction'].forEach(id =>
+        document.getElementById(id).addEventListener('change', calculateEos));
+
     function calculateEos() {
         const empId = empSelect.value;
         const termDate = termDateInput.value;
         const reason = reasonSelect.value;
-        
+
         if (!empId || !termDate || !reason) {
             return;
         }
-        
-        fetch(`/api/eos/calculate?employee_id=${empId}&termination_date=${termDate}&reason=${reason}`)
+        const q = new URLSearchParams({employee_id: empId, termination_date: termDate, reason: reason});
+        const ld = document.getElementById('leave_days').value;
+        const pf = document.getElementById('pifss_deduction').value;
+        if (ld !== '') q.set('leave_days', ld);
+        if (pf !== '') q.set('pifss_deduction', pf);
+
+        fetch('/api/eos/calculate?' + q.toString())
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
@@ -125,10 +171,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     document.getElementById('years_worked').value = data.years_worked;
                     document.getElementById('reward_amount').value = data.reward_amount;
+                    const c = data.calc || {};
+                    document.getElementById('pifssHint').textContent = c.is_kuwaiti
+                        ? {{ _('x.eos_pifss_kuwaiti')|tojson }}
+                        : {{ _('x.eos_pifss_hint')|tojson }};
                 }
             })
             .catch(error => console.error('Error:', error));
     }
+    onReason();
 });
 </script>
 {{ employee_picker_assets() }}

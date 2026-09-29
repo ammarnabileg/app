@@ -37,11 +37,7 @@
                             <td>{{ record.department }}</td>
                             <td>{{ record.termination_date }}</td>
                             <td>
-                                {% if record.reason == 'resignation' %}{{ _('x.resignation') }}{% endif %}
-                                {% if record.reason == 'termination' %}{{ _('x.dismissal') }}{% endif %}
-                                {% if record.reason == 'retirement' %}{{ _('x.retirement') }}{% endif %}
-                                {% if record.reason == 'contract_end' %}{{ _('x.contract_end') }}{% endif %}
-                                {% if record.reason == 'other' %}{{ _('x.other') }}{% endif %}
+                                {{ record.reason|eos_reason }}
                             </td>
                             <td>{{ "%.2f"|format(record.years_of_service) }}</td>
                             <td class="text-success fw-bold">{{ "%.3f"|format(record.reward_amount) }}</td>

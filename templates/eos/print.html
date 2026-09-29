@@ -36,10 +36,17 @@
     <span><b>{{ r.employee_number }}</b> — {{ r.arabic_name or r.name }}</span>
     <span>{{ r.department or '' }} / {{ r.position or '' }}</span>
     <span>{{ _('x.hp_date') }}: {{ r.hire_date }} ← {{ r.termination_date }}</span>
-    <span>{{ _('x.eosp_reason') }}: {{ _('x.' + r.reason) }}</span>
+    <span>{{ _('x.eosp_reason') }}: {{ r.reason|eos_reason }}</span>
     <span>{{ _('x.years_of_service') }}: <b>{{ '%.2f'|format(r.years_of_service or 0) }}</b>
         {% if c.service_days %}({{ c.service_days }} {{ _('x.day_unit_pl') }}){% endif %}</span>
 </div>
+
+{% if r.reason == 'art41' %}
+<div class="box" style="border-color:#b02a37">
+    <b>{{ _('x.eos_art41_clause') }}:</b> {{ c.art41_clause|art41_clause or '—' }}
+    <div style="font-size:12.5px;margin-top:4px"><b>{{ _('x.eos_art41_evidence') }}:</b> {{ r.notes or '—' }}</div>
+</div>
+{% endif %}
 
 {% if not legacy %}
 <table>
@@ -71,6 +78,12 @@
             <td class="n">{{ '%.3f'|format(c.gross_gratuity or 0) }}</td></tr>
         <tr><td>{{ _('x.eosp_fraction') }}</td>
             <td class="n">{{ '%.2f'|format((r.fraction or 0) * 100) }}%</td></tr>
+        {% if c.pifss_deduction %}
+        <tr><td>{{ _('x.eosp_before_pifss') }}</td>
+            <td class="n">{{ '%.3f'|format(c.gratuity_before_pifss or 0) }}</td></tr>
+        <tr><td class="neg">{{ _('x.eos_pifss') }}</td>
+            <td class="n neg">− {{ '%.3f'|format(c.pifss_deduction) }}</td></tr>
+        {% endif %}
         <tr class="net"><td class="pos">{{ _('x.eosp_gratuity_net') }}</td>
             <td class="n pos">{{ '%.3f'|format(r.gratuity_amount or 0) }}</td></tr>
     </tbody>
@@ -96,7 +109,7 @@
     </tbody>
 </table>
 
-{% if r.notes %}<div class="box muted">{{ _('x.notes') }}: {{ r.notes }}</div>{% endif %}
+{% if r.notes and r.reason != 'art41' %}<div class="box muted">{{ _('x.notes') }}: {{ r.notes }}</div>{% endif %}
 <div class="muted">{{ _('x.eosp_legal') }}</div>
 
 <div class="sig">

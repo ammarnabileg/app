@@ -9,29 +9,96 @@ from utils.rbac import require_permission
 eos_bp = Blueprint('eos', __name__)
 
 EOS_FULL_REASONS = ('termination', 'retirement', 'contract_end',
-                    'death', 'disability')
+                    'death', 'disability', 'resignation_marriage',
+                    'resignation_art48')
+
+# سببُ الإنهاء ← مفتاحُ ترجمته. الطباعةُ والسجلّ يقرآن من هنا.
+EOS_REASONS = {
+    'resignation': 'x.resignation',
+    'resignation_marriage': 'x.eos_resign_marriage',
+    'resignation_art48': 'x.eos_resign_art48',
+    'termination': 'x.dismissal',
+    'art41': 'x.eos_art41',
+    'retirement': 'x.retirement',
+    'contract_end': 'x.contract_end',
+    'death': 'x.eos_death',
+    'disability': 'x.eos_disability',
+    'other': 'x.other',
+}
+
+# بنودُ المادة 41 — الفصلُ بلا مكافأة لا يُقبل بغير بندٍ منها ودليل.
+ART41_CLAUSES = {
+    'a': 'x.eos_art41_a', 'b': 'x.eos_art41_b', 'c': 'x.eos_art41_c',
+    'd': 'x.eos_art41_d', 'e': 'x.eos_art41_e',
+}
+
+KUWAITI = {'kuwait', 'kuwaiti', 'kw', 'kwt', 'كويت', 'كويتي', 'كويتية',
+           'الكويت'}
+
+
+def is_kuwaiti(nationality):
+    return (nationality or '').strip().lower() in KUWAITI
+
+
+@eos_bp.app_template_filter('eos_reason')
+def eos_reason_label(code):
+    return gettext(EOS_REASONS.get(code or '', 'x.other'))
+
+
+@eos_bp.app_template_filter('art41_clause')
+def art41_clause_label(code):
+    key = ART41_CLAUSES.get(code or '')
+    return gettext(key) if key else ''
 
 
 def _eos_fraction(reason, years):
-    """Kuwaiti entitlement fraction: resignation tiers, otherwise full."""
+    """نسبةُ الاستحقاق (المواد 41، 48، 51، 52، 53).
+
+    - المادة 41: فصلٌ لخطأ جسيم → لا مكافأة.
+    - الاستقالة: أقلُّ من 3 سنوات لا شيء، ومن 3 **إلى 5 شاملةً** النصف،
+      وما زاد على 5 وقلّ عن 10 الثلثان، و10 فأكثر كاملة.
+    - الاستقالةُ خلال سنةٍ من الزواج (للعاملة) أو لإخلال صاحب العمل
+      (المادة 48) → كاملة، كسائر الأسباب.
+    """
+    if reason == 'art41':
+        return 0.0
     if reason != 'resignation':
         return 1.0
     if years < 3:
         return 0.0
-    if years < 5:
+    if years <= 5:
         return 0.5
     if years < 10:
         return 2.0 / 3.0
     return 1.0
 
 
+def _anniversary(d, n):
+    try:
+        return d.replace(year=d.year + n)
+    except ValueError:          # 29 فبراير في سنةٍ غير كبيسة
+        return d.replace(year=d.year + n, day=28)
+
+
+def _service_years(hire, term):
+    """السنواتُ بالتقويم لا بقسمة 365: من 2021-01-01 إلى 2026-01-01 خمسُ
+    سنواتٍ تمامًا — والقسمةُ تجعلها 5.003 فتنقل المستقيلَ من النصف إلى الثلثين."""
+    full = term.year - hire.year - ((term.month, term.day) < (hire.month, hire.day))
+    last, nxt = _anniversary(hire, full), _anniversary(hire, full + 1)
+    return full + (term - last).days / float((nxt - last).days)
+
+
 def compute_kuwait_eos(conn, employee_id, termination_date, reason,
-                       leave_days=None):
+                       leave_days=None, pifss=None):
     """Kuwaiti end-of-service on the /26 basis: 15 days/year for the first
     five years, one month/year afterwards, 18-month cap, pro-rata
     fractions. Wage = basic + active fixed recurring earnings. Leave
     balance pays at the daily rate outside the resignation fraction.
-    Outstanding loans are deducted and settled."""
+    Outstanding loans are deducted and settled.
+
+    `pifss`: للكويتيّ — ما دفعه صاحبُ العمل للتأمينات عن المكافأة (من كشف
+    المؤسسة). صاحبُ العمل يدفع الفرقَ فقط، فيُطرح من المكافأة ولا ينزلها
+    تحت الصفر، ولا يمسّ رصيدَ الإجازات."""
     emp = conn.execute('SELECT * FROM employees WHERE id = ?',
                        (employee_id,)).fetchone()
     if not emp:
@@ -44,7 +111,7 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
     days = (term - hire).days
     if days <= 0:
         return None
-    years = days / 365.0
+    years = _service_years(hire, term)
 
     from utils.payroll_engine import fetch_fixed_earnings
     basic = float(emp['salary'] or 0)
@@ -66,6 +133,13 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
     gross = pay_days * daily
     fraction = _eos_fraction(reason, years)
     gratuity = gross * fraction
+    gratuity_before_pifss = gratuity
+    try:
+        pifss_amt = max(0.0, float(pifss or 0))
+    except (TypeError, ValueError):
+        pifss_amt = 0.0
+    pifss_amt = min(pifss_amt, gratuity)
+    gratuity -= pifss_amt
 
     from utils.leave_balance import compute_leave_balance
     _bal = compute_leave_balance(conn, employee_id, as_of=termination_date)
@@ -100,6 +174,10 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
             'pay_days': round(pay_days, 2),
             'gross_gratuity': round(gross, 3),
             'fraction': round(fraction, 4),
+            'reason': reason,
+            'is_kuwaiti': is_kuwaiti(emp['nationality'] if 'nationality' in emp.keys() else None),
+            'gratuity_before_pifss': round(gratuity_before_pifss, 3),
+            'pifss_deduction': round(pifss_amt, 3),
             'gratuity': round(gratuity, 3),
             'suggested_leave_days': suggested_leave,
             'leave_days': round(use_leave, 2),
@@ -107,6 +185,22 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
             'loans': loans,
             'loans_total': round(loans_total, 3),
             'net': round(net, 3)}
+
+def _validate_reason(emp, reason, clause, notes):
+    """يعيد مفتاحَ رسالة الخطأ، أو None."""
+    if reason not in EOS_REASONS:
+        return 'x.f_eos_bad_reason'
+    if reason == 'art41':
+        if clause not in ART41_CLAUSES:
+            return 'x.f_eos_art41_clause'
+        if not (notes or '').strip():
+            return 'x.f_eos_art41_evidence'
+    if reason == 'resignation_marriage':
+        g = (emp['gender'] if 'gender' in emp.keys() else '') or ''
+        if g.strip().lower() in ('male', 'm', 'ذكر'):
+            return 'x.f_eos_marriage_female'
+    return None
+
 
 @eos_bp.route('/eos/terminate', methods=['GET', 'POST'])
 @login_required
@@ -124,14 +218,23 @@ def terminate_employee():
             flash(gettext('x.f_employee_not_found'), "danger")
             return redirect(url_for('eos.terminate_employee'))
             
+        err = _validate_reason(emp, reason, request.form.get('art41_clause'),
+                               notes)
+        if err:
+            flash(gettext(err), "danger")
+            return redirect(url_for('eos.terminate_employee'))
+
         ld = request.form.get('leave_days')
         calc = compute_kuwait_eos(conn, int(employee_id), termination_date,
                                   reason,
                                   leave_days=(None if ld in (None, '')
-                                              else ld))
+                                              else ld),
+                                  pifss=request.form.get('pifss_deduction'))
         if not calc:
             flash(gettext('x.f_eos_bad_dates'), "danger")
             return redirect(url_for('eos.terminate_employee'))
+        if reason == 'art41':
+            calc['art41_clause'] = request.form.get('art41_clause')
 
         import json as _j
         cur = conn.execute('''
@@ -167,7 +270,7 @@ def terminate_employee():
                                '', str(termination_date), 'status',
                                user_id=session.get('user_id'),
                                source='eos_settlement',
-                               note=gettext('x.' + reason) if reason else None)
+                               note=eos_reason_label(reason) if reason else None)
         except Exception as _e:
             print(f'audit log failed on EOS: {_e}')
         conn.commit()
@@ -195,7 +298,8 @@ def api_calculate_eos():
     conn = get_db_connection()
     ld = request.args.get('leave_days')
     calc = compute_kuwait_eos(conn, int(emp_id), term_date, reason,
-                              leave_days=(None if ld in (None, '') else ld))
+                              leave_days=(None if ld in (None, '') else ld),
+                              pifss=request.args.get('pifss_deduction'))
     if not calc:
         return jsonify({"error": "Employee not found or bad dates"}), 404
     return jsonify({"years_worked": calc['years'],
