@@ -71,7 +71,7 @@ def get_salary_settings_v2(conn):
             'daily_rate_basis': '26',
             'grace_early_minutes': '5',
             'grace_late_minutes': '10',
-            'overtime_round_to_minutes': '15',
+            'overtime_round_to_minutes': '0',
             'overtime_cap_monthly_hours': '60',
             'weekday_ot_multiplier': '1.25',
             'weekend_ot_multiplier': '1.5',
@@ -82,7 +82,7 @@ def get_salary_settings_v2(conn):
             'leave_migration_cutoff_date': '',
             'late_arrival_policy': 'actual_time',
             'early_departure_policy': 'actual_time',
-            'missing_punch_policy': 'invalid',
+            'missing_punch_policy': 'penalty_tiered',
             'missing_punch_penalty_1': '0',
             'missing_punch_penalty_2': '0.25',
             'missing_punch_penalty_3': '1.0',
@@ -96,6 +96,11 @@ def get_salary_settings_v2(conn):
             'presence_penalty_monthly_cap_days': '5',
             'hourly_perm_max_hours_per_day': '2',
             'hourly_perm_max_days_per_month': '4',
+            'penalty_monthly_cap_days': '5',
+            'pifss_enabled': '0',
+            'pifss_employee_pct': '10.5',
+            'pifss_employer_pct': '11.5',
+            'pifss_salary_cap': '2750',
         }
         
         # دمج الإعدادات المحفوظة مع الافتراضية

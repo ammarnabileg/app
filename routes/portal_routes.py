@@ -505,10 +505,14 @@ def api_request_leave():
         if days_count <= 0:
             days_count = 1
         
-        # Check leave balance — start_dt مفكوك ومُتحقَّق منه أعلاه
-        bal = calculate_leave_balance(conn, emp_id, start_dt.month, start_dt.year)
-        available = bal.get('closing_balance', 0) if bal else 0
-        is_paid = (available >= days_count)
+        # مدفوعةٌ أم لا، ومرفوضةٌ أم لا — بقواعد القانون (utils/labor_law).
+        # والموظّفُ لا يطلب السنويّةَ قبل تسعة أشهر ولا ما تجاوز حدَّه.
+        from utils.labor_law import leave_decision, decision_message
+        _lt = conn.execute('SELECT * FROM leave_types WHERE id = ?', (leave_type_id,)).fetchone()
+        dec = leave_decision(conn, emp_id, _lt, start_date, end_date, days_count, portal=True)
+        if dec['error']:
+            return jsonify({'success': False, 'message': decision_message(dec['error'])}), 400
+        is_paid = dec['paid']
         
         cursor = conn.cursor()
         cursor.execute('''

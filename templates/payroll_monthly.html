@@ -30,6 +30,13 @@
         </div>
     </div>
 
+    {% if law_issues %}
+    <div class="alert alert-warning d-flex justify-content-between align-items-center py-2" id="lawBanner">
+        <span><i class="fas fa-balance-scale me-2"></i>{{ _('x.lw_banner', n=law_issues) }}</span>
+        <a class="btn btn-sm btn-outline-dark" href="{{ url_for('labor_law.check') }}">{{ _('x.lw_open_check') }}</a>
+    </div>
+    {% endif %}
+
     <div class="row g-2 align-items-end mb-3">
         <div class="col-auto">
             <label class="form-label small text-muted mb-1">{{ _('x.p_month') }}</label>
@@ -112,6 +119,13 @@
     const PM_UNLOCK_API = {{ url_for('payroll.api_run_unlock')|tojson }};
     const PM_CAN_LOCK = {{ has_permission('salary.approve_run')|tojson }};
     const T = {
+        law: {
+            ot_month_cap: {{ _('x.lw_ot_month_cap')|tojson }},
+            ot_day_2h: {{ _('x.lw_ot_day_2h')|tojson }},
+            ot_week_3d: {{ _('x.lw_ot_week_3d')|tojson }},
+            ot_year_180: {{ _('x.lw_ot_year_180')|tojson }},
+            penalty_capped: {{ _('x.lw_penalty_capped')|tojson }}
+        },
         earning: {{ _('x.tx_kind_earning')|tojson }},
         deduction: {{ _('x.tx_kind_deduction')|tojson }},
         noItems: {{ _('x.no_items')|tojson }},
@@ -156,6 +170,17 @@
     function iName(o) { return PM_AR ? (o.arabic_name || o.name) : (o.name || o.arabic_name); }
     function itName(o) { return PM_AR ? o.name_ar : o.name_en; }
 
+    function lawText(w) {
+        return (T.law[w.code] || w.code).replace(/\{(\w+)\}/g, (_, k) => (w[k] ?? ''));
+    }
+    function lawBadge(r) {
+        const ws = r.law_warnings || [];
+        if (!ws.length) return '';
+        return '<div class="small text-warning-emphasis mt-1 law-warn">'
+            + ws.map(w => '<div><i class="fas fa-balance-scale me-1"></i>' + esc(lawText(w)) + '</div>').join('')
+            + '</div>';
+    }
+
     function detailList(items) {
         if (!items.length) return '<div class="text-muted small">' + esc(T.noItems) + '</div>';
         return items.map(i => `
@@ -188,6 +213,7 @@
                 <td>
                     <div class="fw-semibold">${esc(iName(r))}</div>
                     <div class="text-muted small">#${esc(r.employee_number)}</div>
+                    ${lawBadge(r)}
                 </td>
                 <td class="text-center">${hrs(r.required_hours)}</td>
                 <td class="text-center">${hrs(r.actual_hours)}

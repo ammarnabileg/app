@@ -451,7 +451,7 @@
                 <div class="card">
                     <div class="card-header"><i class="fas fa-business-time me-2"></i>{{ _('header.overtime_settings') }}</div>
                     <div class="card-body row g-3">
-                        <div class="col-md-4"><label class="form-label">{{ _('label.weekday_ot_multiplier') }}</label><input type="number" step="0.05" class="form-control" name="weekday_ot_multiplier" value="{{ sal.get('weekday_ot_multiplier', '1.25') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.weekend_ot_multiplier') }}</label><input type="number" step="0.05" class="form-control" name="weekend_ot_multiplier" value="{{ sal.get('weekend_ot_multiplier', '1.5') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.holiday_ot_multiplier') }}</label><input type="number" step="0.05" class="form-control" name="holiday_ot_multiplier" value="{{ sal.get('holiday_ot_multiplier', '2.0') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.overtime_round_to_minutes') }}</label><input type="number" step="1" class="form-control" name="overtime_round_to_minutes" value="{{ sal.get('overtime_round_to_minutes', '15') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.overtime_cap_monthly_hours') }}</label><input type="number" step="1" class="form-control" name="overtime_cap_monthly_hours" value="{{ sal.get('overtime_cap_monthly_hours', '60') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.rounding_display_decimals') }}</label><input type="number" step="1" class="form-control" name="rounding_display_decimals" value="{{ sal.get('rounding_display_decimals', '2') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.daily_rate_basis') }}</label><select class="form-select" name="daily_rate_basis">
+                        <div class="col-md-4"><label class="form-label">{{ _('label.weekday_ot_multiplier') }}</label><input type="number" step="0.05" class="form-control" name="weekday_ot_multiplier" value="{{ sal.get('weekday_ot_multiplier', '1.25') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.weekend_ot_multiplier') }}</label><input type="number" step="0.05" class="form-control" name="weekend_ot_multiplier" value="{{ sal.get('weekend_ot_multiplier', '1.5') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.holiday_ot_multiplier') }}</label><input type="number" step="0.05" class="form-control" name="holiday_ot_multiplier" value="{{ sal.get('holiday_ot_multiplier', '2.0') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.overtime_round_to_minutes') }}</label><input type="number" step="1" class="form-control" name="overtime_round_to_minutes" value="{{ sal.get('overtime_round_to_minutes', '0') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.overtime_cap_monthly_hours') }}</label><input type="number" step="1" class="form-control" name="overtime_cap_monthly_hours" value="{{ sal.get('overtime_cap_monthly_hours', '60') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.rounding_display_decimals') }}</label><input type="number" step="1" class="form-control" name="rounding_display_decimals" value="{{ sal.get('rounding_display_decimals', '2') }}"></div><div class="col-md-4"><label class="form-label">{{ _('label.daily_rate_basis') }}</label><select class="form-select" name="daily_rate_basis">
 <option value="30" {% if sal.get('daily_rate_basis','30')=='30' %}selected{% endif %}>{{ _('opt.basis_30') }}</option>
 <option value="26" {% if sal.get('daily_rate_basis','30')=='26' %}selected{% endif %}>{{ _('opt.basis_26') }}</option>
 <option value="working" {% if sal.get('daily_rate_basis','30')=='working' %}selected{% endif %}>{{ _('opt.basis_working') }}</option>
@@ -566,6 +566,34 @@
                                                name="presence_penalty_monthly_cap_days" value="{{ sal.get('presence_penalty_monthly_cap_days', '5') }}"></div>
                                 </div>
                                 <div class="text-muted small mt-1">{{ _('x.set_presence_cap_hint') }}</div>
+                            </div>
+                        </div>
+                        <div class="col-12" id="lawSettingsBox">
+                            <div class="border rounded p-2">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="small fw-bold"><i class="fas fa-balance-scale me-1"></i>{{ _('x.set_law_h') }}</div>
+                                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('labor_law.check') }}">{{ _('x.lc_title') }}</a>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-3"><label class="form-label small">{{ _('x.set_penalty_cap') }}</label>
+                                        <input type="number" step="0.5" min="0" max="30" class="form-control"
+                                               name="penalty_monthly_cap_days" value="{{ sal.get('penalty_monthly_cap_days', '5') }}"></div>
+                                    <div class="col-md-3"><label class="form-label small">{{ _('x.set_pifss_enabled') }}</label>
+                                        <select class="form-select" name="pifss_enabled">
+                                            <option value="0" {% if sal.get('pifss_enabled', '0') != '1' %}selected{% endif %}>{{ _('x.set_off') }}</option>
+                                            <option value="1" {% if sal.get('pifss_enabled') == '1' %}selected{% endif %}>{{ _('x.set_on') }}</option>
+                                        </select></div>
+                                    <div class="col-md-2"><label class="form-label small">{{ _('x.set_pifss_emp') }}</label>
+                                        <input type="number" step="0.01" min="0" max="50" class="form-control"
+                                               name="pifss_employee_pct" value="{{ sal.get('pifss_employee_pct', '10.5') }}"></div>
+                                    <div class="col-md-2"><label class="form-label small">{{ _('x.set_pifss_er') }}</label>
+                                        <input type="number" step="0.01" min="0" max="50" class="form-control"
+                                               name="pifss_employer_pct" value="{{ sal.get('pifss_employer_pct', '11.5') }}"></div>
+                                    <div class="col-md-2"><label class="form-label small">{{ _('x.set_pifss_cap') }}</label>
+                                        <input type="number" step="1" min="0" class="form-control"
+                                               name="pifss_salary_cap" value="{{ sal.get('pifss_salary_cap', '2750') }}"></div>
+                                </div>
+                                <div class="text-muted small mt-1">{{ _('x.set_law_hint') }}</div>
                             </div>
                         </div>
                         <div class="col-md-4"><label class="form-label">{{ _('x.set_hp_hours') }}</label>

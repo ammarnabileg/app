@@ -9562,3 +9562,216 @@ msgstr "Art. 41 dismissal requires the incident and evidence in the notes"
 
 msgid "x.f_eos_marriage_female"
 msgstr "Marriage resignation applies to female workers only"
+
+msgid "x.lw_ot_month_cap"
+msgstr "Overtime {hours} h exceeds the monthly cap ({n}) — paid in full"
+
+msgid "x.lw_ot_day_2h"
+msgstr "{n} day(s) with more than 2 h overtime (Art. 66)"
+
+msgid "x.lw_ot_week_3d"
+msgstr "{n} week(s) with overtime on more than 3 days (Art. 66)"
+
+msgid "x.lw_ot_year_180"
+msgstr "Overtime this year {hours} h — over 180 (Art. 66)"
+
+msgid "x.lw_penalty_capped"
+msgstr "Penalties reduced by {amount} to the {n}-day wage cap"
+
+msgid "x.lw_banner"
+msgstr "Settings or data that breach the labor law: %(n)s"
+
+msgid "x.lw_open_check"
+msgstr "Open the law check"
+
+msgid "x.lc_title"
+msgstr "Labor law compliance"
+
+msgid "x.lc_intro"
+msgstr "Kuwait Labor Law 6/2010: what complies now and what needs your decision. Existing settings are never changed by an update, because that would change approved payroll."
+
+msgid "x.lc_article"
+msgstr "Art."
+
+msgid "x.lc_fix"
+msgstr "Fix"
+
+msgid "x.lc_disclaimer"
+msgstr "An automated check of settings and data, not legal advice."
+
+msgid "x.lc_ot_rounding"
+msgstr "Overtime is paid to the minute"
+
+msgid "x.lc_ot_rounding_fix"
+msgstr "Rounding down to %(n)s minutes drops up to %(n)s paid minutes a day. Set it to 0."
+
+msgid "x.lc_weekday_ot_multiplier"
+msgstr "Weekday overtime multiplier at least 1.25"
+
+msgid "x.lc_weekday_ot_multiplier_fix"
+msgstr "Set to %(n)s; the minimum is %(min)s."
+
+msgid "x.lc_weekend_ot_multiplier"
+msgstr "Rest-day work: at least 1.5 plus a compensatory day"
+
+msgid "x.lc_weekend_ot_multiplier_fix"
+msgstr "Set to %(n)s; the minimum is %(min)s."
+
+msgid "x.lc_holiday_ot_multiplier"
+msgstr "Holiday work: double pay plus a compensatory day"
+
+msgid "x.lc_holiday_ot_multiplier_fix"
+msgstr "Set to %(n)s; the minimum is %(min)s."
+
+msgid "x.lc_penalty_cap"
+msgstr "Penalties are capped monthly"
+
+msgid "x.lc_penalty_cap_fix"
+msgstr "The cap is %(n)s days of wage. Set it between 1 and 5."
+
+msgid "x.lc_missing_punch"
+msgstr "A missing punch is not counted as a day of absence"
+
+msgid "x.lc_missing_punch_fix"
+msgstr "The current policy deducts a full day per missing punch although the employee was present. Choose the tiered system."
+
+msgid "x.lc_pifss"
+msgstr "Social insurance (PIFSS) for Kuwaitis"
+
+msgid "x.lc_pifss_fix"
+msgstr "You have %(n)s Kuwaiti employee(s) and the PIFSS deduction is off. Turn it on in settings (unless you deduct it manually)."
+
+msgid "x.lc_min_wage"
+msgstr "No salary below the minimum wage"
+
+msgid "x.lc_min_wage_fix"
+msgstr "%(n)s employee(s) earn less than %(min)s KWD."
+
+msgid "x.lc_shift_hours"
+msgstr "No shift longer than 8 working hours"
+
+msgid "x.lc_shift_hours_fix"
+msgstr "Shifts over 8 hours: %(names)s"
+
+msgid "x.lc_shift_break"
+msgstr "A one-hour break after 5 consecutive hours"
+
+msgid "x.lc_shift_break_fix"
+msgstr "Shifts without a recorded break: %(names)s. Record the break minutes on the shift so they are deducted from actual hours."
+
+msgid "x.lc_holidays"
+msgstr "Official holidays entered for this year"
+
+msgid "x.lc_holidays_fix"
+msgstr "Entered for %(y)s: %(n)s day(s); usually about %(min)s. Add the Islamic holidays as announced by the Civil Service Commission."
+
+msgid "x.set_law_h"
+msgstr "Labor law: penalties and social insurance"
+
+msgid "x.set_penalty_cap"
+msgstr "Monthly penalty cap (days of wage)"
+
+msgid "x.set_pifss_enabled"
+msgstr "PIFSS deduction for Kuwaitis"
+
+msgid "x.set_off"
+msgstr "Off"
+
+msgid "x.set_on"
+msgstr "On"
+
+msgid "x.set_pifss_emp"
+msgstr "Employee share %%"
+
+msgid "x.set_pifss_er"
+msgstr "Employer share %%"
+
+msgid "x.set_pifss_cap"
+msgstr "Insurable salary cap"
+
+msgid "x.set_law_hint"
+msgstr "The cap covers only what exceeds actual time (a quarter day for 13 minutes late, missing punches, presence penalties) — deducting time not worked is not capped. The rates are common values: check them against your PIFSS statement."
+
+msgid "x.lv_err_female_only"
+msgstr "This leave applies to female workers only"
+
+msgid "x.lv_err_max_days"
+msgstr "This leave cannot exceed %(n)s days"
+
+msgid "x.lv_err_hajj_service"
+msgstr "Hajj leave requires two years of continuous service"
+
+msgid "x.lv_err_hajj_once"
+msgstr "Hajj leave is granted once during service"
+
+msgid "x.lv_err_comp_balance"
+msgstr "Compensatory rest balance is %(n)s day(s)"
+
+msgid "x.lv_err_service_months"
+msgstr "This leave is not due before %(n)s months of service"
+
+msgid "x.lv_warn_service_months"
+msgstr "The employee has not completed %(n)s months — granted as an advance at the employer's discretion"
+
+msgid "x.lv_warn_unpaid_balance"
+msgstr "Balance of %(n)s day(s) is not enough — recorded as unpaid"
+
+msgid "x.lv_hint_hajj"
+msgstr "Hajj: 21 paid days, once, after two years of service. Not deducted from annual leave."
+
+msgid "x.lv_hint_maternity"
+msgstr "Maternity: 70 paid days. Anything beyond (up to 4 months) is unpaid leave."
+
+msgid "x.lv_hint_bereavement"
+msgstr "Bereavement: 3 paid days on the death of a spouse or a relative up to the second degree."
+
+msgid "x.lv_hint_iddah"
+msgstr "Iddah: 4 months and 10 days paid for a Muslim widow, 21 days for a non-Muslim."
+
+msgid "x.lv_hint_comp_rest"
+msgstr "Compensatory rest for work on a rest day or holiday. Balance:"
+
+msgid "x.eos_notice_served"
+msgstr "Notice days served (of 90)"
+
+msgid "x.eos_notice_waived"
+msgstr "Employer waives notice pay"
+
+msgid "x.eos_notice_hint"
+msgstr "Blank = no notice pay. Art. 44: 3 months; the party ending the contract without it pays the wage for the shortfall."
+
+msgid "x.eos_notice_probation"
+msgstr "In probation: no notice (Art. 32)."
+
+msgid "x.eos_notice_amount"
+msgstr "Notice pay:"
+
+msgid "x.eosp_notice"
+msgstr "Pay in lieu of notice (Art. 44)"
+
+msgid "x.probation_end_date"
+msgstr "Probation end date"
+
+msgid "x.probation_end_hint"
+msgstr "At most 100 working days from hiring (Art. 32)."
+
+msgid "x.f_probation_bad_date"
+msgstr "Probation end date is invalid or before the hire date"
+
+msgid "x.f_probation_too_long"
+msgstr "Probation cannot exceed 100 working days — latest allowed date %(d)s"
+
+msgid "x.f_min_wage"
+msgstr "Warning: salary is below the minimum wage (%(n)s KWD)"
+
+msgid "x.sw_over_8"
+msgstr "Warning: the shift is over %(n)s working hours (Art. 64)"
+
+msgid "x.sw_no_break"
+msgstr "Warning: no %(n)s-minute break after 5 consecutive hours (Art. 65)"
+
+msgid "x.sh_break_minutes"
+msgstr "Break (minutes)"
+
+msgid "x.sh_break_hint"
+msgstr "Deducted from actual hours when the day exceeds 5 hours (Art. 65)."

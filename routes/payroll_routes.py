@@ -342,7 +342,14 @@ def monthly_sheet():
     now = datetime.now()
     month = int(request.args.get('month', now.month))
     year = int(request.args.get('year', now.year))
-    return render_template('payroll_monthly.html', month=month, year=year)
+    try:
+        from utils.labor_law import compliance_checks
+        law_issues = sum(1 for c in compliance_checks(get_db_connection()) if not c['ok'])
+    except Exception as _e:
+        print(f'labor law checks failed: {_e}')
+        law_issues = 0
+    return render_template('payroll_monthly.html', month=month, year=year,
+                           law_issues=law_issues)
 
 
 @payroll_bp.route('/api/payroll/monthly')

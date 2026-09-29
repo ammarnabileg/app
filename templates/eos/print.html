@@ -103,6 +103,10 @@
             <td class="n pos">{{ '%.3f'|format(r.leave_amount or 0) }}</td></tr>
         <tr><td class="neg">{{ _('x.eosp_loans') }}</td>
             <td class="n neg">− {{ '%.3f'|format(r.loans_deducted or 0) }}</td></tr>
+        {% if c.notice_amount %}
+        <tr><td class="{{ 'pos' if c.notice_amount > 0 else 'neg' }}">{{ _('x.eosp_notice') }} ({{ c.notice_short_days }} {{ _('x.day_unit_pl') }})</td>
+            <td class="n {{ 'pos' if c.notice_amount > 0 else 'neg' }}">{{ '%.3f'|format(c.notice_amount) }}</td></tr>
+        {% endif %}
         {% endif %}
         <tr class="net"><td>{{ _('x.eosp_net') }}</td>
             <td class="n">{{ '%.3f'|format(r.net_payout or 0) }} {{ currency }}</td></tr>

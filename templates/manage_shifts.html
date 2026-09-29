@@ -102,6 +102,11 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label">{{ _('x.sh_break_minutes') }}</label>
+                            <input type="number" class="form-control" id="breakMinutes" step="5" min="0" max="600" value="0">
+                            <div class="text-muted small mt-1">{{ _('x.sh_break_hint') }}</div>
+                        </div>
                         <div class="col-12">
                             <label class="form-label">{{ _('x.sh_flex_mode') }}</label>
                             <select class="form-select" id="flexMode">
@@ -253,6 +258,7 @@
         document.getElementById('presenceStart').value = shift.presence_start_time || '';
         document.getElementById('presenceEnd').value = shift.presence_end_time || '';
         document.getElementById('flexMode').value = shift.flex_mode || 'none';
+        document.getElementById('breakMinutes').value = shift.break_minutes || 0;
         // الفترات المحفوظة تُحمَّل قبل العرض: بناؤها من الصفر يفقدها عند
         // أول حفظ، لأن الحفظ يعكس ما في النموذج لا ما في قاعدة البيانات.
         setSplit(!!shift.is_split, shift.periods || []);
@@ -272,6 +278,7 @@
             presence_start_time: document.getElementById('presenceStart').value,
             presence_end_time: document.getElementById('presenceEnd').value,
             flex_mode: document.getElementById('flexMode').value,
+            break_minutes: document.getElementById('breakMinutes').value,
             is_split: document.getElementById('isSplit').checked,
             periods: collectPeriods()
         };
@@ -287,7 +294,8 @@
             .then(data => {
                 if (data.success) {
                     shiftModal.hide();
-                    Swal.fire({{ _('x.success')|tojson }}, data.message, 'success');
+                    Swal.fire({{ _('x.success')|tojson }}, data.message,
+                              (data.warnings && data.warnings.length) ? 'warning' : 'success');
                     loadShifts();
                 } else {
                     Swal.fire({{ _('x.error')|tojson }}, data.message, 'error');

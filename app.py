@@ -230,6 +230,9 @@ app.register_blueprint(backup_bp)
 from routes.field_routes import field_bp
 app.register_blueprint(field_bp)
 
+from routes.labor_law_routes import labor_law_bp
+app.register_blueprint(labor_law_bp)
+
 # --- Internationalization (i18n) Setup ---
 from flask_babel import Babel
 

@@ -252,6 +252,11 @@ def add_employee():
             if _wm in ('office', 'field', 'both'):
                 conn.execute('UPDATE employees SET work_mode = ? WHERE id = ?',
                              (_wm, employee_id))
+            _perr = _apply_probation(conn, employee_id)
+            if _perr:
+                conn.rollback()
+                flash(_perr, 'error')
+                return redirect(url_for('employee.add_employee'))
 
             # ADMS SYNC
             if is_active == 1:
@@ -286,6 +291,7 @@ def add_employee():
                         conn.execute("INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)", (new_uid, emp_role[0]))
 
             conn.commit()
+            _min_wage_warning(salary)
             flash(gettext('x.f_employee_added'), 'success')
             return redirect(url_for('employee.employees'))
         except Exception as e:
@@ -487,6 +493,11 @@ def edit_employee(id):
             _wm = (request.form.get('work_mode') or '').strip()
             if _wm in ('office', 'field', 'both'):
                 conn.execute('UPDATE employees SET work_mode = ? WHERE id = ?', (_wm, id))
+            _perr = _apply_probation(conn, id)
+            if _perr:
+                conn.rollback()
+                flash(_perr, 'error')
+                return redirect(url_for('employee.edit_employee', id=id))
 
             try:
                 from utils.payroll_engine import log_employee_changes
@@ -515,6 +526,7 @@ def edit_employee(id):
                 # If changed to inactive, delete from device
                 queue_adms_user_delete(employee['employee_number'])
 
+            _min_wage_warning(salary)
             flash(gettext('x.f_employee_updated'), 'success')
             pass # conn.close() removed to prevent leak in Flask g
             return redirect(url_for('employee.employees'))
@@ -1460,6 +1472,38 @@ def manage_structure():
 @require_permission('page.org_chart')
 def org_chart():
     return render_template('org_chart.html')
+
+def _apply_probation(conn, employee_id):
+    """فترةُ التجربة (المادة 32): لا تتجاوز 100 يوم عمل من التعيين.
+    يعيد رسالةَ خطأ، أو None بعد الحفظ."""
+    from utils.labor_law import probation_limit, _d
+    if 'probation_end_date' not in request.form:
+        return None
+    raw = (request.form.get('probation_end_date') or '').strip()
+    if not raw:
+        conn.execute('UPDATE employees SET probation_end_date = NULL WHERE id = ?',
+                     (employee_id,))
+        return None
+    emp = conn.execute('SELECT * FROM employees WHERE id = ?', (employee_id,)).fetchone()
+    end, hire = _d(raw), _d(emp['hire_date']) if emp else None
+    if not end or not hire or end < hire:
+        return gettext('x.f_probation_bad_date')
+    limit = probation_limit(conn, emp)
+    if limit and end > limit:
+        return gettext('x.f_probation_too_long') % {'d': limit.isoformat()}
+    conn.execute('UPDATE employees SET probation_end_date = ? WHERE id = ?',
+                 (end.isoformat(), employee_id))
+    return None
+
+
+def _min_wage_warning(salary):
+    from utils.labor_law import MIN_WAGE
+    try:
+        if 0 < float(salary or 0) < MIN_WAGE:
+            flash(gettext('x.f_min_wage') % {'n': MIN_WAGE}, 'warning')
+    except (TypeError, ValueError):
+        pass
+
 
 def _validate_manager_chain(conn, employee_id, manager_id):
     """Reject a manager assignment that would make an employee their own

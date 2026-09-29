@@ -116,8 +116,11 @@ def add_shift_api():
             ''', (name, start_time, end_time, hours_per_day, presence_start, presence_end, flex_mode))
             _apply_split(conn, cur.lastrowid,
                          bool(data.get('is_split')), data.get('periods'))
+            from utils.labor_law import save_shift_break
+            warns = save_shift_break(conn, cur.lastrowid, data.get('break_minutes'))
             conn.commit()
-            return jsonify({'success': True, 'message': 'تم إضافة الشفت بنجاح'})
+            return jsonify({'success': True, 'warnings': warns,
+                            'message': ' '.join(['تم إضافة الشفت بنجاح'] + warns)})
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)})
         finally:
@@ -159,8 +162,11 @@ def update_shift_api():
             ''', (name, start_time, end_time, hours_per_day, presence_start, presence_end, flex_mode, shift_id))
             _apply_split(conn, shift_id,
                          bool(data.get('is_split')), data.get('periods'))
+            from utils.labor_law import save_shift_break
+            warns = save_shift_break(conn, shift_id, data.get('break_minutes'))
             conn.commit()
-            return jsonify({'success': True, 'message': 'تم تحديث الشفت بنجاح'})
+            return jsonify({'success': True, 'warnings': warns,
+                            'message': ' '.join(['تم تحديث الشفت بنجاح'] + warns)})
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)})
         finally:

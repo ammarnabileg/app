@@ -93,14 +93,14 @@ def add_leave_request():
         days_count = calculate_actual_leave_days(conn, start_date, end_date)
         
     start = datetime.strptime(start_date, '%Y-%m-%d')
-    leave_balance = calculate_leave_balance(conn, employee_id, start.month, start.year)
-    available_balance = leave_balance['closing_balance'] if leave_balance else 0
-    
-    # Is paid leave logic
-    if lt['is_hourly_permission']:
-        is_paid_leave = True
-    else:
-        is_paid_leave = (available_balance >= days_count)
+
+    # مدفوعةٌ أم لا — بنوعها وقواعد القانون (utils/labor_law).
+    from utils.labor_law import leave_decision, decision_message
+    dec = leave_decision(conn, employee_id, lt, start_date, end_date, days_count)
+    if dec['error']:
+        flash(decision_message(dec['error']), 'error')
+        return redirect(url_for('leave.leaves'))
+    is_paid_leave = dec['paid']
 
     # Check workflow
     steps = conn.execute("SELECT * FROM leave_workflow_steps WHERE leave_type_id = ? ORDER BY step_order ASC", (leave_type_id,)).fetchall()
@@ -134,6 +134,8 @@ def add_leave_request():
     conn.commit()
     pass # conn.close() removed to prevent leak in Flask g
     
+    if dec['warning']:
+        flash(decision_message(dec['warning']), 'warning')
     flash(gettext('x.f_leave_request_added') % {}, 'success')
     return redirect(url_for('leave.leaves'))
 
@@ -157,32 +159,30 @@ def update_leave_status(id):
         flash(gettext('x.f_leave_request_not_found'), 'error')
         return redirect(url_for('leave.leaves'))
     
-    # تحديث حالة طلب الإجازة
-    conn.execute('UPDATE leave_requests SET status = ? WHERE id = ?', (status, id))
-    
-    # إذا تمت الموافقة على الإجازة، تحقق من الرصيد
+    # القرارُ قبل تغيير الحالة: طلبٌ «معتمد» يُحسب من المأخوذ فيُنقص
+    # رصيدَه بنفسه ويُقلب غيرَ مدفوع.
     if status == 'approved':
-        # حساب الرصيد الحالي
-        start_date = datetime.strptime(leave_request['start_date'], '%Y-%m-%d')
-        current_balance = calculate_leave_balance(conn, leave_request['employee_id'], start_date.month, start_date.year)
-        
-        if current_balance:
-            available_balance = current_balance['closing_balance']
-            requested_days = leave_request['days_count']
-            
-            # التحقق من كفاية الرصيد
-            if available_balance < requested_days:
-                # الرصيد غير كافي - إرسال تنبيه
-                flash(gettext('x.f_balance_exceeded_details') % {'p0': f'{leave_request["employee_name"]}', 'p1': f'{leave_request["employee_number"]}', 'p2': f'{available_balance:.1f}', 'p3': f'{requested_days}'}, 'warning')
-                
-                # تحديث حالة الإجازة لتكون غير مدفوعة
-                conn.execute('UPDATE leave_requests SET is_paid_leave = 0 WHERE id = ?', (id,))
-            else:
-                # الرصيد كافي - إرسال رسالة تأكيد
-                flash(gettext('x.f_leave_approved_balance') % {'p0': f'{leave_request["employee_name"]}', 'p1': f'{available_balance - requested_days:.1f}'}, 'success')
+        from utils.labor_law import leave_decision, decision_message
+        lt = conn.execute('SELECT * FROM leave_types WHERE id = ?',
+                          (leave_request['leave_type_id'],)).fetchone()
+        dec = (leave_decision(conn, leave_request['employee_id'], lt,
+                              leave_request['start_date'], leave_request['end_date'],
+                              leave_request['days_count'], exclude_request_id=id)
+               if lt is not None else
+               {'paid': bool(leave_request['is_paid_leave']), 'error': None, 'warning': None})
+        if dec['error']:
+            flash(decision_message(dec['error']), 'error')
+            return redirect(url_for('leave.leaves'))
+        # الرصيدُ يُفحص لما يُخصم من السنويّة وحدها؛ الخاصّةُ مدفوعةٌ بنوعها.
+        conn.execute('UPDATE leave_requests SET is_paid_leave = ? WHERE id = ?',
+                     (1 if dec['paid'] else 0, id))
+        # رسالةٌ واحدة من القرار نفسِه — لا حسابُ رصيدٍ ثانٍ يخالفه.
+        if dec['warning']:
+            flash(decision_message(dec['warning']), 'warning')
         else:
             flash(gettext('x.f_leave_approved') % {'p0': f'{leave_request["employee_name"]}'}, 'success')
-    
+
+    conn.execute('UPDATE leave_requests SET status = ? WHERE id = ?', (status, id))
     conn.commit()
     pass # conn.close() removed to prevent leak in Flask g
     
@@ -319,8 +319,17 @@ def edit_leave(id):
             days_count = calculate_actual_leave_days(conn, start_date, end_date)
         else:
             days_count = leave['days_count']
-        lt = conn.execute('SELECT is_paid FROM leave_types WHERE id = ?', (leave_type_id,)).fetchone()
-        is_paid = int(lt['is_paid']) if lt else leave['is_paid_leave']
+        lt = conn.execute('SELECT * FROM leave_types WHERE id = ?', (leave_type_id,)).fetchone()
+        if lt:
+            from utils.labor_law import leave_decision, decision_message
+            dec = leave_decision(conn, leave['employee_id'], lt, start_date, end_date,
+                                 days_count, exclude_request_id=id)
+            if dec['error']:
+                flash(decision_message(dec['error']), 'error')
+                return redirect(url_for('leave.leaves'))
+            is_paid = 1 if dec['paid'] else 0
+        else:
+            is_paid = leave['is_paid_leave']
         conn.execute('UPDATE leave_requests SET leave_type_id = ?, start_date = ?, end_date = ?, days_count = ?, reason = ?, is_paid_leave = ? WHERE id = ?',
                      (leave_type_id, start_date, end_date, days_count, reason, is_paid, id))
         conn.commit()
@@ -417,6 +426,9 @@ def api_leave_balance():
         pass # conn.close() removed to prevent leak in Flask g
         
         if balance:
+            from utils.labor_law import comp_rest_balance
+            balance = dict(balance)
+            balance['comp_rest'] = comp_rest_balance(conn, int(employee_id))
             return jsonify({
                 'success': True,
                 'balance': balance

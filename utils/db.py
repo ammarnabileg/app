@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 63
+SCHEMA_VERSION = 64
 
 
 def get_schema_version(conn):
@@ -454,11 +454,11 @@ def init_db():
         ('grace_late_arrival', '10', 'فترة السماح للتأخير الصباحي (دقائق)', 'attendance'),
         ('ot_start_buffer', '30', 'فترة الانتظار قبل احتساب الإضافي (دقائق)', 'overtime'), # 16:30 start
         
-        ('overtime_round_to_minutes', '15', 'تقريب الساعات الإضافية (دقائق)', 'overtime'),
+        ('overtime_round_to_minutes', '0', 'تقريب الساعات الإضافية (دقائق، 0 = دقيقة بدقيقة)', 'overtime'),
         ('overtime_cap_monthly_hours', '60', 'سقف الساعات الإضافية الشهري', 'overtime'),
         ('max_daily_ot_hours', '4', 'سقف الساعات الإضافية اليومي', 'overtime'),
         ('rounding_minutes', '1', 'تقريب الدقائق (1 = دقيقة بدقيقة)', 'calculation'),
-        ('missing_punch_policy', 'invalid', 'سياسة البصمة الناقصة (invalid/absent)', 'attendance'),
+        ('missing_punch_policy', 'penalty_tiered', 'سياسة البصمة الناقصة (invalid/zero_hours/penalty_tiered)', 'attendance'),
         
         ('weekday_ot_multiplier', '1.25', 'مضاعف الساعات الإضافية في أيام العمل', 'overtime'),
         ('weekend_ot_multiplier', '1.5', 'مضاعف الساعات الإضافية في نهاية الأسبوع', 'overtime'),
@@ -1846,6 +1846,14 @@ def init_db():
         _install_outbox(conn)
     except Exception as e:
         print(f'cloud outbox install failed: {e}')
+
+    # قانون العمل الكويتيّ: أنواعُ الإجازات الخاصّة، والاستراحة، والتجربة،
+    # والأعياد الثابتة، وإعداداتُ الجزاءات والتأمينات (v64).
+    try:
+        from utils.labor_law import migrate as _labor_migrate
+        _labor_migrate(conn)
+    except Exception as e:
+        print(f'labor law migration failed: {e}')
 
     # Stamp the schema version last: reaching this point means every
     # migration above completed without raising.

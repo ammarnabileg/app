@@ -152,10 +152,14 @@ def add_shift_type():
                     total += diff
                 conn.execute('UPDATE shift_types SET hours_per_day = ? WHERE id = ?',
                              (round(total / 60.0, 2), cur.lastrowid))
+        from utils.labor_law import save_shift_break
+        _warns = save_shift_break(conn, cur.lastrowid, request.form.get('break_minutes'))
         conn.commit()
         pass # conn.close() removed to prevent leak in Flask g
         
         flash(gettext('x.f_shift_type_added'), 'success')
+        for _w in _warns:
+            flash(_w, 'warning')
     except Exception as e:
         flash(gettext('x.f_error_colon') % {'p0': f'{e}'}, 'error')
         
@@ -223,9 +227,13 @@ def edit_shift_type():
         else:
             conn.execute('DELETE FROM shift_periods WHERE shift_type_id = ?',
                          (shift_id,))
+        from utils.labor_law import save_shift_break
+        _warns = save_shift_break(conn, shift_id, request.form.get('break_minutes'))
         conn.commit()
         pass # conn.close() removed to prevent leak in Flask g
         flash(gettext('x.f_shift_updated'), 'success')
+        for _w in _warns:
+            flash(_w, 'warning')
     except Exception as e:
         flash(gettext('x.f_edit_error') % {'p0': f'{e}'}, 'error')
         

@@ -10,6 +10,9 @@ Doctrine: the balance is derived from documents only —
              the effective start (max of hire date and cutoff), clamped at
              end_of_service_date when present;
   taken    : approved, non-deleted, daily-duration, PAID, non-sick leaves
+             of a type that draws on the annual balance (leave_types.
+             deducts_annual) — Hajj, maternity, bereavement, iddah and
+             compensatory rest are statutory and never reduce it
              recorded ON OR AFTER the effective start — leave consumed before
              go-live is already reflected inside the opening balance, so
              counting it again would deduct it twice;
@@ -88,6 +91,7 @@ def compute_leave_balance(conn, employee_id, as_of=None):
           AND COALESCE(lr.is_deleted, 0) = 0
           AND COALESCE(lr.leave_duration_type, 'full_day') != 'hourly'
           AND COALESCE(lr.is_paid_leave, 1) = 1
+          AND COALESCE(lt.deducts_annual, 1) = 1
           AND DATE(lr.start_date) >= ?
           AND DATE(lr.start_date) <= ?
           AND LOWER(COALESCE(lt.name, '')) NOT LIKE '%مرض%'

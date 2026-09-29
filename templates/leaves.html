@@ -200,11 +200,13 @@
                                         data-allow-half="{{ leave_type.allow_half_day }}"
                                         data-allow-hourly="{{ leave_type.allow_hourly }}"
                                         data-is-permission="{{ leave_type.is_hourly_permission }}"
-                                        data-requires-attachment="{{ leave_type.requires_attachment }}">
+                                        data-requires-attachment="{{ leave_type.requires_attachment }}"
+                                        data-law-kind="{{ leave_type.law_kind or '' }}">
                                     {{ leave_type.name }}
                                 </option>
                                 {% endfor %}
                             </select>
+                            <div class="form-text text-primary" id="lawLeaveHint"></div>
                         </div>
                     </div>
                     
@@ -445,8 +447,35 @@
         updateAvailableBalance();
     });
 
+    // قواعدُ القانون للإجازات الخاصّة، ورصيدُ الراحة البديلة.
+    const LAW_LEAVE_HINTS = {
+        hajj: {{ _('x.lv_hint_hajj')|tojson }},
+        maternity: {{ _('x.lv_hint_maternity')|tojson }},
+        bereavement: {{ _('x.lv_hint_bereavement')|tojson }},
+        iddah: {{ _('x.lv_hint_iddah')|tojson }},
+        comp_rest: {{ _('x.lv_hint_comp_rest')|tojson }}
+    };
+    function updateLawLeaveHint() {
+        const sel = document.getElementById('leave_type_id');
+        const opt = sel.options[sel.selectedIndex];
+        const kind = opt ? (opt.getAttribute('data-law-kind') || '') : '';
+        const box = document.getElementById('lawLeaveHint');
+        box.textContent = LAW_LEAVE_HINTS[kind] || '';
+        const emp = document.getElementById('employee_id').value;
+        if (kind === 'comp_rest' && emp) {
+            const now = new Date();
+            fetch(`/api/leave_balance?employee_id=${emp}&month=${now.getMonth() + 1}&year=${now.getFullYear()}`)
+                .then(r => r.json()).then(d => {
+                    const c = d && d.balance && d.balance.comp_rest;
+                    if (c) box.textContent = LAW_LEAVE_HINTS.comp_rest + ' ' + c.balance;
+                }).catch(() => {});
+        }
+    }
+    document.addEventListener('employeeSelected', updateLawLeaveHint);
+
     // Handle Leave Type Selection
     document.getElementById('leave_type_id').addEventListener('change', function() {
+        updateLawLeaveHint();
         const option = this.options[this.selectedIndex];
         
         // Attachment

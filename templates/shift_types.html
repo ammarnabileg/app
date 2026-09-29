@@ -134,6 +134,11 @@
                     <label class="form-label">{{ _('label.hours_count_optional') }}</label>
                     <input type="number" step="0.01" class="form-control" name="hours_per_day" id="edit_hours_per_day">
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">{{ _('x.sh_break_minutes') }}</label>
+                    <input type="number" step="5" min="0" max="600" class="form-control" name="break_minutes" id="edit_break_minutes">
+                    <div class="form-text">{{ _('x.sh_break_hint') }}</div>
+                </div>
 
                 <div class="mb-3 p-3 border rounded">
                     <div class="form-check">
@@ -176,6 +181,7 @@
         document.getElementById('edit_start_time').value = shift.start_time;
         document.getElementById('edit_end_time').value = shift.end_time;
         document.getElementById('edit_hours_per_day').value = shift.hours_per_day;
+        document.getElementById('edit_break_minutes').value = shift.break_minutes || 0;
         document.getElementById('edit_description').value = shift.description || '';
         // الفترات المحفوظة تُحمَّل قبل العرض: بناؤها من الصفر يعني فقدانها
         // عند أول حفظ لأن النموذج يعكس ما فيه لا ما في قاعدة البيانات.
@@ -219,6 +225,12 @@
                         <label for="hours_per_day" class="form-label">{{ _('label.hours_per_day') }}</label>
                         <input type="number" class="form-control" id="hours_per_day" name="hours_per_day" step="0.5"
                             min="1" max="24" value="8.0">
+                    </div>
+                    <div class="mb-3">
+                        <label for="break_minutes" class="form-label">{{ _('x.sh_break_minutes') }}</label>
+                        <input type="number" class="form-control" id="break_minutes" name="break_minutes" step="5"
+                            min="0" max="600" value="0">
+                        <div class="form-text">{{ _('x.sh_break_hint') }}</div>
                     </div>
 
                                         <!-- الشفت المقسّم: فترتان أو أكثر بينهما راحة -->

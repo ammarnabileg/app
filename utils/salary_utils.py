@@ -396,12 +396,8 @@ def calculate_attendance_allowance_v2(conn, employee_id, month, year, hourly_sal
             overtime_hours['holiday'] * holiday_ot_multiplier
         ) * hourly_salary
         
-        # تطبيق سقف الأوفر تايم الشهري
-        total_overtime_hours = sum(overtime_hours.values())
-        if total_overtime_hours > overtime_cap_monthly_hours:
-            # تقليل المبلغ بنسبة السقف
-            reduction_factor = overtime_cap_monthly_hours / total_overtime_hours
-            overtime_amount *= reduction_factor
+        # سقفُ الإضافيّ الشهريّ قيدٌ على التشغيل لا على الأجر (المادة 66):
+        # الساعاتُ التي اشتُغلت تُدفع كلُّها — كما في محرّك الرواتب.
         
         total_allowance = early_arrival_amount + late_departure_amount + overtime_amount
         

@@ -89,7 +89,8 @@ def _service_years(hire, term):
 
 
 def compute_kuwait_eos(conn, employee_id, termination_date, reason,
-                       leave_days=None, pifss=None):
+                       leave_days=None, pifss=None, notice_served_days=None,
+                       notice_waived=False):
     """Kuwaiti end-of-service on the /26 basis: 15 days/year for the first
     five years, one month/year afterwards, 18-month cap, pro-rata
     fractions. Wage = basic + active fixed recurring earnings. Leave
@@ -160,7 +161,15 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
             loans.append({'loan_id': ln['id'], 'remaining': rem})
             loans_total += rem
 
-    net = gratuity + leave_amount - loans_total
+    # بدلُ الإنذار (المادة 44): موجبٌ على صاحب العمل إن فصل، وسالبٌ على
+    # المستقيل إن لم يُتمّ المهلة ولم يتنازل صاحبُ العمل. ولا إنذارَ في التجربة.
+    from utils.labor_law import notice_amount, in_probation
+    probation = in_probation(emp, termination_date)
+    notice_amt, notice_short = notice_amount(reason, wage, notice_served_days,
+                                             waived=notice_waived,
+                                             in_probation=probation)
+
+    net = gratuity + leave_amount - loans_total + notice_amt
     return {'employee_id': employee_id,
             'wage_lines': wage_lines,
             'monthly_wage': round(wage, 3),
@@ -184,7 +193,17 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
             'leave_amount': round(leave_amount, 3),
             'loans': loans,
             'loans_total': round(loans_total, 3),
+            'in_probation': probation,
+            'notice_served_days': notice_served_days,
+            'notice_short_days': notice_short,
+            'notice_waived': bool(notice_waived),
+            'notice_amount': notice_amt,
             'net': round(net, 3)}
+
+def _notice_days(src):
+    v = (src.get('notice_served_days') or '').strip()
+    return None if v == '' else v
+
 
 def _validate_reason(emp, reason, clause, notes):
     """يعيد مفتاحَ رسالة الخطأ، أو None."""
@@ -229,7 +248,9 @@ def terminate_employee():
                                   reason,
                                   leave_days=(None if ld in (None, '')
                                               else ld),
-                                  pifss=request.form.get('pifss_deduction'))
+                                  pifss=request.form.get('pifss_deduction'),
+                                  notice_served_days=_notice_days(request.form),
+                                  notice_waived=bool(request.form.get('notice_waived')))
         if not calc:
             flash(gettext('x.f_eos_bad_dates'), "danger")
             return redirect(url_for('eos.terminate_employee'))
@@ -299,7 +320,9 @@ def api_calculate_eos():
     ld = request.args.get('leave_days')
     calc = compute_kuwait_eos(conn, int(emp_id), term_date, reason,
                               leave_days=(None if ld in (None, '') else ld),
-                              pifss=request.args.get('pifss_deduction'))
+                              pifss=request.args.get('pifss_deduction'),
+                              notice_served_days=_notice_days(request.args),
+                              notice_waived=bool(request.args.get('notice_waived')))
     if not calc:
         return jsonify({"error": "Employee not found or bad dates"}), 404
     return jsonify({"years_worked": calc['years'],

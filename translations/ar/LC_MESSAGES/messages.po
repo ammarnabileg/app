@@ -9553,3 +9553,216 @@ msgstr "الفصل وفق المادة 41 يتطلب كتابة الواقعة �
 
 msgid "x.f_eos_marriage_female"
 msgstr "الاستقالة بسبب الزواج للعاملة فقط"
+
+msgid "x.lw_ot_month_cap"
+msgstr "إضافيّ {hours} ساعة تجاوز سقف الشهر ({n}) — دُفع كاملًا"
+
+msgid "x.lw_ot_day_2h"
+msgstr "{n} يوم تجاوز فيه الإضافيّ ساعتين (المادة 66)"
+
+msgid "x.lw_ot_week_3d"
+msgstr "{n} أسبوع فيه إضافيّ أكثر من 3 أيام (المادة 66)"
+
+msgid "x.lw_ot_year_180"
+msgstr "الإضافيّ هذه السنة {hours} ساعة — تجاوز 180 (المادة 66)"
+
+msgid "x.lw_penalty_capped"
+msgstr "خُفّضت الجزاءات {amount} لسقف {n} أيام أجر"
+
+msgid "x.lw_banner"
+msgstr "إعداداتٌ أو بيانات تخالف قانون العمل: %(n)s"
+
+msgid "x.lw_open_check"
+msgstr "افتح فحص القانون"
+
+msgid "x.lc_title"
+msgstr "مطابقة قانون العمل"
+
+msgid "x.lc_intro"
+msgstr "قانون العمل الكويتي 6/2010: ما يطابق الآن وما يحتاج قرارك. الإعدادات القائمة لا تُغيَّر من تلقاء التحديث لأنها تغيّر رواتب معتمدة."
+
+msgid "x.lc_article"
+msgstr "المادة"
+
+msgid "x.lc_fix"
+msgstr "أصلحه"
+
+msgid "x.lc_disclaimer"
+msgstr "فحصٌ آليّ للإعدادات والبيانات، لا استشارة قانونية."
+
+msgid "x.lc_ot_rounding"
+msgstr "الإضافيّ يُدفع دقيقةً بدقيقة"
+
+msgid "x.lc_ot_rounding_fix"
+msgstr "التقريب %(n)s دقيقة للأقل يُسقط من أجر الإضافيّ حتى %(n)s دقيقة يوميًا. اجعله 0."
+
+msgid "x.lc_weekday_ot_multiplier"
+msgstr "مضاعف إضافيّ أيام العمل 1.25 على الأقل"
+
+msgid "x.lc_weekday_ot_multiplier_fix"
+msgstr "المضبوط %(n)s والحد الأدنى %(min)s."
+
+msgid "x.lc_weekend_ot_multiplier"
+msgstr "العمل يوم الراحة: 1.5 على الأقل وراحة بديلة"
+
+msgid "x.lc_weekend_ot_multiplier_fix"
+msgstr "المضبوط %(n)s والحد الأدنى %(min)s."
+
+msgid "x.lc_holiday_ot_multiplier"
+msgstr "العمل في العطلة الرسمية: ضعف الأجر وراحة بديلة"
+
+msgid "x.lc_holiday_ot_multiplier_fix"
+msgstr "المضبوط %(n)s والحد الأدنى %(min)s."
+
+msgid "x.lc_penalty_cap"
+msgstr "الجزاءات مسقوفة شهريًا"
+
+msgid "x.lc_penalty_cap_fix"
+msgstr "السقف الآن %(n)s يوم أجر. اجعله بين 1 و5."
+
+msgid "x.lc_missing_punch"
+msgstr "البصمة الناقصة لا تُحسب يوم غياب"
+
+msgid "x.lc_missing_punch_fix"
+msgstr "السياسة الآن تخصم يومًا كاملًا عن كل بصمة ناقصة والموظف حاضر. اختر «نظام الشرائح»."
+
+msgid "x.lc_pifss"
+msgstr "التأمينات الاجتماعية للكويتيين"
+
+msgid "x.lc_pifss_fix"
+msgstr "لديك %(n)s موظف كويتي وخصم التأمينات مُطفأ. شغّله من الإعدادات (إلا إن كنت تخصمه يدويًا)."
+
+msgid "x.lc_min_wage"
+msgstr "لا راتب أقل من الحد الأدنى"
+
+msgid "x.lc_min_wage_fix"
+msgstr "%(n)s موظف راتبه أقل من %(min)s د.ك."
+
+msgid "x.lc_shift_hours"
+msgstr "لا شفت يزيد على 8 ساعات عمل"
+
+msgid "x.lc_shift_hours_fix"
+msgstr "شفتات فوق 8 ساعات: %(names)s"
+
+msgid "x.lc_shift_break"
+msgstr "استراحة ساعة بعد 5 ساعات متصلة"
+
+msgid "x.lc_shift_break_fix"
+msgstr "شفتات بلا استراحة مسجّلة: %(names)s. سجّل دقائق الاستراحة في الشفت فتُطرح من الساعات الفعلية."
+
+msgid "x.lc_holidays"
+msgstr "العطل الرسمية مُدخلة لهذه السنة"
+
+msgid "x.lc_holidays_fix"
+msgstr "مُدخل لسنة %(y)s: %(n)s يوم، والمعتاد نحو %(min)s. أضف الأعياد الهجرية كما يعلنها ديوان الخدمة المدنية."
+
+msgid "x.set_law_h"
+msgstr "قانون العمل: الجزاءات والتأمينات"
+
+msgid "x.set_penalty_cap"
+msgstr "سقف الجزاءات الشهري (أيام أجر)"
+
+msgid "x.set_pifss_enabled"
+msgstr "خصم التأمينات للكويتي"
+
+msgid "x.set_off"
+msgstr "مُطفأ"
+
+msgid "x.set_on"
+msgstr "مُشغّل"
+
+msgid "x.set_pifss_emp"
+msgstr "حصة الموظف %%"
+
+msgid "x.set_pifss_er"
+msgstr "حصة صاحب العمل %%"
+
+msgid "x.set_pifss_cap"
+msgstr "سقف الراتب الخاضع"
+
+msgid "x.set_law_hint"
+msgstr "السقف يشمل ما يزيد على الوقت الفعلي فقط (ربع يوم عن تأخير 13 دقيقة، والبصمة الناقصة، وجزاء التواجد) — خصم الوقت الذي لم يُعمل لا يُسقف. النسب قيم شائعة: طابقها مع كشف المؤسسة."
+
+msgid "x.lv_err_female_only"
+msgstr "هذه الإجازة للعاملة فقط"
+
+msgid "x.lv_err_max_days"
+msgstr "هذه الإجازة لا تتجاوز %(n)s يومًا"
+
+msgid "x.lv_err_hajj_service"
+msgstr "إجازة الحج بعد سنتين متصلتين من الخدمة"
+
+msgid "x.lv_err_hajj_once"
+msgstr "إجازة الحج مرة واحدة طوال الخدمة"
+
+msgid "x.lv_err_comp_balance"
+msgstr "رصيد الراحة البديلة %(n)s يوم"
+
+msgid "x.lv_err_service_months"
+msgstr "لا تُستحق هذه الإجازة قبل %(n)s أشهر من الخدمة"
+
+msgid "x.lv_warn_service_months"
+msgstr "الموظف لم يكمل %(n)s أشهر — تُمنح سلفةً على مسؤولية صاحب العمل"
+
+msgid "x.lv_warn_unpaid_balance"
+msgstr "الرصيد %(n)s يوم لا يكفي — سُجّلت الإجازة بدون راتب"
+
+msgid "x.lv_hint_hajj"
+msgstr "الحج: 21 يومًا مدفوعة، مرة واحدة، بعد سنتين من الخدمة. لا تُخصم من السنوية."
+
+msgid "x.lv_hint_maternity"
+msgstr "الوضع: 70 يومًا مدفوعة للعاملة. وما زاد (حتى 4 أشهر) إجازة بدون راتب."
+
+msgid "x.lv_hint_bereavement"
+msgstr "الوفاة: 3 أيام مدفوعة لوفاة الزوج أو قريب حتى الدرجة الثانية."
+
+msgid "x.lv_hint_iddah"
+msgstr "العدة: 4 أشهر و10 أيام مدفوعة للمسلمة التي توفي زوجها، و21 يومًا لغير المسلمة."
+
+msgid "x.lv_hint_comp_rest"
+msgstr "الراحة البديلة عن العمل يوم الراحة أو العطلة. الرصيد:"
+
+msgid "x.eos_notice_served"
+msgstr "أيام الإنذار التي قضاها (من 90)"
+
+msgid "x.eos_notice_waived"
+msgstr "صاحب العمل يتنازل عن بدل الإنذار"
+
+msgid "x.eos_notice_hint"
+msgstr "فارغ = بلا بدل إنذار. المادة 44: 3 أشهر؛ من ينهي العقد دونها يدفع أجر ما نقص."
+
+msgid "x.eos_notice_probation"
+msgstr "في فترة التجربة: لا إنذار (المادة 32)."
+
+msgid "x.eos_notice_amount"
+msgstr "بدل الإنذار:"
+
+msgid "x.eosp_notice"
+msgstr "بدل الإنذار (المادة 44)"
+
+msgid "x.probation_end_date"
+msgstr "نهاية فترة التجربة"
+
+msgid "x.probation_end_hint"
+msgstr "لا تتجاوز 100 يوم عمل من التعيين (المادة 32)."
+
+msgid "x.f_probation_bad_date"
+msgstr "تاريخ نهاية التجربة غير صحيح أو قبل التعيين"
+
+msgid "x.f_probation_too_long"
+msgstr "التجربة لا تتجاوز 100 يوم عمل — آخر تاريخ مسموح %(d)s"
+
+msgid "x.f_min_wage"
+msgstr "تنبيه: الراتب أقل من الحد الأدنى للأجر (%(n)s د.ك)"
+
+msgid "x.sw_over_8"
+msgstr "تنبيه: الشفت أكثر من %(n)s ساعات عمل (المادة 64)"
+
+msgid "x.sw_no_break"
+msgstr "تنبيه: لا استراحة %(n)s دقيقة بعد 5 ساعات متصلة (المادة 65)"
+
+msgid "x.sh_break_minutes"
+msgstr "الاستراحة (دقائق)"
+
+msgid "x.sh_break_hint"
+msgstr "تُطرح من الساعات الفعلية حين يتجاوز اليوم 5 ساعات (المادة 65)."

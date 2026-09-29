@@ -341,6 +341,11 @@
                                     </select>
                                 </div>
                                 <div class="col-md-4 mb-3">
+                                    <label class="form-label">{{ _('x.probation_end_date') }}</label>
+                                    <input type="date" class="form-control" name="probation_end_date" value="{{ employee.probation_end_date or '' }}">
+                                    <div class="form-text">{{ _('x.probation_end_hint') }}</div>
+                                </div>
+                                <div class="col-md-4 mb-3">
                                     <label class="form-label">{{ _('x.job_grade') }}</label>
                                     <input type="text" class="form-control" name="grade_level" value="{{ employee.grade_level or '' }}">
                                 </div>

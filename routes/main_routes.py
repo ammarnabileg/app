@@ -162,7 +162,8 @@ def update_settings():
                  'overtime_round_to_minutes', 'overtime_cap_monthly_hours',
                  'rounding_display_decimals', 'daily_rate_basis',
                  'late_arrival_policy', 'early_departure_policy', 'missing_punch_policy',
-                 'leave_earned_per_month', 'leave_migration_cutoff_date', 'sick_tier_year_basis', 'missing_punch_penalty_1', 'missing_punch_penalty_2', 'missing_punch_penalty_3', 'presence_missing_policy', 'presence_penalty_day_fraction', 'presence_penalty_1', 'presence_penalty_2', 'presence_penalty_3', 'presence_penalty_monthly_cap_days', 'hourly_perm_max_hours_per_day', 'hourly_perm_max_days_per_month']
+                 'leave_earned_per_month', 'leave_migration_cutoff_date', 'sick_tier_year_basis', 'missing_punch_penalty_1', 'missing_punch_penalty_2', 'missing_punch_penalty_3', 'presence_missing_policy', 'presence_penalty_day_fraction', 'presence_penalty_1', 'presence_penalty_2', 'presence_penalty_3', 'presence_penalty_monthly_cap_days', 'hourly_perm_max_hours_per_day', 'hourly_perm_max_days_per_month',
+                 'penalty_monthly_cap_days', 'pifss_enabled', 'pifss_employee_pct', 'pifss_employer_pct', 'pifss_salary_cap']
     for k in live_keys:
         v = request.form.get(k, '').strip()
         if v == '':
@@ -381,7 +382,7 @@ def setup_wizard_save():
         'presence_missing_policy', 'presence_penalty_day_fraction', 'presence_penalty_1', 'presence_penalty_2', 'presence_penalty_3', 'presence_penalty_monthly_cap_days',
         'hourly_perm_max_hours_per_day', 'hourly_perm_max_days_per_month',
         'weekday_ot_multiplier', 'weekend_ot_multiplier', 'holiday_ot_multiplier', 'overtime_cap_monthly_hours',
-        'daily_rate_basis', 'leave_earned_per_month'
+        'daily_rate_basis', 'leave_earned_per_month', 'penalty_monthly_cap_days'
     ]
     for pk in policy_keys:
         val = f.get(pk, '').strip()
