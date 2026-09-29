@@ -1477,6 +1477,14 @@ def _apply_probation(conn, employee_id):
     """فترةُ التجربة (المادة 32): لا تتجاوز 100 يوم عمل من التعيين.
     يعيد رسالةَ خطأ، أو None بعد الحفظ."""
     from utils.labor_law import probation_limit, _d
+    # نوعُ الأجر (شهريّ أو يوميّ — المادة 51) ونهايةُ فترة الرضاعة (المادة 25).
+    if request.form.get('pay_type') in ('monthly', 'daily'):
+        conn.execute('UPDATE employees SET pay_type = ? WHERE id = ?',
+                     (request.form['pay_type'], employee_id))
+    if 'nursing_until' in request.form:
+        _nu = _d((request.form.get('nursing_until') or '').strip())
+        conn.execute('UPDATE employees SET nursing_until = ? WHERE id = ?',
+                     (_nu.isoformat() if _nu else None, employee_id))
     if 'probation_end_date' not in request.form:
         return None
     raw = (request.form.get('probation_end_date') or '').strip()

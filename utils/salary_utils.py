@@ -597,7 +597,11 @@ def calculate_salary_for_employee_v3(conn, employee_id, month, year):
         # Or using actual days in month? User said "Monthly Basic / Working Days"
         # Let's use 30 as a safe default for now or strict calendar days.
         days_in_month = calendar.monthrange(year, month)[1]
-        daily_salary = base_salary / days_in_month if days_in_month > 0 else 0
+        # أساسُ اليوم من الإعداد نفسه الذي يقرؤه محرّكُ الرواتب — تقريران
+        # بأساسين يعطيان أجرين ليومٍ واحد.
+        from utils.labor_law import daily_divisor
+        _div = daily_divisor(conn, year, month)
+        daily_salary = base_salary / _div if _div > 0 else 0
         hourly_rate = daily_salary / hours_per_day if hours_per_day > 0 else 0
         
         shift = {
@@ -865,7 +869,8 @@ def calculate_salary_for_employee(conn, employee_id, month, year, days_worked, t
         
         # حساب الراتب اليومي (المنطق القياسي للموارد البشرية هو قسمة الراتب على 30 يوماً ثابتة)
         days_in_month = calendar.monthrange(year, month)[1]
-        daily_salary = base_salary / 30.0 if base_salary > 0 else 0
+        from utils.labor_law import daily_divisor
+        daily_salary = base_salary / daily_divisor(conn, year, month) if base_salary > 0 else 0
         
         # حساب الأجر بالساعة
         standard_shift_hours = employee['hours_per_day'] or 8

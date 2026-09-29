@@ -125,10 +125,20 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
                            'amount': it['amount']})
     daily = wage / 26.0
 
-    tier1_days = min(years, 5.0) * 15.0
-    tier2_days = max(0.0, years - 5.0) * 26.0
+    # المادة 51: الأجرُ الشهريّ 15 يومًا عن كلّ سنةٍ من الخمس الأولى ثم شهرٌ،
+    # بحدّ 18 شهرًا؛ واليوميُّ وما في حكمه (بالساعة أو بالقطعة) 10 أيّام ثم
+    # 15، بحدّ أجر سنة.
+    from utils.labor_law import DAILY_EOS_DAYS, DAILY_EOS_CAP_DAYS
+    pay_type = (emp['pay_type'] if 'pay_type' in emp.keys() else None) or 'monthly'
+    if pay_type == 'daily':
+        t1_rate, t2_rate = DAILY_EOS_DAYS
+        cap_days = float(DAILY_EOS_CAP_DAYS)
+    else:
+        t1_rate, t2_rate = 15.0, 26.0
+        cap_days = 18 * 26.0
+    tier1_days = min(years, 5.0) * t1_rate
+    tier2_days = max(0.0, years - 5.0) * t2_rate
     raw_days = tier1_days + tier2_days
-    cap_days = 18 * 26.0
     capped = raw_days > cap_days
     pay_days = min(raw_days, cap_days)
     gross = pay_days * daily
@@ -175,6 +185,7 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
             'monthly_wage': round(wage, 3),
             'daily_rate': round(daily, 3),
             'basis': '26',
+            'pay_type': pay_type,
             'service_days': days,
             'years': round(years, 4),
             'tier1_days': round(tier1_days, 2),

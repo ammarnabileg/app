@@ -99,6 +99,15 @@ def compute_leave_balance(conn, employee_id, as_of=None):
         (employee_id, effective_start.isoformat(),
          as_of.isoformat())).fetchone()['n']
     taken = round(float(taken or 0), 2)
+    # المرضيّةُ داخل السنويّة لا تُحسب منها (المادة 70): تُعاد إلى الرصيد.
+    try:
+        from utils.labor_law import sick_inside_annual_days
+        sick_back = sick_inside_annual_days(conn, employee_id,
+                                            effective_start.isoformat(),
+                                            as_of.isoformat())
+    except Exception:
+        sick_back = 0
+    taken = round(max(0.0, taken - sick_back), 2)
 
     adjusted = conn.execute("""
         SELECT COALESCE(SUM(days), 0) FROM leave_balance_adjustments
@@ -116,5 +125,6 @@ def compute_leave_balance(conn, employee_id, as_of=None):
             'accrual_per_month': accrual,
             'accrued': accrued,
             'taken': taken,
+            'sick_returned': sick_back,
             'adjusted': adjusted,
             'balance': round(opening + accrued - taken + adjusted, 2)}

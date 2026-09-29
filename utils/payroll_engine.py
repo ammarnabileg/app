@@ -33,10 +33,14 @@ SICK_NAME_HINTS = ('مرض', 'sick')
 
 # مقاييسُ القانون: تُحسب مع الشهر ولا تدخل توقيعَ الاعتماد.
 LAW_METRIC_FIELDS = ('late_actual_mins', 'early_actual_mins',
-                     'ot_days_over_2h', 'ot_weeks_over_3d')
+                     'ot_days_over_2h', 'ot_weeks_over_3d', 'ot_days',
+                     'ramadan_over_6h')
 
 from utils.labor_law import (OT_DAY_MAX_MINS, OT_WEEK_MAX_DAYS,  # noqa: E402
-                             OT_YEAR_MAX_HOURS, net_span_hours)
+                             OT_YEAR_MAX_HOURS, OT_YEAR_MAX_DAYS,
+                             RAMADAN_DAY_HOURS, NURSING_MINUTES,
+                             net_span_hours, ramadan_dates, nursing_on,
+                             nursing_waive)
 
 
 def _parse_dt(s):
@@ -214,7 +218,7 @@ PAYROLL_EMP_COLUMNS = """e.id, e.employee_number, e.name, e.arabic_name,
        st.flex_mode, st.name AS shift_name, st.description AS shift_notes,
        COALESCE(st.is_split, 0) AS is_split,
        COALESCE(st.break_minutes, 0) AS break_minutes,
-       e.nationality, e.gender,
+       e.nationality, e.gender, e.nursing_until, e.pay_type,
        e.shift_type"""
 
 
@@ -378,6 +382,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
     for r in exc_rows:
         excuses_map.setdefault(r['employee_id'], {})[str(r['date'])[:10]] = r['side']
 
+    _ram = ramadan_dates(conn, p_start, p_end)
+
     _period_days = []
     _d = p_start
     while _d <= p_end:
@@ -389,7 +395,9 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
         emp_id = emp['id']
         hpd = float(emp['hours_per_day'] or 8)
         off_days = _weekly_off_set(emp)
-        emp_leaves = leaves_map.get(emp_id, [])
+        # المرضيّةُ تغلب ما تداخل معها (المادة 70): يومٌ مرضيٌّ داخل السنويّة
+        # يُحسب مرضيًّا بشرائحه، ولا يُنقص رصيدَ السنويّة.
+        emp_leaves = sorted(leaves_map.get(emp_id, []), key=lambda lv: not lv[3])
         emp_excuses = excuses_map.get(emp_id, {})
         hire_dt = _parse_d(emp['hire_date']) if 'hire_date' in emp.keys() else None
         eos_dt = (_parse_d(emp['end_of_service_date'])
@@ -515,7 +523,13 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
                 _pend[1] = 'work' if punched else 'absent'
             _day_log.append((_wk, 'work', punched))
             m['required_days'] += 1
-            m['required_hours'] += hpd
+            # رمضان: 6 ساعات في اليوم (المادة 64)؛ والرضاعة: ساعتان (المادة 25).
+            _hpd_day = min(hpd, RAMADAN_DAY_HOURS) if ds in _ram else hpd
+            if nursing_on(emp, d):
+                _hpd_day = max(0.0, _hpd_day - NURSING_MINUTES / 60.0)
+            m['required_hours'] += _hpd_day
+            if ds in _ram and span and span > RAMADAN_DAY_HOURS:
+                m['ramadan_over_6h'] += 1
 
             hp = emp_hperm.get(ds)
 
@@ -557,6 +571,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
                     _d_ot = _ot_round((span - hpd) * 60, _ot_step)
                 if _d_ot > 0:
                     m['ot_weekday_mins'] += _d_ot
+                    m['ot_days'] += 1
                     if _d_ot > OT_DAY_MAX_MINS:
                         m['ot_days_over_2h'] += 1
                     _ot_week_days[_wk] = _ot_week_days.get(_wk, 0) + 1
@@ -566,6 +581,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
                     lm = 0   # entry excuse / start-side permission waives lateness
                 if exc_side == 'out' or hp_touch_end:
                     em = 0   # exit excuse / end-side permission waives early leave
+                if nursing_on(emp, d):
+                    lm, em = nursing_waive(lm, em)
                 m['late_mins'] += lm
                 m['early_mins'] += em
                 if lm:
@@ -715,6 +732,10 @@ def attest_hours(conn, month, year, items, user_id):
               m['unentitled_rest_days'],
               p_start.isoformat(), p_end.isoformat(),
               notes, user_id))
+        # أيّامُ الإضافيّ: خارج التوقيع، تُحفظ لعدّ حدّ الـ90 يومًا في السنة.
+        conn.execute('UPDATE payroll_hours_approvals SET ot_days = ? '
+                     'WHERE employee_id = ? AND month = ? AND year = ?',
+                     (m.get('ot_days', 0), emp_id, month, year))
         saved += 1
     return saved
 
@@ -803,7 +824,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
     p_start, p_end = resolve_period(conn, month, year)
     employees = fetch_payroll_employees(conn, period=(p_start, p_end))
     sal = get_salary_settings_v2(conn)
-    _basis = str(sal.get('daily_rate_basis', '30') or '30').strip()
+    _basis = str(sal.get('daily_rate_basis', '26') or '26').strip()
     if _basis not in ('30', '26', 'working'):
         _basis = '30'
     _holidays_set = {str(r['date'])[:10] for r in conn.execute(
@@ -907,7 +928,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                                  sal.get('sick_tier_year_basis', 'calendar'))
 
     hpd_of = {e['id']: float(e['hours_per_day'] or 8) for e in employees}
-    from utils.labor_law import is_kuwaiti, pifss_shares, ot_year_to_date_hours
+    from utils.labor_law import (is_kuwaiti, pifss_shares, ot_year_to_date_hours,
+                                 ot_days_year_to_date, cap_loan_installments)
     _pen_cap_days = float(sal.get('penalty_monthly_cap_days', 5) or 0)
     _pifss_on = str(sal.get('pifss_enabled', '0')) == '1'
     rows = []
@@ -1093,6 +1115,12 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                 _ytd = ot_year_to_date_hours(conn, emp_id, month, year) + wk_h
                 if _ytd > OT_YEAR_MAX_HOURS:
                     law_warnings.append({'code': 'ot_year_180', 'hours': round(_ytd, 2)})
+            if live.get('ot_days', 0):
+                _ytd_d = ot_days_year_to_date(conn, emp_id, month, year) + live['ot_days']
+                if _ytd_d > OT_YEAR_MAX_DAYS:
+                    law_warnings.append({'code': 'ot_year_90d', 'n': _ytd_d})
+            if live.get('ramadan_over_6h', 0):
+                law_warnings.append({'code': 'ramadan_6h', 'n': live['ramadan_over_6h']})
             if ot_total > MONEY_EPS and daily_rate > MONEY_EPS:
                 hourly_rate = daily_rate / hpd_of.get(emp_id, 8.0)
                 m_wk = float(sal.get('weekday_ot_multiplier', 1.25) or 0)
@@ -1167,11 +1195,17 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                                    'amount': _emp_sh, 'source': 'computed',
                                    'base': _base})
 
-        for ln in loans_map.get(emp_id, []):
-            deductions.append({'code': 'loan_installment',
-                               'name_ar': 'قسط سلفة', 'name_en': 'Loan Installment',
-                               'amount': ln['amount'], 'source': 'loan',
-                               'loan_id': ln['loan_id']})
+        # أقساطُ السلف لا تتجاوز 10% من الأجر (المادة 60)؛ الباقي يُرحَّل.
+        _loans = [{'code': 'loan_installment',
+                   'name_ar': 'قسط سلفة', 'name_en': 'Loan Installment',
+                   'amount': ln['amount'], 'source': 'loan',
+                   'loan_id': ln['loan_id']} for ln in loans_map.get(emp_id, [])]
+        _loan_wage = basic + sum(a['amount'] for a in allowances if a.get('source') == 'fixed')
+        _deferred = cap_loan_installments(_loans, _loan_wage, sal)
+        if _deferred > MONEY_EPS:
+            law_warnings.append({'code': 'loan_capped', 'amount': _deferred,
+                                 'n': sal.get('loan_deduction_cap_pct', 10)})
+        deductions.extend(i for i in _loans if i['amount'] > MONEY_EPS)
 
         for _it in allowances:
             _it['amount'] = _rnd(_it['amount'])
@@ -1727,6 +1761,7 @@ def compute_employee_days(conn, employee_id, month, year):
                                              'reason': r['leave_reason']}
             continue
         leaves.append((s, e, bool(r['is_paid']), r['type_name'], r['leave_reason']))
+    leaves.sort(key=lambda lv: not _is_sick_type(lv[3]))
 
     excuses = {str(r['date'])[:10]: {'reason': r['reason'], 'type': r['type'],
                                      'side': r['side'], 'by': r['by_name']}
@@ -1798,6 +1833,8 @@ def compute_employee_days(conn, employee_id, month, year):
                     d_late = 0
                 if _pt >= _she - _ge:
                     d_early = 0
+            if nursing_on(emp, d):
+                d_late, d_early = nursing_waive(d_late, d_early)
 
         if hire_dt and d < hire_dt:
             status = 'not_hired'

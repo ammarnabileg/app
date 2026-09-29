@@ -262,10 +262,24 @@ def check_is_official_holiday(conn, check_date):
         print(f"خطأ في التحقق من الإجازة الرسمية: {e}")
         return None
 
-def calculate_actual_leave_days(conn, start_date, end_date):
+def calculate_actual_leave_days(conn, start_date, end_date, employee_id=None):
     """
-    حساب عدد أيام الإجازة الفعلية باستثناء العطلات الأسبوعية (الجمعة والسبت) والرسمية
+    حساب عدد أيام الإجازة الفعلية باستثناء العطلات الأسبوعية والرسمية.
+
+    الراحةُ الأسبوعيّة راحةُ **الموظّف** (المادة 70 لا تَحسب من الإجازة ما
+    ليس يومَ عمل): من راحتُه الجمعة وحدها تُحسب له السبت، ومن يعمل الجمعة
+    لا تُحسب عليه. وبلا موظّف: الجمعة والسبت كما كان.
     """
+    off_iso = {5, 6}   # isoweekday % 7: الجمعة 5 والسبت 6
+    if employee_id is not None:
+        try:
+            from utils.payroll_engine import _weekly_off_set
+            _emp = conn.execute('SELECT * FROM employees WHERE id = ?',
+                                (employee_id,)).fetchone()
+            if _emp:
+                off_iso = _weekly_off_set(_emp)
+        except Exception:
+            pass
     try:
         if isinstance(start_date, str):
             start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
@@ -286,7 +300,7 @@ def calculate_actual_leave_days(conn, start_date, end_date):
         while current_date <= end_date:
             # استبعاد الجمعة (4) والسبت (5)
             # Python: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-            if current_date.weekday() not in [4, 5]:
+            if (current_date.isoweekday() % 7) not in off_iso:
                 # استبعاد الإجازات الرسمية
                 if current_date.strftime('%Y-%m-%d') not in holiday_dates:
                     days_count += 1

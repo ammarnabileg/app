@@ -9766,3 +9766,90 @@ msgstr "الاستراحة (دقائق)"
 
 msgid "x.sh_break_hint"
 msgstr "تُطرح من الساعات الفعلية حين يتجاوز اليوم 5 ساعات (المادة 65)."
+
+msgid "x.lw_ot_year_90d"
+msgstr "أيام الإضافي هذه السنة {n} — تجاوزت 90 يومًا (المادة 66)"
+
+msgid "x.lw_ramadan_6h"
+msgstr "{n} يوم في رمضان تجاوز 6 ساعات (المادة 64)"
+
+msgid "x.lw_loan_capped"
+msgstr "أُجّل {amount} من أقساط السلف: الحد {n} بالمئة من الأجر (المادة 60)"
+
+msgid "x.lc_weekly_rest"
+msgstr "لكل موظف يوم راحة أسبوعية على الأقل"
+
+msgid "x.lc_weekly_rest_fix"
+msgstr "%(n)s موظف بلا يوم راحة: %(names)s"
+
+msgid "x.lc_week_48"
+msgstr "لا تزيد ساعات العمل على 48 في الأسبوع"
+
+msgid "x.lc_week_48_fix"
+msgstr "%(n)s موظف جدوله فوق 48 ساعة أسبوعيًا: %(names)s"
+
+msgid "x.lc_ramadan"
+msgstr "رمضان مُدخل: 6 ساعات يوميًا و36 أسبوعيًا"
+
+msgid "x.lc_ramadan_fix"
+msgstr "أدخل بداية رمضان ونهايته (أسفل هذه الصفحة) ليُحسب اليوم 6 ساعات."
+
+msgid "x.lc_loan_cap"
+msgstr "أقساط السلف لا تتجاوز 10 بالمئة من الأجر"
+
+msgid "x.lc_loan_cap_fix"
+msgstr "الحد الآن %(n)s بالمئة. اجعله بين 1 و10."
+
+msgid "x.lc_ramadan_h"
+msgstr "فترات رمضان"
+
+msgid "x.lc_ramadan_hint"
+msgstr "في هذه الأيام يُحسب المطلوب 6 ساعات، وينبَّه على من عمل أكثر (المادة 64)."
+
+msgid "x.lc_ramadan_start"
+msgstr "أول رمضان"
+
+msgid "x.lc_ramadan_end"
+msgstr "آخر رمضان"
+
+msgid "x.lc_ramadan_add"
+msgstr "إضافة"
+
+msgid "x.f_ramadan_bad_range"
+msgstr "فترة رمضان غير صحيحة (النهاية قبل البداية أو أكثر من 30 يومًا)"
+
+msgid "x.f_ramadan_overlap"
+msgstr "الفترة تتداخل مع فترة رمضان مُدخلة"
+
+msgid "x.f_ramadan_saved"
+msgstr "حُفظت فترة رمضان"
+
+msgid "x.set_loan_cap"
+msgstr "حد أقساط السلف (بالمئة من الأجر)"
+
+msgid "x.f_loan_over_cap"
+msgstr "تنبيه: القسط أكبر من %(n)s بالمئة من الأجر — سيُقتطع %(max)s شهريًا ويُرحَّل الباقي (المادة 60)"
+
+msgid "x.eosp_tier1_daily"
+msgstr "أول 5 سنوات: 10 أيام عن كل سنة (أجر يومي)"
+
+msgid "x.eosp_tier2_daily"
+msgstr "ما بعد 5 سنوات: 15 يومًا عن كل سنة (أجر يومي)"
+
+msgid "x.eosp_capped_daily"
+msgstr "بلغت المكافأة حدها الأقصى: أجر سنة"
+
+msgid "x.pay_type"
+msgstr "نوع الأجر"
+
+msgid "x.pay_type_monthly"
+msgstr "شهري"
+
+msgid "x.pay_type_daily"
+msgstr "يومي أو بالساعة أو بالقطعة"
+
+msgid "x.nursing_until"
+msgstr "ساعتا الرضاعة حتى"
+
+msgid "x.nursing_until_hint"
+msgstr "للعاملة: ساعتان يوميًا لا تُحسبان تأخيرًا أو انصرافًا مبكرًا (المادة 25)."

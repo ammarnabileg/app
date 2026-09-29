@@ -559,6 +559,8 @@ def test_a_compliant_setup_shows_no_banner(web):
     from utils.labor_law import compliance_checks
     conn.execute("UPDATE shift_types SET break_minutes = 60")
     y = date.today().year
+    conn.execute("INSERT INTO ramadan_periods (start_date, end_date) VALUES (?, ?)",
+                 (f'{y + 1}-02-08', f'{y + 1}-03-09'))
     for i in range(20):
         conn.execute("INSERT INTO official_holidays (name, date, type) VALUES ('ع', ?, 'رسمية')",
                      (f'{y}-11-{i + 1:02d}',))
@@ -579,3 +581,250 @@ def test_the_settings_page_saves_the_law_settings(web):
     c.post('/settings/update', data={'penalty_monthly_cap_days': '3', 'pifss_enabled': '1'})
     s = get_salary_settings_v2(conn)
     assert (s['penalty_monthly_cap_days'], s['pifss_enabled']) == ('3', '1')
+
+
+# ================================================== 2.19: ما بقي حتى المطابقة الكاملة
+
+def _check(conn, code):
+    from utils.labor_law import compliance_checks
+    return next(x for x in compliance_checks(conn) if x['code'] == code)
+
+
+def test_every_employee_needs_a_weekly_rest_day(env):
+    conn, pe, L = env
+    assert _check(conn, 'weekly_rest')['ok']
+    conn.execute("UPDATE employees SET weekly_leave_days = 0, weekly_leave_selected_days = NULL WHERE id = 1")
+    conn.commit()
+    c = _check(conn, 'weekly_rest')
+    assert not c['ok'] and c['params']['n'] == 1
+
+
+def test_scheduled_weeks_over_48_hours_are_flagged(env):
+    conn, pe, L = env
+    assert _check(conn, 'week_48')['ok'], '8 × 5 = 40'
+    conn.execute("UPDATE employees SET weekly_leave_days = 1, weekly_leave_selected_days = NULL WHERE id = 1")
+    conn.commit()
+    assert _check(conn, 'week_48')['ok'], '8 × 6 = 48 — الحدّ نفسه'
+    conn.execute("UPDATE shift_types SET hours_per_day = 9 WHERE name = 'S'")
+    conn.commit()
+    assert not _check(conn, 'week_48')['ok'], '9 × 6 = 54'
+
+
+def test_ramadan_days_require_six_hours_and_warn_above(env):
+    conn, pe, L = env
+    days = _workdays(pe, conn)
+    for day in days[:2]:
+        _punch(conn, 1, day, '08:00', '16:00')
+    before = pe.compute_month_metrics(conn, MONTH, YEAR)[1]['required_hours']
+    conn.execute('INSERT INTO ramadan_periods (start_date, end_date) VALUES (?, ?)', (days[0], days[4]))
+    conn.commit()
+    m = pe.compute_month_metrics(conn, MONTH, YEAR)[1]
+    assert m['required_hours'] == pytest.approx(before - 5 * 2), 'خمسةُ أيّام × ساعتان'
+    assert m['ramadan_over_6h'] == 2
+    w = next(w for w in _row(pe, conn)['law_warnings'] if w['code'] == 'ramadan_6h')
+    assert w['n'] == 2
+
+
+def test_ninety_overtime_days_a_year(env):
+    conn, pe, L = env
+    conn.execute("INSERT INTO payroll_hours_approvals (employee_id, month, year, ot_days)"
+                 " VALUES (1, 3, ?, 89)", (YEAR,))
+    conn.commit()
+    days = _workdays(pe, conn)
+    _punch(conn, 1, days[0], '08:00', '16:30')
+    assert 'ot_year_90d' not in _codes(_row(pe, conn)), '89 + 1 = 90'
+    _punch(conn, 1, days[1], '08:00', '16:30')
+    w = next(w for w in _row(pe, conn)['law_warnings'] if w['code'] == 'ot_year_90d')
+    assert w['n'] == 91
+
+
+def test_attestation_stores_the_overtime_days(env):
+    conn, pe, L = env
+    for day in _workdays(pe, conn)[:3]:
+        _punch(conn, 1, day, '08:00', '17:00')
+    admin = conn.execute("SELECT id FROM users WHERE role='admin'").fetchone()[0]
+    pe.attest_hours(conn, MONTH, YEAR, [{'employee_id': 1}], admin)
+    conn.commit()
+    assert conn.execute('SELECT ot_days FROM payroll_hours_approvals WHERE employee_id = 1 '
+                        'AND month = ? AND year = ?', (MONTH, YEAR)).fetchone()[0] == 3
+
+
+def test_nursing_hours_are_not_lateness(env):
+    conn, pe, L = env
+    _emp(conn, 2, '2020-01-01', gender='female')
+    _emp(conn, 3, '2020-01-01', gender='male')
+    conn.execute("UPDATE employees SET nursing_until = '2026-12-31' WHERE id IN (2, 3)")
+    conn.commit()
+    day = _workdays(pe, conn)[0]
+    for eid in (2, 3):
+        _punch(conn, eid, day, '08:30', '15:00')        # 30 د تأخير + 60 د انصراف
+    m = pe.compute_month_metrics(conn, MONTH, YEAR)
+    assert (m[2]['late_mins'], m[2]['early_mins']) == (0, 0)
+    assert (m[3]['late_mins'], m[3]['early_mins']) == (30, 60), 'للعاملة وحدها'
+    assert m[2]['required_hours'] == pytest.approx(m[3]['required_hours'] - 2 * m[2]['required_days'])
+    dd = {d['date']: d for d in pe.compute_employee_days(conn, 2, MONTH, YEAR)['days']}
+    assert dd[day]['late_mins'] == 0 and dd[day]['early_mins'] == 0
+
+
+def test_nursing_waives_two_hours_at_most_and_ends_on_its_date(env):
+    conn, pe, L = env
+    assert L.nursing_waive(90, 60) == (0, 30)
+    assert L.nursing_waive(0, 150) == (0, 30)
+    _emp(conn, 2, '2020-01-01', gender='female')
+    conn.execute("UPDATE employees SET nursing_until = '2026-07-31' WHERE id = 2")
+    conn.commit()
+    _punch(conn, 2, _workdays(pe, conn)[0], '08:30', '16:00')
+    assert pe.compute_month_metrics(conn, MONTH, YEAR)[2]['late_mins'] == 30
+
+
+def test_sick_days_inside_annual_leave_count_as_sick_and_return_to_the_balance(env):
+    conn, pe, L = env
+    days = _workdays(pe, conn, weeks=2)
+    ann, sick = _lt(conn, 'annual')['id'], _lt(conn, 'sick')['id']
+    conn.execute("INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, days_count,"
+                 " status, is_paid_leave) VALUES (1, ?, ?, ?, 10, 'approved', 1)", (ann, days[0], days[9]))
+    from utils.leave_balance import compute_leave_balance
+    conn.commit()
+    before = compute_leave_balance(conn, 1, as_of=days[9])
+    conn.execute("INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, days_count,"
+                 " status, is_paid_leave) VALUES (1, ?, ?, ?, 2, 'approved', 1)", (sick, days[1], days[2]))
+    conn.commit()
+    after = compute_leave_balance(conn, 1, as_of=days[9])
+    assert after['sick_returned'] == 2
+    assert after['balance'] == pytest.approx(before['balance'] + 2)
+    assert pe.compute_month_metrics(conn, MONTH, YEAR)[1]['sick_days'] == 2
+    dd = {d['date']: d for d in pe.compute_employee_days(conn, 1, MONTH, YEAR)['days']}
+    assert dd[days[1]]['status'] == 'leave_sick' and dd[days[3]]['status'] == 'leave_paid'
+
+
+def test_leave_days_follow_the_employees_own_rest_days(env):
+    conn, pe, L = env
+    from utils.leave_utils import calculate_actual_leave_days
+    fri = next(date(2026, 8, 1) + timedelta(days=i) for i in range(7)
+               if (date(2026, 8, 1) + timedelta(days=i)).isoweekday() == 5)
+    sat = fri + timedelta(days=1)
+    assert calculate_actual_leave_days(conn, fri.isoformat(), sat.isoformat()) == 0
+    assert calculate_actual_leave_days(conn, fri.isoformat(), sat.isoformat(), 1) == 0
+    conn.execute("UPDATE employees SET weekly_leave_start = 5, weekly_leave_days = 1,"
+                 " weekly_leave_selected_days = NULL WHERE id = 1")
+    conn.commit()
+    assert calculate_actual_leave_days(conn, fri.isoformat(), sat.isoformat(), 1) == 1, 'السبتُ يومُ عمله'
+
+
+def test_loan_installments_are_capped_at_ten_percent(env):
+    conn, pe, L = env
+    conn.execute("INSERT INTO employee_loans (employee_id, principal, monthly_installment, start_month,"
+                 " start_year, status) VALUES (1, 500, 100, 1, 2026, 'active')")
+    conn.commit()
+    row = _row(pe, conn)
+    assert _item(row['deductions'], 'loan_installment')['amount'] == pytest.approx(26.0)
+    w = next(w for w in row['law_warnings'] if w['code'] == 'loan_capped')
+    assert w['amount'] == pytest.approx(74.0)
+    _set(conn, loan_deduction_cap_pct=0)
+    assert _item(_row(pe, conn)['deductions'], 'loan_installment')['amount'] == pytest.approx(100.0)
+
+
+def test_small_installments_are_untouched(env):
+    conn, pe, L = env
+    conn.execute("INSERT INTO employee_loans (employee_id, principal, monthly_installment, start_month,"
+                 " start_year, status) VALUES (1, 500, 20, 1, 2026, 'active')")
+    conn.commit()
+    row = _row(pe, conn)
+    assert _item(row['deductions'], 'loan_installment')['amount'] == pytest.approx(20.0)
+    assert 'loan_capped' not in _codes(row)
+
+
+@pytest.mark.parametrize('hire, days', [('2019-01-01', 5 * 10 + 2 * 15),   # 7 سنوات
+                                        ('1980-01-01', 312)])              # بلغ أجرَ سنة
+def test_daily_paid_end_of_service(env, hire, days):
+    conn, pe, L = env
+    conn.execute("UPDATE employees SET pay_type = 'daily', hire_date = ? WHERE id = 1", (hire,))
+    conn.commit()
+    from routes.eos_routes import compute_kuwait_eos
+    c = compute_kuwait_eos(conn, 1, '2026-01-01', 'termination', leave_days=0)
+    assert c['pay_type'] == 'daily'
+    assert c['pay_days'] == pytest.approx(days, abs=0.01)
+    assert c['gratuity'] == pytest.approx(days * 10, abs=0.05)
+
+
+def test_monthly_paid_is_unchanged(env):
+    conn, pe, L = env
+    from routes.eos_routes import compute_kuwait_eos
+    c = compute_kuwait_eos(conn, 1, '2027-01-01', 'termination', leave_days=0)
+    assert c['pay_type'] == 'monthly' and c['pay_days'] == pytest.approx(5 * 15 + 2 * 26, abs=0.01)
+
+
+@pytest.mark.parametrize('basis, daily', [('26', 10.0), ('30', 260 / 30)])
+def test_the_old_salary_reports_use_the_same_daily_basis(env, basis, daily):
+    conn, pe, L = env
+    _set(conn, daily_rate_basis=basis)
+    from utils.salary_utils import calculate_salary_for_employee
+    r = calculate_salary_for_employee(conn, 1, MONTH, YEAR, 20, 0, 22, 160)
+    assert r['daily_salary'] == pytest.approx(daily, abs=1e-6)
+
+
+def test_ramadan_periods_are_managed_on_the_check_page(web):
+    c, conn, A = web
+    c.post('/settings/labor-law/ramadan', data={'start_date': '2027-02-08', 'end_date': '2027-03-09'})
+    c.post('/settings/labor-law/ramadan', data={'start_date': '2027-03-01', 'end_date': '2027-03-20'})
+    c.post('/settings/labor-law/ramadan', data={'start_date': '2028-01-01', 'end_date': '2028-03-01'})
+    c.post('/settings/labor-law/ramadan', data={'start_date': '2028-02-10', 'end_date': '2028-02-01'})
+    rows = conn.execute('SELECT id, start_date, end_date FROM ramadan_periods').fetchall()
+    assert [(r[1], r[2]) for r in rows] == [('2027-02-08', '2027-03-09')], 'التداخلُ والطولُ والعكسُ مرفوضة'
+    assert '2027-02-08' in c.get('/settings/labor-law').get_data(as_text=True)
+    c.post(f'/settings/labor-law/ramadan/{rows[0][0]}/delete')
+    assert conn.execute('SELECT COUNT(*) FROM ramadan_periods').fetchone()[0] == 0
+
+
+def test_a_large_loan_installment_warns_on_entry(web):
+    c, conn, A = web
+    r = c.post('/payroll/loans/add', data={'employee_id': '1', 'principal': '500', 'monthly_installment': '100',
+                                           'start_month': '9', 'start_year': '2026'}, follow_redirects=True)
+    assert json.dumps('26.000')[1:-1] in r.get_data(as_text=True)
+
+
+def test_pay_type_and_nursing_are_saved_from_the_form(web):
+    c, conn, A = web
+    emp = dict(conn.execute('SELECT * FROM employees WHERE id = 1').fetchone())
+    form = {k: ('' if v is None else str(v)) for k, v in emp.items()}
+    form.update({'pay_type': 'daily', 'nursing_until': '2027-01-31'})
+    c.post('/employees/edit/1', data=form)
+    r = conn.execute('SELECT pay_type, nursing_until FROM employees WHERE id = 1').fetchone()
+    assert (r[0], r[1]) == ('daily', '2027-01-31')
+    body = c.get('/employees/edit/1').get_data(as_text=True)
+    assert 'name="pay_type"' in body and 'value="2027-01-31"' in body
+
+
+def test_the_ramadan_and_loan_cap_checks(env):
+    conn, pe, L = env
+    assert not _check(conn, 'ramadan')['ok']
+    conn.execute("INSERT INTO ramadan_periods (start_date, end_date) VALUES (?, ?)",
+                 (f'{date.today().year + 1}-02-08', f'{date.today().year + 1}-03-09'))
+    conn.commit()
+    assert _check(conn, 'ramadan')['ok']
+    for pct, ok in (('0', False), ('15', False), ('10', True), ('5', True)):
+        _set(conn, loan_deduction_cap_pct=pct)
+        assert _check(conn, 'loan_cap')['ok'] is ok, pct
+
+
+def test_only_working_sick_days_return_to_the_balance(env):
+    conn, pe, L = env
+    days = _workdays(pe, conn, weeks=2)
+    ann, sick = _lt(conn, 'annual')['id'], _lt(conn, 'sick')['id']
+    conn.execute("INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, days_count,"
+                 " status, is_paid_leave) VALUES (1, ?, ?, ?, 10, 'approved', 1)", (ann, days[0], days[9]))
+    conn.execute("INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, days_count,"
+                 " status, is_paid_leave) VALUES (1, ?, ?, ?, 2, 'approved', 1)", (sick, days[4], days[5]))
+    conn.commit()
+    assert L.sick_inside_annual_days(conn, 1, days[0], days[9]) == 2, 'الخميس والأحد — لا الجمعة والسبت'
+
+
+def test_the_admin_screen_counts_leave_on_the_employees_rest_days(web):
+    c, conn, A = web
+    conn.execute("UPDATE employees SET weekly_leave_start = 5, weekly_leave_days = 1,"
+                 " weekly_leave_selected_days = NULL WHERE id = 1")
+    conn.commit()
+    fri = next(date(2026, 8, 1) + timedelta(days=i) for i in range(7)
+               if (date(2026, 8, 1) + timedelta(days=i)).isoweekday() == 5)
+    _add_leave(c, conn, 'bereavement', fri.isoformat(), (fri + timedelta(days=1)).isoformat())
+    assert conn.execute('SELECT days_count FROM leave_requests').fetchone()[0] == 1

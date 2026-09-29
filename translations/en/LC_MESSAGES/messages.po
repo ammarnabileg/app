@@ -9775,3 +9775,90 @@ msgstr "Break (minutes)"
 
 msgid "x.sh_break_hint"
 msgstr "Deducted from actual hours when the day exceeds 5 hours (Art. 65)."
+
+msgid "x.lw_ot_year_90d"
+msgstr "Overtime days this year {n} — over 90 (Art. 66)"
+
+msgid "x.lw_ramadan_6h"
+msgstr "{n} day(s) in Ramadan over 6 hours (Art. 64)"
+
+msgid "x.lw_loan_capped"
+msgstr "{amount} of loan installments deferred: cap {n} percent of wage (Art. 60)"
+
+msgid "x.lc_weekly_rest"
+msgstr "Every employee has at least one weekly rest day"
+
+msgid "x.lc_weekly_rest_fix"
+msgstr "%(n)s employee(s) without a rest day: %(names)s"
+
+msgid "x.lc_week_48"
+msgstr "No more than 48 working hours a week"
+
+msgid "x.lc_week_48_fix"
+msgstr "%(n)s employee(s) scheduled over 48 hours a week: %(names)s"
+
+msgid "x.lc_ramadan"
+msgstr "Ramadan entered: 6 hours a day, 36 a week"
+
+msgid "x.lc_ramadan_fix"
+msgstr "Enter the start and end of Ramadan (below on this page) so the day counts as 6 hours."
+
+msgid "x.lc_loan_cap"
+msgstr "Loan installments do not exceed 10 percent of wage"
+
+msgid "x.lc_loan_cap_fix"
+msgstr "The cap is %(n)s percent. Set it between 1 and 10."
+
+msgid "x.lc_ramadan_h"
+msgstr "Ramadan periods"
+
+msgid "x.lc_ramadan_hint"
+msgstr "On these days the required hours are 6, with a warning for anyone who worked more (Art. 64)."
+
+msgid "x.lc_ramadan_start"
+msgstr "First day"
+
+msgid "x.lc_ramadan_end"
+msgstr "Last day"
+
+msgid "x.lc_ramadan_add"
+msgstr "Add"
+
+msgid "x.f_ramadan_bad_range"
+msgstr "Invalid Ramadan period (end before start or more than 30 days)"
+
+msgid "x.f_ramadan_overlap"
+msgstr "The period overlaps an existing Ramadan period"
+
+msgid "x.f_ramadan_saved"
+msgstr "Ramadan period saved"
+
+msgid "x.set_loan_cap"
+msgstr "Loan installment cap (percent of wage)"
+
+msgid "x.f_loan_over_cap"
+msgstr "Warning: the installment exceeds %(n)s percent of wage — %(max)s will be deducted monthly and the rest carried forward (Art. 60)"
+
+msgid "x.eosp_tier1_daily"
+msgstr "First 5 years: 10 days per year (daily wage)"
+
+msgid "x.eosp_tier2_daily"
+msgstr "After 5 years: 15 days per year (daily wage)"
+
+msgid "x.eosp_capped_daily"
+msgstr "The indemnity reached its cap: one year's wage"
+
+msgid "x.pay_type"
+msgstr "Pay type"
+
+msgid "x.pay_type_monthly"
+msgstr "Monthly"
+
+msgid "x.pay_type_daily"
+msgstr "Daily, hourly or piece-rate"
+
+msgid "x.nursing_until"
+msgstr "Nursing hours until"
+
+msgid "x.nursing_until_hint"
+msgstr "For female workers: two hours a day not counted as late arrival or early leave (Art. 25)."

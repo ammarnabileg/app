@@ -90,7 +90,7 @@ def add_leave_request():
     elif leave_duration_type == 'half_day':
         days_count = 0.5
     else:
-        days_count = calculate_actual_leave_days(conn, start_date, end_date)
+        days_count = calculate_actual_leave_days(conn, start_date, end_date, employee_id)
         
     start = datetime.strptime(start_date, '%Y-%m-%d')
 
@@ -316,7 +316,7 @@ def edit_leave(id):
             return redirect(url_for('leave.leaves'))
         duration_type = (leave['leave_duration_type'] or 'full')
         if duration_type in ('full', 'full_day'):
-            days_count = calculate_actual_leave_days(conn, start_date, end_date)
+            days_count = calculate_actual_leave_days(conn, start_date, end_date, leave['employee_id'])
         else:
             days_count = leave['days_count']
         lt = conn.execute('SELECT * FROM leave_types WHERE id = ?', (leave_type_id,)).fetchone()

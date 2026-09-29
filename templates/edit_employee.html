@@ -346,6 +346,18 @@
                                     <div class="form-text">{{ _('x.probation_end_hint') }}</div>
                                 </div>
                                 <div class="col-md-4 mb-3">
+                                    <label class="form-label">{{ _('x.pay_type') }}</label>
+                                    <select class="form-select" name="pay_type">
+                                        <option value="monthly" {{ 'selected' if (employee.pay_type or 'monthly') == 'monthly' else '' }}>{{ _('x.pay_type_monthly') }}</option>
+                                        <option value="daily" {{ 'selected' if employee.pay_type == 'daily' else '' }}>{{ _('x.pay_type_daily') }}</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">{{ _('x.nursing_until') }}</label>
+                                    <input type="date" class="form-control" name="nursing_until" value="{{ employee.nursing_until or '' }}">
+                                    <div class="form-text">{{ _('x.nursing_until_hint') }}</div>
+                                </div>
+                                <div class="col-md-4 mb-3">
                                     <label class="form-label">{{ _('x.job_grade') }}</label>
                                     <input type="text" class="form-control" name="grade_level" value="{{ employee.grade_level or '' }}">
                                 </div>

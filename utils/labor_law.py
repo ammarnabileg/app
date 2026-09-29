@@ -29,6 +29,13 @@ BREAK_MIN_MINUTES = 60
 OT_DAY_MAX_MINS = 120           # المادة 66
 OT_WEEK_MAX_DAYS = 3
 OT_YEAR_MAX_HOURS = 180
+OT_YEAR_MAX_DAYS = 90
+RAMADAN_DAY_HOURS = 6           # المادة 64: 36 ساعة في الأسبوع في رمضان
+RAMADAN_WEEK_HOURS = 36
+NURSING_MINUTES = 120           # المادة 25: ساعتا رضاعة في اليوم
+LOAN_CAP_PCT = 10.0             # المادة 60: لا يُقتطع للقرض أكثر من 10% من الأجر
+DAILY_EOS_DAYS = (10, 15)       # المادة 51 (أ): لأصحاب الأجر اليوميّ وما في حكمه
+DAILY_EOS_CAP_DAYS = 312        # «أجرُ سنة»: 12 شهرًا × 26 يومًا
 MIN_MULTIPLIERS = {'weekday_ot_multiplier': 1.25,   # المادة 66
                    'weekend_ot_multiplier': 1.5,    # المادة 67
                    'holiday_ot_multiplier': 2.0}    # المادة 68
@@ -147,12 +154,21 @@ def migrate(conn):
     for table, col, ddl in (('leave_types', 'law_kind', 'TEXT'),
                             ('leave_types', 'deducts_annual', 'INTEGER'),
                             ('shift_types', 'break_minutes', 'INTEGER DEFAULT 0'),
-                            ('employees', 'probation_end_date', 'DATE')):
+                            ('employees', 'probation_end_date', 'DATE'),
+                            ('employees', 'nursing_until', 'DATE'),
+                            ('employees', 'pay_type', "TEXT DEFAULT 'monthly'"),
+                            ('payroll_hours_approvals', 'ot_days', 'INTEGER')):
         try:
             if col not in cols(table):
                 cur.execute(f'ALTER TABLE {table} ADD COLUMN {col} {ddl}')
         except Exception as e:
             print(f'labor_law migrate {table}.{col}: {e}')
+
+    cur.execute('''CREATE TABLE IF NOT EXISTS ramadan_periods (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
     # تصنيفُ أنواع الإجازات القائمة — مرّةً لكلّ نوع (law_kind فارغ).
     for r in cur.execute('SELECT * FROM leave_types WHERE law_kind IS NULL').fetchall():
@@ -183,6 +199,7 @@ def migrate(conn):
         ('pifss_employee_pct', '10.5', 'حصة الموظف في التأمينات (%)', 'insurance'),
         ('pifss_employer_pct', '11.5', 'حصة صاحب العمل في التأمينات (%)', 'insurance'),
         ('pifss_salary_cap', '2750', 'سقف الراتب الخاضع للتأمينات (د.ك)', 'insurance'),
+        ('loan_deduction_cap_pct', '10', 'أقصى ما يُقتطع للسلف من الأجر (%)', 'payroll'),
         # الراحةُ البديلة تُحتسب من يوم التحديث لا بأثرٍ رجعيّ: سنواتٌ من
         # الأرشيف لا يُعرف ما عُوِّض منها بيدٍ خارج النظام.
         ('comp_rest_since', date.today().isoformat(), 'بداية احتساب الراحة البديلة', 'leave'),
@@ -490,6 +507,34 @@ def compliance_checks(conn, sal=None):
     add('shift_hours', not long_shifts, '64', {'names': '، '.join(long_shifts)})
     add('shift_break', not no_break, '65', {'names': '، '.join(no_break)})
 
+    no_rest, over48 = [], []
+    try:
+        from utils.payroll_engine import _weekly_off_set
+        for e in conn.execute('SELECT e.*, COALESCE(st.hours_per_day, 8) AS hpd FROM employees e '
+                              'LEFT JOIN shift_types st ON st.name = e.shift_type '
+                              'WHERE e.is_active = 1'):
+            offs = _weekly_off_set(e)
+            if not offs:
+                no_rest.append(e['name'])
+            if _num(e['hpd'], 8) * (7 - len(offs)) > WEEK_MAX_HOURS:
+                over48.append(e['name'])
+    except Exception:
+        pass
+    add('weekly_rest', not no_rest, '67', {'n': len(no_rest), 'names': '، '.join(no_rest[:5])})
+    add('week_48', not over48, '64', {'n': len(over48), 'names': '، '.join(over48[:5])})
+
+    today = date.today()
+    try:
+        ram = conn.execute('SELECT COUNT(*) FROM ramadan_periods WHERE end_date >= ? '
+                           "OR strftime('%Y', start_date) = ?",
+                           (today.isoformat(), str(today.year))).fetchone()[0]
+    except Exception:
+        ram = 0
+    add('ramadan', ram > 0, '64', {'y': today.year})
+
+    lc = _num(sal.get('loan_deduction_cap_pct'), LOAN_CAP_PCT)
+    add('loan_cap', 0 < lc <= LOAN_CAP_PCT, '60', {'n': lc})
+
     y = date.today().year
     nh = conn.execute("SELECT COUNT(*) FROM official_holidays WHERE strftime('%Y', date) = ?",
                       (str(y),)).fetchone()[0]
@@ -547,3 +592,130 @@ def save_shift_break(conn, shift_id, raw):
             and int(r['brk'] or 0) < BREAK_MIN_MINUTES:
         out.append(('x.sw_no_break', {'n': BREAK_MIN_MINUTES}))
     return [decision_message(w) for w in out]
+
+
+# ------------------------------------------------------------------ رمضان والرضاعة
+
+def ramadan_dates(conn, start, end):
+    """أيّامُ رمضان المُدخلة بين تاريخين (نصوص ISO)."""
+    out = set()
+    try:
+        rows = conn.execute('SELECT start_date, end_date FROM ramadan_periods '
+                            'WHERE NOT (end_date < ? OR start_date > ?)',
+                            (start.isoformat(), end.isoformat())).fetchall()
+    except Exception:
+        return out
+    for r in rows:
+        a, b = _d(r[0]), _d(r[1])
+        if not a or not b:
+            continue
+        d = max(a, start)
+        while d <= min(b, end):
+            out.add(d.isoformat())
+            d += timedelta(days=1)
+    return out
+
+
+def nursing_on(emp, d):
+    """ساعتا الرضاعة (المادة 25): للعاملة حتى `nursing_until`."""
+    ek = emp.keys()
+    until = _d(emp['nursing_until'] if 'nursing_until' in ek else None)
+    if not until or _d(d) is None or _d(d) > until:
+        return False
+    return _norm(emp['gender'] if 'gender' in ek else '') not in MALE
+
+
+def nursing_waive(late, early):
+    """تُعفى ساعتا الرضاعة من التأخير أوّلًا ثم من الانصراف المبكر."""
+    left = NURSING_MINUTES
+    w = min(late, left)
+    late, left = late - w, left - w
+    w = min(early, left)
+    return late, early - w
+
+
+def ot_days_year_to_date(conn, employee_id, month, year):
+    try:
+        v = conn.execute('SELECT COALESCE(SUM(ot_days), 0) FROM payroll_hours_approvals '
+                         'WHERE employee_id = ? AND year = ? AND month < ?',
+                         (employee_id, int(year), int(month))).fetchone()[0]
+        return int(v or 0)
+    except Exception:
+        return 0
+
+
+# ------------------------------------------------------------------ السلف
+
+def cap_loan_installments(items, wage, sal):
+    """يُخفِّض أقساطَ السلف ليبقى مجموعها ضمن النسبة من الأجر (المادة 60).
+    الباقي يبقى على السلفة للأشهر التالية. يعيد المقدارَ المؤجَّل."""
+    pct = _num(sal.get('loan_deduction_cap_pct'), LOAN_CAP_PCT)
+    if pct <= 0 or not items:
+        return 0.0
+    cap = max(0.0, float(wage or 0)) * pct / 100.0
+    total = sum(i['amount'] for i in items)
+    if total <= cap + 0.0005:
+        return 0.0
+    left = cap
+    for i in items:
+        take = round(min(i['amount'], left), 3)
+        i['deferred'] = round(i['amount'] - take, 3)
+        i['amount'] = take
+        left -= take
+    return round(total - cap, 3)
+
+
+# ------------------------------------------------------------------ المرضيّة داخل السنويّة
+
+SICK_ANNUAL_SQL = """SELECT lr.start_date, lr.end_date, lt.name,
+                            COALESCE(lt.deducts_annual, 1) AS da,
+                            COALESCE(lr.is_paid_leave, 1) AS paid
+                     FROM leave_requests lr JOIN leave_types lt ON lt.id = lr.leave_type_id
+                     WHERE lr.employee_id = ? AND lr.status = 'approved'
+                       AND COALESCE(lr.is_deleted, 0) = 0
+                       AND COALESCE(lr.leave_duration_type, 'full_day') != 'hourly'
+                       AND DATE(lr.end_date) >= ? AND DATE(lr.start_date) <= ?"""
+
+
+def sick_inside_annual_days(conn, employee_id, since, until):
+    """أيّامُ عملٍ مرضيّة وقعت داخل إجازةٍ سنويّة (المادة 70): لا تُحسب من
+    السنويّة، فتُعاد إلى الرصيد."""
+    from utils.payroll_engine import _weekly_off_set, _is_sick_type
+    emp = conn.execute('SELECT * FROM employees WHERE id = ?', (employee_id,)).fetchone()
+    if not emp:
+        return 0
+    sick, annual = [], []
+    for r in conn.execute(SICK_ANNUAL_SQL, (employee_id, since, until)).fetchall():
+        a, b = _d(r['start_date']), _d(r['end_date'])
+        if not a or not b:
+            continue
+        if _is_sick_type(r['name']):
+            sick.append((a, b))
+        elif r['da'] and r['paid'] and a >= _d(since):
+            annual.append((a, b))
+    if not sick or not annual:
+        return 0
+    offs = _weekly_off_set(emp)
+    hol = {str(x[0])[:10] for x in conn.execute(
+        'SELECT date FROM official_holidays WHERE DATE(date) BETWEEN ? AND ?', (since, until))}
+    days = set()
+    for sa, sb in sick:
+        for aa, ab in annual:
+            d = max(sa, aa)
+            while d <= min(sb, ab):
+                if (d.isoweekday() % 7) not in offs and d.isoformat() not in hol:
+                    days.add(d)
+                d += timedelta(days=1)
+    return len(days)
+
+
+def daily_divisor(conn, year, month):
+    """قاسمُ الأجر اليوميّ من `daily_rate_basis`: 26 (أساسُ القانون) أو 30،
+    و«أيّامُ العمل» تؤول هنا إلى أيّام الشهر."""
+    import calendar
+    basis = str(_setting(conn, 'daily_rate_basis', '26') or '26').strip()
+    if basis == '30':
+        return 30.0
+    if basis == 'working':
+        return float(calendar.monthrange(int(year), int(month))[1])
+    return 26.0

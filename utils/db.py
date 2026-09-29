@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 64
+SCHEMA_VERSION = 65
 
 
 def get_schema_version(conn):
@@ -1848,7 +1848,7 @@ def init_db():
         print(f'cloud outbox install failed: {e}')
 
     # قانون العمل الكويتيّ: أنواعُ الإجازات الخاصّة، والاستراحة، والتجربة،
-    # والأعياد الثابتة، وإعداداتُ الجزاءات والتأمينات (v64).
+    # والأعياد الثابتة، وإعداداتُ الجزاءات والتأمينات (v64، ورمضانُ والرضاعةُ ونوعُ الأجر v65).
     try:
         from utils.labor_law import migrate as _labor_migrate
         _labor_migrate(conn)

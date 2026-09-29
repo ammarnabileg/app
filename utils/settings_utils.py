@@ -101,6 +101,7 @@ def get_salary_settings_v2(conn):
             'pifss_employee_pct': '10.5',
             'pifss_employer_pct': '11.5',
             'pifss_salary_cap': '2750',
+            'loan_deduction_cap_pct': '10',
         }
         
         # دمج الإعدادات المحفوظة مع الافتراضية

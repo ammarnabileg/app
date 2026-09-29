@@ -65,12 +65,12 @@
 <table>
     <thead><tr><th colspan="2">{{ _('x.eosp_gratuity') }}</th></tr></thead>
     <tbody>
-        <tr><td>{{ _('x.eosp_tier1') }}</td>
+        <tr><td>{{ _('x.eosp_tier1_daily') if c.pay_type == 'daily' else _('x.eosp_tier1') }}</td>
             <td class="n">{{ '%.2f'|format(r.tier1_days or 0) }} {{ _('x.day_unit_pl') }}</td></tr>
-        <tr><td>{{ _('x.eosp_tier2') }}</td>
+        <tr><td>{{ _('x.eosp_tier2_daily') if c.pay_type == 'daily' else _('x.eosp_tier2') }}</td>
             <td class="n">{{ '%.2f'|format(r.tier2_days or 0) }} {{ _('x.day_unit_pl') }}</td></tr>
         {% if r.capped %}
-        <tr><td colspan="2" class="muted">{{ _('x.eosp_capped') }}</td></tr>
+        <tr><td colspan="2" class="muted">{{ _('x.eosp_capped_daily') if c.pay_type == 'daily' else _('x.eosp_capped') }}</td></tr>
         {% endif %}
         <tr><td>{{ _('x.eosp_pay_days') }}</td>
             <td class="n">{{ '%.2f'|format(c.pay_days or 0) }} × {{ '%.3f'|format(r.daily_rate or 0) }}</td></tr>

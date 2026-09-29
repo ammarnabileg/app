@@ -144,6 +144,18 @@ def add_loan():
         ''', (employee_id, principal, installment, start_month, start_year, reason, _uid()))
         conn.commit()
         flash(gettext('x.f_loan_added'), 'success')
+        # المادة 60: لا يُقتطع أكثرُ من 10% من الأجر — القسطُ الأكبر يُقسَّط
+        # على أشهرٍ أكثر في الرواتب تلقائيًّا، فيُنبَّه المدخِل الآن.
+        from utils.labor_law import _num, LOAN_CAP_PCT
+        from utils.payroll_engine import fetch_fixed_earnings
+        from utils.settings_utils import get_salary_settings_v2
+        _e = conn.execute('SELECT salary FROM employees WHERE id = ?', (employee_id,)).fetchone()
+        _basic = float((_e['salary'] if _e else 0) or 0)
+        _wage = _basic + sum(i['amount'] for i in fetch_fixed_earnings(conn, employee_id, _basic))
+        _pct = _num(get_salary_settings_v2(conn).get('loan_deduction_cap_pct'), LOAN_CAP_PCT)
+        if _pct > 0 and installment > _wage * _pct / 100.0 + 0.0005:
+            flash(gettext('x.f_loan_over_cap') % {'n': _pct, 'max': f'{_wage * _pct / 100.0:.3f}'},
+                  'warning')
     except Exception as e:
         flash(gettext('x.f_loan_error') % {'p0': f'{str(e)}'}, 'error')
     return redirect(url_for('payroll.loans'))
