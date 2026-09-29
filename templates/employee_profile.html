@@ -192,7 +192,7 @@
                     <td class="small text-muted">${esc(label)}${warn}</td>
                     <td>${esc(d.check_in || '--')}</td>
                     <td>${esc(d.check_out || '--')}</td>
-                    <td>${d.hours != null ? num(d.hours) : '--'}</td>
+                    <td>${d.hours != null ? fmtHM(d.hours) : '--'}</td>
                 </tr>`;
             }).join('') + `</tbody></table></div>`;
     }

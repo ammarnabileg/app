@@ -1,4 +1,5 @@
 from datetime import datetime, date, timedelta
+from utils.timefmt import hours_hm
 import calendar
 from utils.settings_utils import get_currency_settings, get_salary_settings_v2, get_default_salary_data
 from utils.leave_utils import calculate_leave_balance
@@ -1000,7 +1001,7 @@ def generate_salary_anomalies_report(conn, employee_id, month, year):
         anomalies.append({
             'type': 'extreme_work_hours',
             'date': extreme['date'],
-            'message': f"ساعات عمل غير منطقية: {extreme['work_hours']:.1f} ساعة"
+            'message': f"ساعات عمل غير منطقية: {hours_hm(extreme['work_hours'])} ساعة"
         })
     
     return anomalies

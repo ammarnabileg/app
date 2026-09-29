@@ -488,6 +488,18 @@
         }
     </style>
 {% include '_partials/assets.html' %}
+    <script>
+        // ساعاتٌ عشريّة ← «ساعات:دقائق» في كل التقارير: 8.85 تُقرأ «8 ساعات و85
+        // دقيقة» وهي 8:51 — الكسرُ جزءٌ من ستّين. في <head> ليُعرَّف قبل أيّ
+        // سكربتٍ في الصفحة. ومقابلُه في القوالب: مرشِّح `hm`.
+        window.fmtHM = function (v) {
+            if (v === null || v === undefined || v === '' || isNaN(Number(v))) return v;
+            let t = Math.round(Number(v) * 60);
+            const sign = t < 0 ? '-' : '';
+            t = Math.abs(t);
+            return sign + Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+        };
+    </script>
 </head>
 
 <body>

@@ -141,12 +141,12 @@
                                     <span class="badge bg-warning text-dark">{{ data.partial_days }}</span>
                                 </td>
                                 <td>
-                                    <strong class="text-primary">{{ "%.1f"|format(data.total_work_hours) }}</strong>
+                                    <strong class="text-primary">{{ data.total_work_hours|hm }}</strong>
                                 </td>
                                 <td>
                                     {% set late_hours = data.total_late_minutes / 60 %}
                                     {% if late_hours > 0 %}
-                                        <span class="text-warning">{{ "%.1f"|format(late_hours) }}</span>
+                                        <span class="text-warning">{{ late_hours|hm }}</span>
                                     {% else %}
                                         <span class="text-muted">0</span>
                                     {% endif %}

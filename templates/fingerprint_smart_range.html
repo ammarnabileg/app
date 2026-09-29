@@ -69,7 +69,7 @@
                         </div>
                         <div class="col-md-3">
                             <div class="card bg-primary text-white"><div class="card-body text-center">
-                                <h3 class="mb-1">{{ summary.total_work_hours }}</h3><small>{{ _('x.total_work_hours') }}</small>
+                                <h3 class="mb-1">{{ summary.total_work_hours|hm }}</h3><small>{{ _('x.total_work_hours') }}</small>
                             </div></div>
                         </div>
                         <div class="col-md-3">
@@ -106,7 +106,7 @@
                                     <td>{{ s.present_days }}</td>
                                     <td>{{ s.absent_days }}</td>
                                     <td>{{ s.partial_days }}</td>
-                                    <td>{{ '%.1f'|format(s.total_work_hours) }}</td>
+                                    <td>{{ s.total_work_hours|hm }}</td>
                                     <td>{{ s.total_late_minutes }}</td>
                                     <td>{{ s.total_late_departure_minutes }}</td>
                                 </tr>
@@ -190,7 +190,7 @@
                                     <td>{{ r.department or _('x.not_specified') }}</td>
                                     <td>{{ r.checkin_time if r.checkin_time != '00:00' else '-' }}</td>
                                     <td>{{ r.checkout_time if r.checkout_time != '00:00' else '-' }}</td>
-                                    <td>{{ '%.1f'|format(r.work_hours) }}</td>
+                                    <td>{{ r.work_hours|hm }}</td>
                                     <td>{{ r.scheduled_start }}</td>
                                     <td>{{ r.scheduled_end }}</td>
                                     <td>

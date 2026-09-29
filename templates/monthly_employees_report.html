@@ -223,12 +223,12 @@
                     <td class="align-middle fw-bold text-primary">${r.expected_work_days || 0}</td>
                     <td class="align-middle fw-bold text-danger">${r.sick_emergency_leaves || 0}</td>
                     ${daysHtml}
-                    <td class="fw-bold text-muted bg-light border-end">${r.required_hours}</td>
-                    <td class="fw-bold text-secondary">${r.basic_work_hours}</td>
-                    <td class="fw-bold text-danger">${r.missing_hours}</td>
-                    <td class="fw-bold text-success">${r.ot_hours}</td>
-                    <td class="fw-bold text-dark border-start">${r.total_work_hours}</td>
-                    <td class="text-danger">${r.total_late_hours}</td>
+                    <td class="fw-bold text-muted bg-light border-end">${fmtHM(r.required_hours)}</td>
+                    <td class="fw-bold text-secondary">${fmtHM(r.basic_work_hours)}</td>
+                    <td class="fw-bold text-danger">${fmtHM(r.missing_hours)}</td>
+                    <td class="fw-bold text-success">${fmtHM(r.ot_hours)}</td>
+                    <td class="fw-bold text-dark border-start">${fmtHM(r.total_work_hours)}</td>
+                    <td class="text-danger">${fmtHM(r.total_late_hours)}</td>
                     <td class="text-success">${r.present_days}</td>
                     <td class="text-danger">${r.absent_days}</td>
                     <td class="text-info fw-bold">${r.salary}</td>

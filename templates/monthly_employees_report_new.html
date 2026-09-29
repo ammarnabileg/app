@@ -173,7 +173,7 @@
                 let clickAction = '';
                 let cellStyle = '';
                 let statusText = c.status;
-                let tooltip = `{{ _('x.in_colon_space') }}${c.check_in || '-'}\n{{ _('x.out_colon_space') }}${c.check_out || '-'}\n{{ _('x.work_hours') }}: ${c.work_hours || 0}`;
+                let tooltip = `{{ _('x.in_colon_space') }}${c.check_in || '-'}\n{{ _('x.out_colon_space') }}${c.check_out || '-'}\n{{ _('x.work_hours') }}: ${fmtHM(c.work_hours || 0)}`;
 
                 if (statusText === 'holiday') { cellContent = {{ _("symbol.holiday") | tojson }}; cellClass = 'bg-warning bg-opacity-25 text-warning fw-bold'; }
                 else if (statusText === 'leave') { cellContent = {{ _("symbol.leave") | tojson }}; cellClass = 'bg-info bg-opacity-25 text-info fw-bold'; }
@@ -208,7 +208,7 @@
                     <td class="fw-bold text-secondary">0</td>
                     <td class="fw-bold text-danger">0</td>
                     <td class="fw-bold text-success">${r.stats.total_overtime_mins / 60}</td>
-                    <td class="fw-bold text-dark border-start">${r.stats.total_work_hours}</td>
+                    <td class="fw-bold text-dark border-start">${fmtHM(r.stats.total_work_hours)}</td>
                     <td class="text-danger">${r.stats.total_late_mins / 60}</td>
                     <td class="text-success">${r.stats.present_days}</td>
                     <td class="text-danger">${r.stats.absent_days}</td>

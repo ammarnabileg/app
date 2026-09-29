@@ -334,7 +334,7 @@
         document.getElementById('days_worked').textContent = daysWorked;
         document.getElementById('days_on_leave').textContent = totalLeaves;
         document.getElementById('days_absent').textContent = Math.max(0, daysAbsent);
-        document.getElementById('total_work_hours').textContent = totalHours.toFixed(1);
+        document.getElementById('total_work_hours').textContent = fmtHM(totalHours);
 
         // عرض الحضور اليومي
         displayDailyAttendance(data);
@@ -431,7 +431,7 @@
                 <td>${dayName}</td>
                 <td>${record.check_in || '-'}</td>
                 <td>${record.check_out || '-'}</td>
-                <td>${record.work_hours > 0 ? record.work_hours.toFixed(1) + {{ _('x.hour_abbr_space')|tojson }} : '-'}</td>
+                <td>${record.work_hours > 0 ? fmtHM(record.work_hours) : '-'}</td>
                 <td>${statusBadge}</td>
                 <td>${notes}</td>
             </tr>

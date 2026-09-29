@@ -364,13 +364,8 @@ app.jinja_env.filters['to_minutes'] = time_to_minutes
 def hours_hm_filter(value):
     """ساعاتٌ عشريّة ← «ساعات:دقائق». 8.85 تُقرأ «8 ساعات و85 دقيقة» وهي
     8:51 — الكسرُ جزءٌ من ستّين لا من مئة."""
-    try:
-        total = int(round(float(value) * 60))
-    except (TypeError, ValueError):
-        return value
-    sign = '-' if total < 0 else ''
-    total = abs(total)
-    return f"{sign}{total // 60}:{total % 60:02d}"
+    from utils.timefmt import hours_hm
+    return hours_hm(value)
 
 
 @app.template_filter('datetime_parse')

@@ -127,7 +127,7 @@
                 document.getElementById('hpPeriod').innerText =
                     res.period.start + ' \u2190 ' + res.period.end;
                 document.getElementById('hpTotals').innerText =
-                    HPT.totalsFmt + ': ' + res.totals.count + ' / ' + res.totals.hours;
+                    HPT.totalsFmt + ': ' + res.totals.count + ' / ' + fmtHM(res.totals.hours);
                 hpRender();
             });
     }
@@ -147,7 +147,7 @@
                 <td>${esc(r.employee_number)} — ${esc(r.arabic_name || r.name)}</td>
                 <td>${esc(r.from)}</td>
                 <td>${esc(r.to)}</td>
-                <td><b>${r.hours}</b></td>
+                <td><b>${fmtHM(r.hours)}</b></td>
                 <td class="text-start">${esc(r.reason)}</td>
                 <td>${esc(r.by || '\u2014')}</td>
                 <td><button class="btn btn-sm btn-outline-danger" onclick="hpDel(${r.id})">

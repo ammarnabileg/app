@@ -191,7 +191,7 @@
                             {% set hours_worked = ((check_out[11:13]|int * 60 + check_out[14:16]|int) -
                             (check_in[11:13]|int * 60 + check_in[14:16]|int)) / 60 %}
                             <span class="badge bg-primary fs-6">
-                                {{ "%.1f"|format(hours_worked) }} {{ _('x.hour') }}
+                                {{ hours_worked|hm }} {{ _('x.hour') }}
                             </span>
                             {% else %}
                             <span class="text-muted">-</span>

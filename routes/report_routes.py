@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 import calendar
 import math
 from utils.db import get_db_connection
+from utils.timefmt import hours_hm
 from utils.db import get_db_connection
 from utils.auth import login_required, get_allowed_department_name
 from utils.rbac import require_permission
@@ -383,7 +384,7 @@ def fingerprint_attendance_api():
                     tooltip_html += f"<strong>دخول:</strong> {record['checkin_time']}<br>"
                     tooltip_html += f"<strong>خروج:</strong> {record['checkout_time']}<br>"
                     if not record.get('is_flexible'):
-                        tooltip_html += f"<strong>ساعات:</strong> {record['work_hours']}<br>"
+                        tooltip_html += f"<strong>ساعات:</strong> {hours_hm(record['work_hours'])}<br>"
                     
                     if record.get('is_flexible'):
                          tooltip_html += f"<span class='text-success'><strong>شفت حر/مرن</strong></span><br>"

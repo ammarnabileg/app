@@ -130,7 +130,7 @@
                                 <!-- ساعات العمل -->
                                 <td>
                                     {% if record.work_hours > 0 %}
-                                    <strong class="text-primary">{{ "%.1f"|format(record.work_hours) }} {{ _('x.hour') }}</strong>
+                                    <strong class="text-primary">{{ record.work_hours|hm }} {{ _('x.hour') }}</strong>
                                     {% else %}
                                     <span class="text-muted">{{ _('x.zero_hours') }}</span>
                                     {% endif %}

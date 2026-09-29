@@ -148,7 +148,7 @@
         return (Number(v) || 0).toLocaleString(undefined,
             { minimumFractionDigits: PM_DEC, maximumFractionDigits: PM_DEC }) + ' ' + PM_CUR;
     }
-    function hrs(v) { return (Math.round((Number(v) || 0) * 100) / 100).toLocaleString(); }
+    function hrs(v) { return fmtHM(Number(v) || 0); }   // ساعات:دقائق — انظر base.html
     function esc(s) {
         return String(s ?? '').replace(/[&<>"']/g,
             c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
