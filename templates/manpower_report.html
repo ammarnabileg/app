@@ -196,11 +196,11 @@ async function loadReport() {
             <td class="text-end">${n3(r.daily_salary)}</td>
             <td class="text-center">${r.days_present}</td>
             <td class="text-end">${n3(r.basic_total)}</td>
-            <td class="text-center">${n1(r.ot_normal_hours)}</td>
+            <td class="text-center">${fmtHM(r.ot_normal_hours)}</td>
             <td class="text-end">${n3(r.ot_normal_total)}</td>
-            <td class="text-center">${n1(r.ot_friday_hours)}</td>
+            <td class="text-center">${fmtHM(r.ot_friday_hours)}</td>
             <td class="text-end">${n3(r.ot_friday_total)}</td>
-            <td class="text-center">${n1(r.ot_holiday_hours)}</td>
+            <td class="text-center">${fmtHM(r.ot_holiday_hours)}</td>
             <td class="text-end">${n3(r.ot_holiday_total)}</td>
             <td class="text-end fw-bold">${n3(r.grand_total)}</td></tr>`;
     });

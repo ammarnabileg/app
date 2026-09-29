@@ -153,6 +153,8 @@ def export_excel():
     header_row = r
 
     r += 1
+    from utils.timefmt import EXCEL_HOURS_FORMAT, excel_hours
+    HOURS_COLS = (9, 13, 17)   # HR. للإضافيّ العاديّ والجمعة والعطلة
     for row in rep['rows']:
         vals = [row['item'], row['sl_no'], row['name'], row['designation'],
                 row['monthly_salary'], round(row['daily_salary'], 4),
@@ -165,9 +167,15 @@ def export_excel():
                 row['ot_holiday_pct'], row['ot_holiday_total'],
                 row['ot_total'], row['grand_total']]
         for i, v in enumerate(vals, start=1):
+            # أعمدةُ الساعات (9، 13، 17) وقتٌ حقيقيّ «ساعات:دقائق»: 12:30 لا 12.5.
+            # والإجماليّاتُ محسوبةٌ هنا بالساعات العشريّة كما كانت — لا تتغيّر.
+            if i in HOURS_COLS:
+                v = excel_hours(v)
             cell = ws.cell(row=r, column=i, value=v)
             cell.border = border
-            if i >= 5:
+            if i in HOURS_COLS:
+                cell.number_format = EXCEL_HOURS_FORMAT
+            elif i >= 5:
                 cell.number_format = '0.000'
         r += 1
 
