@@ -9475,3 +9475,21 @@ msgstr "Your data is kept and nothing was deleted. Upgrade under “My subscript
 
 msgid "x.upgrade_plan"
 msgstr "Upgrade your plan"
+
+msgid "x.late_charged_as"
+msgstr "charged %(n)s min — %(policy)s"
+
+msgid "x.late_policy_quarter_day"
+msgstr "quarter day"
+
+msgid "x.late_policy_half_day"
+msgstr "half day"
+
+msgid "x.late_policy_full_day"
+msgstr "full day"
+
+msgid "x.late_policy_warning"
+msgstr "warning"
+
+msgid "x.late_policy_actual_time"
+msgstr "actual time"

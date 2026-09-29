@@ -147,6 +147,10 @@
         excIn: {{ _('x.exc_in')|tojson }},
         excOut: {{ _('x.exc_out')|tojson }},
         nLate: {{ _('x.n_late')|tojson }},
+        lateChargedAs: {{ _('x.late_charged_as')|tojson }},
+        latePolicy: {quarter_day: {{ _('x.late_policy_quarter_day')|tojson }},
+                     half_day: {{ _('x.late_policy_half_day')|tojson }},
+                     full_day: {{ _('x.late_policy_full_day')|tojson }}},
         nEarly: {{ _('x.n_early')|tojson }},
         minUnit: {{ _('x.min_unit')|tojson }},
         nPresence: {{ _('x.n_presence')|tojson }},
@@ -185,7 +189,13 @@
             c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
     function nm(r) { return HA_AR ? (r.arabic_name || r.name) : (r.name || r.arabic_name); }
-    function hrs(v) { return (Math.round((Number(v) || 0) * 100) / 100).toLocaleString(); }
+    // ساعاتٌ عشريّة ← «ساعات:دقائق»: 8.85 تبدو «8 ساعات و85 دقيقة» وهي 8:51.
+    function hrs(v) {
+        let t = Math.round((Number(v) || 0) * 60);
+        const sign = t < 0 ? '-' : '';
+        t = Math.abs(t);
+        return sign + Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+    }
 
     function stateBadge(r) {
         if (r.state === 'approved') {
@@ -406,7 +416,13 @@
                         if (d.rest_unpaid) info += ` <span class="badge bg-danger">${esc(HT.restUnpaid)}</span>`;
                         if (d.ot_mins) info += ` <span class="badge bg-white border text-success">${esc(HT.nOT)} ${d.ot_mins} ${esc(HT.minUnit)}</span>`;
                         if (d.hourly_perm) info += ` <span class="badge bg-info text-dark">${esc(HT.hpBadge)} ${d.hourly_perm.hours} (${esc(d.hourly_perm.from)}-${esc(d.hourly_perm.to)})</span>`;
-                        if (d.late_mins) info += ` <span class="badge bg-white border text-danger">${esc(HT.nLate)} ${d.late_mins} ${esc(HT.minUnit)}</span>`;
+                        if (d.late_mins) {
+                            // التأخيرُ الفعليّ، وما يُحسب به حين تكون السياسةُ «ربع يوم» ونحوها.
+                            const actual = d.late_actual || d.late_mins;
+                            const charged = (d.late_policy && d.late_policy !== 'actual_time' && actual !== d.late_mins)
+                                ? ` (${esc(HT.lateChargedAs.replace('%(n)s', d.late_mins).replace('%(policy)s', HT.latePolicy[d.late_policy] || d.late_policy))})` : '';
+                            info += ` <span class="badge bg-white border text-danger">${esc(HT.nLate)} ${actual} ${esc(HT.minUnit)}${charged}</span>`;
+                        }
                         if (d.early_mins) info += ` <span class="badge bg-white border text-danger">${esc(HT.nEarly)} ${d.early_mins} ${esc(HT.minUnit)}</span>`;
                         const presTd = !showPres ? '' : ('<td>' + (
                             d.presence_in

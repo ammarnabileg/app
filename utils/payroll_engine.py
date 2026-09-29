@@ -135,6 +135,17 @@ def _charged_late_early(first_t, last_t, emp, sal):
     return late, early
 
 
+def _actual_late(first_t, emp):
+    """الدقائقُ من بداية الشفت إلى أوّل بصمة — للعرض بجوار المحتسَب."""
+    if not first_t:
+        return 0
+    keys = emp.keys()
+    sh_start = _t2m(emp['shift_start'] if 'shift_start' in keys else None,
+                    (emp['default_start_time'] if 'default_start_time' in keys
+                     and emp['default_start_time'] else '08:00'))
+    return max(0, _t2m(first_t, '00:00') - sh_start)
+
+
 def _emp_flex_mode(emp):
     """The explicit shift_types.flex_mode column is the ONLY source of
     flexibility. Names carry no behavior: legacy flexibly-named shifts were
@@ -1747,6 +1758,10 @@ def compute_employee_days(conn, employee_id, month, year):
                      'check_out': last_t or '--',
                      'hours': span_h, 'punch_count': len(recs),
                      'late_mins': d_late, 'early_mins': d_early,
+                     # التأخيرُ الفعليّ بجوار المحتسَب: سياسةُ «ربع يوم» تجعل
+                     # تأخيرَ 13 دقيقة «120 د» — والرقمان معًا يشرحان نفسيهما.
+                     'late_actual': _actual_late(first_t, emp) if d_late else 0,
+                     'late_policy': sal.get('late_arrival_policy', 'actual_time') if d_late else None,
                      'has_manual': has_manual})
         d += timedelta(days=1)
 

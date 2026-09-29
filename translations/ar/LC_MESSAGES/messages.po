@@ -9466,3 +9466,21 @@ msgstr "بياناتُك محفوظة ولم يُحذف منها شيء. رقِ�
 
 msgid "x.upgrade_plan"
 msgstr "رقِّ خطّتك"
+
+msgid "x.late_charged_as"
+msgstr "يُحسب %(n)s د — %(policy)s"
+
+msgid "x.late_policy_quarter_day"
+msgstr "ربع يوم"
+
+msgid "x.late_policy_half_day"
+msgstr "نصف يوم"
+
+msgid "x.late_policy_full_day"
+msgstr "يوم كامل"
+
+msgid "x.late_policy_warning"
+msgstr "تنبيه"
+
+msgid "x.late_policy_actual_time"
+msgstr "الوقت الفعليّ"

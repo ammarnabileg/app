@@ -118,7 +118,7 @@
                         {%- else -%}—{%- endif -%}
                     </td>
                     {% endif %}
-                    <td>{{ d.hours if d.hours else '--' }}</td>
+                    <td>{{ d.hours|hm if d.hours else '--' }}</td>
                     <td class="notes">
                         {%- if d.status == 'holiday' and d.holiday_name %}{{ d.holiday_name }}{% endif -%}
                         {%- if d.excuse %}
@@ -127,7 +127,7 @@
                             {{ d.excuse.reason or '' }}
                             {%- if d.excuse.by %} ({{ d.excuse.by }}){% endif -%}
                         {%- elif d.leave_reason %}{{ d.leave_reason }}{% endif -%}
-                        {%- if d.late_mins %} | {{ _('x.n_late') }} {{ d.late_mins }} {{ _('x.min_unit') }}{% endif -%}
+                        {%- if d.late_mins %} | {{ _('x.n_late') }} {{ d.late_actual or d.late_mins }} {{ _('x.min_unit') }}{%- if d.late_policy and d.late_policy != 'actual_time' and d.late_actual != d.late_mins %} ({{ _('x.late_charged_as', n=d.late_mins, policy=_('x.late_policy_' ~ d.late_policy)) }}){% endif %}{% endif -%}
                         {%- if d.early_mins %} | {{ _('x.n_early') }} {{ d.early_mins }} {{ _('x.min_unit') }}{% endif -%}
                         {%- if d.hourly_perm %} | {{ _('x.n_hperm') }} {{ d.hourly_perm.hours }} ({{ d.hourly_perm.from }}-{{ d.hourly_perm.to }}){% endif -%}
                         {%- if d.ot_mins %} | {{ _('x.n_ot') }} {{ d.ot_mins }} {{ _('x.min_unit') }}{% endif -%}
@@ -142,8 +142,8 @@
         <div class="sum">
             <div class="s"><div class="v">{{ b.metrics.required_days or 0 }}</div><div class="l">{{ _('x.ha_req_days') }}</div></div>
             <div class="s"><div class="v">{{ b.metrics.actual_days or 0 }}</div><div class="l">{{ _('x.ha_act_days') }}</div></div>
-            <div class="s"><div class="v">{{ b.metrics.required_hours or 0 }}</div><div class="l">{{ _('x.pm_required_hours') }}</div></div>
-            <div class="s"><div class="v">{{ b.metrics.actual_hours or 0 }}</div><div class="l">{{ _('x.pm_actual_hours') }}</div></div>
+            <div class="s"><div class="v">{{ (b.metrics.required_hours or 0)|hm }}</div><div class="l">{{ _('x.pm_required_hours') }}</div></div>
+            <div class="s"><div class="v">{{ (b.metrics.actual_hours or 0)|hm }}</div><div class="l">{{ _('x.pm_actual_hours') }}</div></div>
             <div class="s"><div class="v">{{ b.metrics.partial_days or 0 }}</div><div class="l">{{ _('x.ha_partial_days') }}</div></div>
             <div class="s"><div class="v">{{ b.metrics.absent_days or 0 }}</div><div class="l">{{ _('x.ha_absent_days') }}</div></div>
             <div class="s"><div class="v">{{ b.metrics.sick_days or 0 }}</div><div class="l">{{ _('x.ha_sick_days') }}</div></div>
@@ -153,7 +153,7 @@
             <div class="s"><div class="v">{{ b.metrics.early_mins or 0 }}</div><div class="l">{{ _('x.ha_early_mins') }}</div></div>
             <div class="s"><div class="v">{{ b.metrics.presence_missing or 0 }}</div><div class="l">{{ _('x.ha_presence_missing') }}</div></div>
             <div class="s"><div class="v">{{ b.metrics.hourly_perm_hours or 0 }}</div><div class="l">{{ _('x.ha_hperm_hours') }}</div></div>
-            <div class="s"><div class="v">{{ '%.2f'|format(((b.metrics.ot_weekday_mins or 0) + (b.metrics.ot_weekend_mins or 0) + (b.metrics.ot_holiday_mins or 0)) / 60) }}</div><div class="l">{{ _('x.ha_ot_hours') }}</div></div>
+            <div class="s"><div class="v">{{ (((b.metrics.ot_weekday_mins or 0) + (b.metrics.ot_weekend_mins or 0) + (b.metrics.ot_holiday_mins or 0)) / 60)|hm }}</div><div class="l">{{ _('x.ha_ot_hours') }}</div></div>
             <div class="s"><div class="v">{{ b.metrics.unentitled_rest_days or 0 }}</div><div class="l">{{ _('x.ha_rest_unpaid') }}</div></div>
         </div>
 
