@@ -32,17 +32,17 @@
 """
 
 VERSION_MAJOR = 2
-VERSION_MINOR = 21
-VERSION_PATCH = 1
+VERSION_MINOR = 22
+VERSION_PATCH = 0
 VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
 
 # تاريخ البناء — يُحدَّث مع BUILD
-BUILD_DATE = "2026-09-29"
+BUILD_DATE = "2026-09-30"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "تناسب البدلات مع أيام الخدمة"
+RELEASE_NAME = "تاريخ الشفتات والرواتب وقسيمة الراتب"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"

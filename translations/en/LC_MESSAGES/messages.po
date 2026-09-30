@@ -9855,7 +9855,7 @@ msgid "x.pay_type_monthly"
 msgstr "Monthly"
 
 msgid "x.pay_type_daily"
-msgstr "Daily, hourly or piece-rate"
+msgstr "Daily (salary = daily wage)"
 
 msgid "x.nursing_until"
 msgstr "Nursing hours until"
@@ -9964,3 +9964,120 @@ msgstr "Detailed print (every item)"
 
 msgid "x.pm_export_detailed"
 msgstr "Detailed Excel (a column per item)"
+
+msgid "x.salary_daily_hint"
+msgstr "For daily-paid staff: enter the daily wage."
+
+msgid "x.salary_effective_from"
+msgstr "New salary effective from"
+
+msgid "x.shift_effective_from"
+msgstr "New shift effective from"
+
+msgid "x.effective_hint"
+msgstr "Used only if you change the value. Days before it keep the old one."
+
+msgid "x.history_tab"
+msgstr "Shift & salary history"
+
+msgid "x.history_intro"
+msgstr "Every day is computed with the shift and salary in effect on it. A change today does not alter past days. Locked payroll periods cannot be changed."
+
+msgid "x.shift_history"
+msgstr "Shift history"
+
+msgid "x.salary_history"
+msgstr "Basic salary history"
+
+msgid "x.effective_from"
+msgstr "Effective from"
+
+msgid "x.since_start"
+msgstr "Since start"
+
+msgid "x.f_history_saved"
+msgstr "Change saved with its effective date"
+
+msgid "x.f_history_locked"
+msgstr "The date %(d)s falls in a locked payroll period — unlock it first"
+
+msgid "x.lc_decimals"
+msgstr "Amounts to three decimals (1 KWD = 1000 fils)"
+
+msgid "x.lc_decimals_fix"
+msgstr "Rounding is to %(n)s decimals, so fils are lost on every line."
+
+msgid "x.lc_absence_base"
+msgstr "Absence is deducted from the whole wage"
+
+msgid "x.lc_absence_base_fix"
+msgstr "An absent day is deducted from the basic only and allowances are paid in full. Under the law the wage includes allowances."
+
+msgid "x.lc_apply"
+msgstr "Apply"
+
+msgid "x.lc_fixed"
+msgstr "The compliant value was applied"
+
+msgid "x.set_absence_base"
+msgstr "Deduct absence from"
+
+msgid "x.set_absence_wage"
+msgstr "Whole wage (basic and allowances)"
+
+msgid "x.set_absence_basic"
+msgstr "Basic only"
+
+msgid "x.lw_nothing_earned"
+msgstr "No paid day in the period: the whole wage was deducted ({amount})"
+
+msgid "x.lw_net_floor"
+msgstr "Deductions exceed earnings: {amount} carried forward, not deducted"
+
+msgid "x.ps_title"
+msgstr "Payslip"
+
+msgid "x.ps_all"
+msgstr "Payslips (all)"
+
+msgid "x.ps_bank_file"
+msgstr "Bank transfer file"
+
+msgid "x.ps_provisions"
+msgstr "End of service & leave provisions"
+
+msgid "x.ps_none"
+msgstr "No payslip for this month yet — it appears once the payroll is saved."
+
+msgid "x.ps_draft"
+msgstr "Draft — payroll not saved"
+
+msgid "x.ps_bank"
+msgstr "Bank / account"
+
+msgid "x.ps_leave_balance"
+msgstr "Leave balance (days)"
+
+msgid "x.ps_earnings"
+msgstr "Earnings"
+
+msgid "x.ps_deductions"
+msgstr "Deductions"
+
+msgid "x.ps_total_earnings"
+msgstr "Total earnings"
+
+msgid "x.ps_total_deductions"
+msgstr "Total deductions"
+
+msgid "x.ps_employee_sig"
+msgstr "Employee signature"
+
+msgid "x.ps_hr_sig"
+msgstr "Human resources"
+
+msgid "x.ps_period_from"
+msgstr "From"
+
+msgid "x.ps_period_to"
+msgstr "to"

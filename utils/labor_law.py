@@ -207,8 +207,21 @@ def migrate(conn):
     for k, v, desc, cat in defaults:
         cur.execute('INSERT OR IGNORE INTO salary_settings_v2 (setting_name, setting_value, '
                     'description, category) VALUES (?, ?, ?, ?)', (k, v, desc, cat))
+    # الغيابُ بالأجر كلّه للتثبيت الجديد؛ ومن له موظّفون يبقى على ما كان (الأساسيّ)
+    # حتى يقرّر من «مطابقة قانون العمل» — تغييرُه يغيّر رواتبَ قائمة.
+    if not cur.execute("SELECT 1 FROM salary_settings_v2 WHERE setting_name = 'absence_deduction_base'").fetchone():
+        has_emps = cur.execute('SELECT 1 FROM employees LIMIT 1').fetchone() is not None
+        cur.execute("INSERT INTO salary_settings_v2 (setting_name, setting_value, description, category) "
+                    "VALUES ('absence_deduction_base', ?, 'خصم الغياب على الأجر كله أو الأساسي', 'attendance')",
+                    ('basic' if has_emps else 'wage',))
 
     seed_fixed_holidays(conn)
+
+    # تاريخُ الشفتات والرواتب (v66): الأساسُ ما عليه كلُّ موظّفٍ اليوم.
+    from utils.workday import migrate as _shift_migrate
+    _shift_migrate(conn)
+    from utils.pay_history import migrate as _salary_migrate
+    _salary_migrate(conn)
 
 
 def seed_fixed_holidays(conn, today=None):
@@ -489,7 +502,9 @@ def compliance_checks(conn, sal=None):
     add('pifss', not kw or str(sal.get('pifss_enabled')) == '1', 'PIFSS', {'n': len(kw)})
 
     low = conn.execute('SELECT COUNT(*) FROM employees WHERE is_active = 1 '
-                       'AND COALESCE(salary, 0) > 0 AND salary < ?', (MIN_WAGE,)).fetchone()[0]
+                       'AND COALESCE(salary, 0) > 0 '
+                       "AND (CASE WHEN COALESCE(pay_type, 'monthly') = 'daily' THEN salary * 26 "
+                       'ELSE salary END) < ?', (MIN_WAGE,)).fetchone()[0]
     add('min_wage', low == 0, '—', {'n': low, 'min': MIN_WAGE})
 
     long_shifts, no_break = [], []
@@ -534,6 +549,10 @@ def compliance_checks(conn, sal=None):
 
     lc = _num(sal.get('loan_deduction_cap_pct'), LOAN_CAP_PCT)
     add('loan_cap', 0 < lc <= LOAN_CAP_PCT, '60', {'n': lc})
+
+    dec = int(_num(sal.get('rounding_display_decimals'), 3))
+    add('decimals', dec >= 3, '—', {'n': dec})
+    add('absence_base', str(sal.get('absence_deduction_base', 'wage')) == 'wage', '1', {})
 
     y = date.today().year
     nh = conn.execute("SELECT COUNT(*) FROM official_holidays WHERE strftime('%Y', date) = ?",
@@ -719,3 +738,28 @@ def daily_divisor(conn, year, month):
     if basis == 'working':
         return float(calendar.monthrange(int(year), int(month))[1])
     return 26.0
+
+
+# إصلاحٌ بضغطة: الإعداداتُ التي لها قيمةٌ مطابقة واحدة.
+FIX_VALUES = {
+    'ot_rounding': {'overtime_round_to_minutes': '0'},
+    'weekday_ot_multiplier': {'weekday_ot_multiplier': '1.25'},
+    'weekend_ot_multiplier': {'weekend_ot_multiplier': '1.5'},
+    'holiday_ot_multiplier': {'holiday_ot_multiplier': '2.0'},
+    'penalty_cap': {'penalty_monthly_cap_days': '5'},
+    'missing_punch': {'missing_punch_policy': 'penalty_tiered'},
+    'loan_cap': {'loan_deduction_cap_pct': '10'},
+    'decimals': {'rounding_display_decimals': '3'},
+    'absence_base': {'absence_deduction_base': 'wage'},
+}
+
+
+def apply_fix(conn, code):
+    vals = FIX_VALUES.get(code)
+    if not vals:
+        return False
+    for k, v in vals.items():
+        conn.execute('INSERT INTO salary_settings_v2 (setting_name, setting_value) VALUES (?, ?) '
+                     'ON CONFLICT(setting_name) DO UPDATE SET setting_value = excluded.setting_value',
+                     (k, v))
+    return True

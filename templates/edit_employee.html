@@ -117,6 +117,9 @@
                     </li>
 
                     <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history" type="button" role="tab">{{ _('x.history_tab') }}</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
                         <button class="nav-link" id="dependents-tab" data-bs-toggle="tab" data-bs-target="#dependents" type="button" role="tab">{{ _('x.dependents_family') }}</button>
                     </li>
                     <li class="nav-item" role="presentation">
@@ -399,7 +402,13 @@
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">{{ _('x.basic_salary') }}</label>
-                                    <input type="number" class="form-control" name="salary" step="0.01" min="0" value="{{ employee.salary }}">
+                                    <input type="number" class="form-control" name="salary" step="0.001" min="0" value="{{ employee.salary }}">
+                                    <div class="form-text">{{ _('x.salary_daily_hint') }}</div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">{{ _('x.salary_effective_from') }}</label>
+                                    <input type="date" class="form-control" name="salary_effective_from" value="{{ today }}">
+                                    <div class="form-text">{{ _('x.effective_hint') }}</div>
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">{{ _('x.cost_center') }}</label>
@@ -673,6 +682,11 @@
                                     </select>
                                 </div>
                                 <div class="col-md-4 mb-3">
+                                    <label class="form-label">{{ _('x.shift_effective_from') }}</label>
+                                    <input type="date" class="form-control" name="shift_effective_from" value="{{ today }}">
+                                    <div class="form-text">{{ _('x.effective_hint') }}</div>
+                                </div>
+                                <div class="col-md-4 mb-3">
                                     <label class="form-label">{{ _('x.opening_leave_balance') }}</label>
                                     <input type="number" class="form-control" name="previous_leave_balance" value="{{ employee.previous_leave_balance or 0 }}">
                                 </div>
@@ -688,6 +702,53 @@
                             </div>
                         </div>
 
+
+                        <!-- TAB: HISTORY — الشفتُ والراتب بتاريخ سريانهما -->
+                        <div class="tab-pane fade" id="history" role="tabpanel">
+                            <div class="alert alert-light border small">{{ _('x.history_intro') }}</div>
+                            <div class="row g-4">
+                                <div class="col-lg-6">
+                                    <h6><i class="fas fa-clock me-2"></i>{{ _('x.shift_history') }}</h6>
+                                    <table class="table table-sm table-bordered" id="shiftHistTable">
+                                        <thead><tr><th>{{ _('x.effective_from') }}</th><th>{{ _('x.shift_type') }}</th><th></th></tr></thead>
+                                        <tbody>
+                                            {% for h in shift_hist %}
+                                            <tr><td>{{ _('x.since_start') if h.effective_from == '0001-01-01' else h.effective_from }}</td><td>{{ h.shift_type }}</td>
+                                                <td><button class="btn btn-sm btn-outline-danger" form="histDeleteForm"
+                                                        formaction="{{ url_for('employee.delete_shift_history', id=employee.id, hid=h.id) }}"
+                                                        onclick="return confirm({{ _('x.confirm_delete')|tojson }})"><i class="fas fa-trash"></i></button></td></tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                    <div class="row g-2 align-items-end">
+                                        <div class="col"><input type="date" class="form-control form-control-sm" name="effective_from" form="histShiftForm" required value="{{ today }}"></div>
+                                        <div class="col"><select class="form-select form-select-sm" name="shift_type" form="histShiftForm">
+                                            {% for shift in shift_types %}<option value="{{ shift.name }}">{{ shift.name }}</option>{% endfor %}
+                                        </select></div>
+                                        <div class="col-auto"><button class="btn btn-sm btn-primary" form="histShiftForm">{{ _('x.add') }}</button></div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <h6><i class="fas fa-money-bill me-2"></i>{{ _('x.salary_history') }}</h6>
+                                    <table class="table table-sm table-bordered" id="salaryHistTable">
+                                        <thead><tr><th>{{ _('x.effective_from') }}</th><th>{{ _('x.basic_salary') }}</th><th></th></tr></thead>
+                                        <tbody>
+                                            {% for h in salary_hist %}
+                                            <tr><td>{{ _('x.since_start') if h.effective_from == '0001-01-01' else h.effective_from }}</td><td>{{ '%.3f'|format(h.salary) }}</td>
+                                                <td><button class="btn btn-sm btn-outline-danger" form="histDeleteForm"
+                                                        formaction="{{ url_for('employee.delete_salary_history', id=employee.id, hid=h.id) }}"
+                                                        onclick="return confirm({{ _('x.confirm_delete')|tojson }})"><i class="fas fa-trash"></i></button></td></tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                    <div class="row g-2 align-items-end">
+                                        <div class="col"><input type="date" class="form-control form-control-sm" name="effective_from" form="histSalaryForm" required value="{{ today }}"></div>
+                                        <div class="col"><input type="number" step="0.001" min="0" class="form-control form-control-sm" name="salary" form="histSalaryForm" required></div>
+                                        <div class="col-auto"><button class="btn btn-sm btn-primary" form="histSalaryForm">{{ _('x.add') }}</button></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
                         <!-- TAB: DEPENDENTS -->
                         <div class="tab-pane fade" id="dependents" role="tabpanel">
@@ -814,6 +875,19 @@
                         <button type="submit" class="btn btn-success"><i class="fas fa-save me-2"></i>{{ _('x.save_data') }}</button>
                     </div>
                 </form>
+                {# نماذجُ التاريخ خارج نموذج الموظّف: HTML لا يسمح بنموذجٍ داخل نموذج #}
+                <form method="POST" id="histShiftForm" action="{{ url_for('employee.add_shift_history', id=employee.id) }}"></form>
+                <form method="POST" id="histSalaryForm" action="{{ url_for('employee.add_salary_history', id=employee.id) }}"></form>
+                <form method="POST" id="histDeleteForm"></form>
+                <script>
+                // بعد إضافة سطرٍ إلى التاريخ يعود المتصفّح إلى تبويب التاريخ نفسه
+                document.addEventListener('DOMContentLoaded', function () {
+                    if (location.hash === '#history' && window.bootstrap) {
+                        const t = document.getElementById('history-tab');
+                        if (t) new bootstrap.Tab(t).show();
+                    }
+                });
+                </script>
 </div>
             </div>
         </div>

@@ -22,7 +22,11 @@
                 <div class="small text-muted mt-1">{{ _('x.lc_' ~ c.code ~ '_fix', **c.params) }}</div>
                 {% endif %}
             </div>
-            {% if not c.ok and c.fix_url %}
+            {% if not c.ok and c.one_click %}
+            <form method="POST" action="{{ url_for('labor_law.fix', code=c.code) }}" class="ms-2">
+                <button class="btn btn-sm btn-primary text-nowrap">{{ _('x.lc_apply') }}</button>
+            </form>
+            {% elif not c.ok and c.fix_url %}
             <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ c.fix_url }}">{{ _('x.lc_fix') }}</a>
             {% endif %}
         </div>

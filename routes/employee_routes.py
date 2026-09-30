@@ -498,6 +498,11 @@ def edit_employee(id):
                 conn.rollback()
                 flash(_perr, 'error')
                 return redirect(url_for('employee.edit_employee', id=id))
+            _herr = _apply_history(conn, id, _before)
+            if _herr:
+                conn.rollback()
+                flash(_herr, 'error')
+                return redirect(url_for('employee.edit_employee', id=id))
 
             try:
                 from utils.payroll_engine import log_employee_changes
@@ -562,8 +567,14 @@ def edit_employee(id):
     ''').fetchall()
     
     pass # conn.close() removed to prevent leak in Flask g
+    shift_hist = conn.execute('SELECT * FROM employee_shift_history WHERE employee_id = ? '
+                              'ORDER BY effective_from DESC, id DESC', (id,)).fetchall()
+    salary_hist = conn.execute('SELECT * FROM employee_salary_history WHERE employee_id = ? '
+                               'ORDER BY effective_from DESC, id DESC', (id,)).fetchall()
     return render_template('edit_employee.html', 
                            employee=employee, 
+                           shift_hist=shift_hist, salary_hist=salary_hist,
+                           today=datetime.now().strftime('%Y-%m-%d'),
                            shift_types=shift_types,
                            managers=managers,
                            departments=departments,
@@ -1504,9 +1515,153 @@ def _apply_probation(conn, employee_id):
     return None
 
 
+def _effective(field):
+    """تاريخُ السريان من النموذج، أو اليوم. يعيد (التاريخ، رسالة خطأ)."""
+    raw = (request.form.get(field) or '').strip()
+    if not raw:
+        return datetime.now().strftime('%Y-%m-%d'), None
+    try:
+        return datetime.strptime(raw, '%Y-%m-%d').strftime('%Y-%m-%d'), None
+    except ValueError:
+        return None, gettext('x.f_invalid_dates')
+
+
+def _locked_msg(conn, eff):
+    from utils.payroll_engine import date_period_locked
+    if date_period_locked(conn, eff):
+        return gettext('x.f_history_locked') % {'d': eff}
+    return None
+
+
+def sync_current(conn, employee_id):
+    """ملفُّ الموظّف يحمل الساري اليوم: تغييرٌ بتاريخٍ قادم لا يسري قبل يومه."""
+    from utils.workday import shift_history, shift_on
+    from utils.pay_history import salary_history, salary_on
+    today = datetime.now().strftime('%Y-%m-%d')
+    emp = conn.execute('SELECT shift_type, salary FROM employees WHERE id = ?', (employee_id,)).fetchone()
+    if not emp:
+        return
+    sh = shift_on(shift_history(conn, [employee_id]).get(employee_id), emp['shift_type'], today)
+    sa = salary_on(salary_history(conn, [employee_id]).get(employee_id), emp['salary'], today)
+    conn.execute('UPDATE employees SET shift_type = ?, salary = ? WHERE id = ?', (sh, sa, employee_id))
+
+
+def _apply_history(conn, employee_id, before):
+    """تغييرُ الشفت أو الراتب من النموذج يُسجَّل بتاريخ سريانه — ولا يمسّ ما قبله."""
+    from utils.workday import record_shift_change
+    from utils.pay_history import record_salary_change
+    if before is None:
+        return None
+    after = conn.execute('SELECT shift_type, salary FROM employees WHERE id = ?', (employee_id,)).fetchone()
+    uid = session.get('user_id')
+    if (after['shift_type'] or '') != (before['shift_type'] or ''):
+        eff, err = _effective('shift_effective_from')
+        err = err or _locked_msg(conn, eff)
+        if err:
+            return err
+        record_shift_change(conn, employee_id, after['shift_type'], eff, uid,
+                            previous=before['shift_type'])
+    if abs(float(after['salary'] or 0) - float(before['salary'] or 0)) > 0.0005:
+        eff, err = _effective('salary_effective_from')
+        err = err or _locked_msg(conn, eff)
+        if err:
+            return err
+        record_salary_change(conn, employee_id, after['salary'], eff, uid,
+                             previous=before['salary'])
+    sync_current(conn, employee_id)
+    return None
+
+
+@employee_bp.route('/employees/<int:id>/shift_history', methods=['POST'])
+@login_required
+@require_permission('employee.edit')
+def add_shift_history(id):
+    from utils.workday import record_shift_change
+    conn = get_db_connection()
+    shift = (request.form.get('shift_type') or '').strip()
+    eff, err = _effective('effective_from')
+    if not err and not conn.execute('SELECT 1 FROM shift_types WHERE name = ?', (shift,)).fetchone():
+        err = gettext('x.f_not_found')
+    err = err or _locked_msg(conn, eff)
+    if err:
+        flash(err, 'error')
+    else:
+        cur = conn.execute('SELECT shift_type FROM employees WHERE id = ?', (id,)).fetchone()
+        record_shift_change(conn, id, shift, eff, session.get('user_id'),
+                            previous=cur['shift_type'] if cur else None)
+        sync_current(conn, id)
+        conn.commit()
+        flash(gettext('x.f_history_saved'), 'success')
+    return redirect(url_for('employee.edit_employee', id=id) + '#history')
+
+
+@employee_bp.route('/employees/<int:id>/shift_history/<int:hid>/delete', methods=['POST'])
+@login_required
+@require_permission('employee.edit')
+def delete_shift_history(id, hid):
+    conn = get_db_connection()
+    row = conn.execute('SELECT * FROM employee_shift_history WHERE id = ? AND employee_id = ?',
+                       (hid, id)).fetchone()
+    err = _locked_msg(conn, str(row['effective_from'])[:10]) if row else gettext('x.f_not_found')
+    if err:
+        flash(err, 'error')
+    else:
+        conn.execute('DELETE FROM employee_shift_history WHERE id = ?', (hid,))
+        sync_current(conn, id)
+        conn.commit()
+    return redirect(url_for('employee.edit_employee', id=id) + '#history')
+
+
+@employee_bp.route('/employees/<int:id>/salary_history', methods=['POST'])
+@login_required
+@require_permission('employee.edit')
+def add_salary_history(id):
+    from utils.pay_history import record_salary_change
+    conn = get_db_connection()
+    eff, err = _effective('effective_from')
+    try:
+        val = float(request.form.get('salary') or '')
+        if val < 0:
+            raise ValueError
+    except ValueError:
+        err = err or gettext('x.f_salary_must_be_number')
+        val = None
+    err = err or _locked_msg(conn, eff)
+    if err:
+        flash(err, 'error')
+    else:
+        cur = conn.execute('SELECT salary FROM employees WHERE id = ?', (id,)).fetchone()
+        record_salary_change(conn, id, val, eff, session.get('user_id'),
+                             previous=cur['salary'] if cur else None)
+        sync_current(conn, id)
+        conn.commit()
+        flash(gettext('x.f_history_saved'), 'success')
+    return redirect(url_for('employee.edit_employee', id=id) + '#history')
+
+
+@employee_bp.route('/employees/<int:id>/salary_history/<int:hid>/delete', methods=['POST'])
+@login_required
+@require_permission('employee.edit')
+def delete_salary_history(id, hid):
+    conn = get_db_connection()
+    row = conn.execute('SELECT * FROM employee_salary_history WHERE id = ? AND employee_id = ?',
+                       (hid, id)).fetchone()
+    err = _locked_msg(conn, str(row['effective_from'])[:10]) if row else gettext('x.f_not_found')
+    if err:
+        flash(err, 'error')
+    else:
+        conn.execute('DELETE FROM employee_salary_history WHERE id = ?', (hid,))
+        sync_current(conn, id)
+        conn.commit()
+    return redirect(url_for('employee.edit_employee', id=id) + '#history')
+
+
 def _min_wage_warning(salary):
     from utils.labor_law import MIN_WAGE
     try:
+        # صاحبُ الأجر اليوميّ: راتبُه أجرُ يوم، ويُقارَن الحدُّ الأدنى بما يعادله شهريًّا
+        if request.form.get('pay_type') == 'daily':
+            salary = float(salary or 0) * 26
         if 0 < float(salary or 0) < MIN_WAGE:
             flash(gettext('x.f_min_wage') % {'n': MIN_WAGE}, 'warning')
     except (TypeError, ValueError):

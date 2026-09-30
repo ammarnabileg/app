@@ -713,6 +713,8 @@ def test_leave_days_follow_the_employees_own_rest_days(env):
 
 def test_loan_installments_are_capped_at_ten_percent(env):
     conn, pe, L = env
+    for day in _workdays(pe, conn, weeks=4):
+        _punch(conn, 1, day, '08:00', '16:00')   # شهرٌ مُداوَم: الأجرُ مستحقّ
     conn.execute("INSERT INTO employee_loans (employee_id, principal, monthly_installment, start_month,"
                  " start_year, status) VALUES (1, 500, 100, 1, 2026, 'active')")
     conn.commit()
@@ -726,6 +728,8 @@ def test_loan_installments_are_capped_at_ten_percent(env):
 
 def test_small_installments_are_untouched(env):
     conn, pe, L = env
+    for day in _workdays(pe, conn, weeks=4):
+        _punch(conn, 1, day, '08:00', '16:00')   # شهرٌ مُداوَم: الأجرُ مستحقّ
     conn.execute("INSERT INTO employee_loans (employee_id, principal, monthly_installment, start_month,"
                  " start_year, status) VALUES (1, 500, 20, 1, 2026, 'active')")
     conn.commit()
@@ -738,11 +742,13 @@ def test_small_installments_are_untouched(env):
                                         ('1980-01-01', 312)])              # بلغ أجرَ سنة
 def test_daily_paid_end_of_service(env, hire, days):
     conn, pe, L = env
-    conn.execute("UPDATE employees SET pay_type = 'daily', hire_date = ? WHERE id = 1", (hire,))
+    # لليومية: الراتبُ أجرُ يوم (10)، ويعادل شهريًّا 10 × 26 = 260
+    conn.execute("UPDATE employees SET pay_type = 'daily', salary = 10, hire_date = ? WHERE id = 1", (hire,))
     conn.commit()
     from routes.eos_routes import compute_kuwait_eos
     c = compute_kuwait_eos(conn, 1, '2026-01-01', 'termination', leave_days=0)
     assert c['pay_type'] == 'daily'
+    assert c['monthly_wage'] == pytest.approx(260) and c['daily_rate'] == pytest.approx(10)
     assert c['pay_days'] == pytest.approx(days, abs=0.01)
     assert c['gratuity'] == pytest.approx(days * 10, abs=0.05)
 

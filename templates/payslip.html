@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
+<head>
+<meta charset="utf-8">
+<title>{{ _('x.ps_title') }} — {{ '%02d'|format(month) }}/{{ year }}</title>
+<style>
+    @page { size: A4; margin: 12mm; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; color: #111; margin: 16px; }
+    .slip { border: 1px solid #bbb; border-radius: 8px; padding: 14px 18px; max-width: 760px; margin: 0 auto 18px; }
+    .slip + .slip { page-break-before: always; }
+    h2 { margin: 0; font-size: 18px; }
+    .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1F5C4A; padding-bottom: 8px; margin-bottom: 10px; }
+    .muted { color: #666; font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 18px; font-size: 13px; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    td, th { padding: 5px 6px; border-bottom: 1px solid #eee; }
+    th { text-align: start; background: #f3f6f5; }
+    td.n { text-align: end; white-space: nowrap; direction: ltr; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .net { margin-top: 12px; padding: 10px; background: #eef6f2; border-radius: 6px; display: flex; justify-content: space-between; font-size: 16px; font-weight: 700; }
+    .draft { color: #b02a37; font-weight: 700; }
+    .sig { display: flex; justify-content: space-between; margin-top: 30px; font-size: 12px; }
+    .sig div { width: 40%; border-top: 1px solid #333; text-align: center; padding-top: 4px; }
+    @media print { .noprint { display: none; } }
+</style>
+</head>
+<body>
+<button class="noprint" onclick="window.print()" style="float:{{ 'left' if lang == 'ar' else 'right' }}">🖨 {{ _('x.eh_print') }}</button>
+{% if not slips %}
+<div class="slip"><b>{{ _('x.ps_none') }}</b></div>
+{% endif %}
+{% for s in slips %}
+<div class="slip" data-emp="{{ s.employee_number }}">
+    <div class="head">
+        <div>
+            <h2>{{ _('x.ps_title') }}</h2>
+            <div class="muted"><bdi>{{ company }}</bdi></div>
+        </div>
+        <div style="text-align:end">
+            <div><b>{{ '%02d'|format(month) }}/{{ year }}</b></div>
+            <div class="muted">{{ _('x.ps_period_from') }} <bdi>{{ s.period.start }}</bdi> {{ _('x.ps_period_to') }} <bdi>{{ s.period.end }}</bdi></div>
+            {% if not s.saved %}<div class="draft">{{ _('x.ps_draft') }}</div>{% endif %}
+        </div>
+    </div>
+    <div class="grid">
+        <div>{{ _('x.hx_file_no') }}: <b>{{ s.employee_number }}</b></div>
+        <div>{{ _('x.hx_name') }}: <b>{{ s.name }}</b></div>
+        <div>{{ _('x.hx_department') }}: {{ s.department }}</div>
+        <div>{{ _('x.hx_position') }}: {{ s.position }}</div>
+        <div>{{ _('x.hire_date') }}: {{ s.hire_date }}</div>
+        <div>{{ _('x.ps_bank') }}: {{ s.bank }} {{ s.account }}</div>
+        <div>{{ _('x.hx_required') }}: {{ s.required_hours|hm }} · {{ _('x.hx_actual') }}: {{ s.actual_hours|hm }}</div>
+        {% if s.leave_balance is not none %}<div>{{ _('x.ps_leave_balance') }}: {{ '%.2f'|format(s.leave_balance) }}</div>{% endif %}
+    </div>
+    <div class="cols">
+        <table>
+            <tr><th colspan="2">{{ _('x.ps_earnings') }}</th></tr>
+            <tr><td>{{ _('x.basic_salary') }}</td><td class="n">{{ '%.3f'|format(s.basic or 0) }}</td></tr>
+            {% for a in s.allowances %}
+            <tr><td>{{ a.name_ar if lang == 'ar' else (a.name_en or a.name_ar) }}</td><td class="n">{{ '%.3f'|format(a.amount or 0) }}</td></tr>
+            {% endfor %}
+            <tr><th>{{ _('x.ps_total_earnings') }}</th><th class="n">{{ '%.3f'|format((s.basic or 0) + (s.total_allowances or 0)) }}</th></tr>
+        </table>
+        <table>
+            <tr><th colspan="2">{{ _('x.ps_deductions') }}</th></tr>
+            {% for d in s.deductions %}
+            <tr><td>{{ d.name_ar if lang == 'ar' else (d.name_en or d.name_ar) }}</td><td class="n">{{ '%.3f'|format(d.amount or 0) }}</td></tr>
+            {% else %}
+            <tr><td colspan="2" class="muted">—</td></tr>
+            {% endfor %}
+            <tr><th>{{ _('x.ps_total_deductions') }}</th><th class="n">{{ '%.3f'|format(s.total_deductions or 0) }}</th></tr>
+        </table>
+    </div>
+    <div class="net"><span>{{ _('x.hx_net') }}</span><span dir="ltr">{{ '%.3f'|format(s.net or 0) }} {{ currency }}</span></div>
+    <div class="sig"><div>{{ _('x.ps_employee_sig') }}</div><div>{{ _('x.ps_hr_sig') }}</div></div>
+</div>
+{% endfor %}
+</body>
+</html>

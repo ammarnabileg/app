@@ -26,6 +26,7 @@ FIX_ENDPOINTS = {
     'holidays': 'leave.official_holidays',
     'weekly_rest': 'employee.employees', 'week_48': 'shift.index',
     'ramadan': 'labor_law.check', 'loan_cap': 'main.settings',
+    'decimals': 'main.settings', 'absence_base': 'main.settings',
 }
 
 
@@ -36,16 +37,31 @@ def check():
     from flask import url_for
     from utils.labor_law import compliance_checks
     checks = compliance_checks(get_db_connection())
+    from utils.labor_law import FIX_VALUES
     for c in checks:
         try:
             c['fix_url'] = url_for(FIX_ENDPOINTS[c['code']])
         except Exception:
             c['fix_url'] = None
+        c['one_click'] = c['code'] in FIX_VALUES
     ok = sum(1 for c in checks if c['ok'])
     ramadan = get_db_connection().execute(
         'SELECT * FROM ramadan_periods ORDER BY start_date DESC').fetchall()
     return render_template('labor_law/check.html', checks=checks, ok=ok,
                            total=len(checks), ramadan=ramadan)
+
+
+@labor_law_bp.route('/settings/labor-law/fix/<code>', methods=['POST'])
+@login_required
+@require_permission('admin.settings')
+def fix(code):
+    """يطبّق القيمةَ المطابقة لإعدادٍ واحد. قرارُ صاحب العمل بضغطة، لا تغييرٌ صامت."""
+    from utils.labor_law import apply_fix
+    conn = get_db_connection()
+    if apply_fix(conn, code):
+        conn.commit()
+        flash(gettext('x.lc_fixed'), 'success')
+    return redirect(url_for('labor_law.check'))
 
 
 @labor_law_bp.route('/settings/labor-law/ramadan', methods=['POST'])

@@ -115,7 +115,9 @@ def compute_kuwait_eos(conn, employee_id, termination_date, reason,
     years = _service_years(hire, term)
 
     from utils.payroll_engine import fetch_fixed_earnings
-    basic = float(emp['salary'] or 0)
+    # الأجرُ اليوميّ ← ما يعادله شهريًّا (× 26)؛ ومنه اليوميُّ نفسُه أجرًا لليوم.
+    from utils.pay_history import monthly_equivalent
+    basic = monthly_equivalent(emp, emp['salary'], 26.0)
     wage_lines = [{'name_ar': 'الراتب الأساسي', 'name_en': 'Basic salary',
                    'amount': round(basic, 3)}]
     wage = basic

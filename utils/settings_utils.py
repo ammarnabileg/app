@@ -67,7 +67,7 @@ def get_salary_settings_v2(conn):
         
         # إعدادات افتراضية
         default_settings = {
-            'rounding_display_decimals': '2',
+            'rounding_display_decimals': '3',
             'daily_rate_basis': '26',
             'grace_early_minutes': '5',
             'grace_late_minutes': '10',
@@ -102,6 +102,7 @@ def get_salary_settings_v2(conn):
             'pifss_employer_pct': '11.5',
             'pifss_salary_cap': '2750',
             'loan_deduction_cap_pct': '10',
+            'absence_deduction_base': 'wage',
         }
         
         # دمج الإعدادات المحفوظة مع الافتراضية

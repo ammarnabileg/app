@@ -303,6 +303,29 @@ def api_notifications_read():
                     'unread': notif.unread_count(conn, user_id)})
 
 
+@portal_bp.route('/payslip')
+@login_required
+def payslip():
+    """قسيمةُ الموظّف نفسِه من الكشف المحفوظ وحده — لا حسابٌ حيّ قد يتغيّر."""
+    from utils.payslip import slips_saved
+    from utils.settings_utils import get_system_settings
+    from flask_babel import get_locale
+    if not has_own_employee_record():
+        return redirect(url_for('portal.dashboard'))
+    emp_id = get_portal_employee_id()
+    now = datetime.now()
+    try:
+        month = int(request.args.get('month', now.month))
+        year = int(request.args.get('year', now.year))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    sysx = get_system_settings() or {}
+    slips = slips_saved(get_db_connection(), month, year, emp_id)
+    return render_template('payslip.html', slips=slips, month=month, year=year,
+                           company=sysx.get('company_name', ''),
+                           currency=sysx.get('currency_symbol', ''), lang=str(get_locale()))
+
+
 @portal_bp.route('/api/my-data')
 @login_required
 def api_my_data():

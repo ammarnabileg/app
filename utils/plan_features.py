@@ -67,6 +67,7 @@ ENDPOINT_FEATURE = {
     'leave.api_leave_balance_adjust': 'leaves',
     'leave.api_leave_balance_adjustments': 'leaves',
     # البوّابة: البصمةُ أساس، والطلباتُ ميزاتُها.
+    'portal.payslip': 'payroll',
     'portal.api_request_leave': 'leaves',
     'portal.api_request_excuse': 'excuses',
 }

@@ -9846,7 +9846,7 @@ msgid "x.pay_type_monthly"
 msgstr "شهري"
 
 msgid "x.pay_type_daily"
-msgstr "يومي أو بالساعة أو بالقطعة"
+msgstr "يومي (الراتب = أجر اليوم)"
 
 msgid "x.nursing_until"
 msgstr "ساعتا الرضاعة حتى"
@@ -9955,3 +9955,120 @@ msgstr "طباعة تفصيلية (كل البنود)"
 
 msgid "x.pm_export_detailed"
 msgstr "Excel تفصيلي (عمود لكل بند)"
+
+msgid "x.salary_daily_hint"
+msgstr "لليومية: أدخل أجر اليوم الواحد."
+
+msgid "x.salary_effective_from"
+msgstr "يسري الراتب الجديد من"
+
+msgid "x.shift_effective_from"
+msgstr "يسري الشفت الجديد من"
+
+msgid "x.effective_hint"
+msgstr "يُستخدم فقط إن غيّرت القيمة. ما قبله يبقى بالقديم."
+
+msgid "x.history_tab"
+msgstr "تاريخ الشفت والراتب"
+
+msgid "x.history_intro"
+msgstr "كل يوم يُحسب بالشفت والراتب الساريين فيه. تغيير اليوم لا يغيّر أيامًا مضت. والفترات المقفلة لا تُعدَّل."
+
+msgid "x.shift_history"
+msgstr "تاريخ الشفتات"
+
+msgid "x.salary_history"
+msgstr "تاريخ الراتب الأساسي"
+
+msgid "x.effective_from"
+msgstr "يسري من"
+
+msgid "x.since_start"
+msgstr "منذ البداية"
+
+msgid "x.f_history_saved"
+msgstr "حُفظ التغيير بتاريخ سريانه"
+
+msgid "x.f_history_locked"
+msgstr "التاريخ %(d)s داخل فترة رواتب مقفلة — افتح الفترة أولًا"
+
+msgid "x.lc_decimals"
+msgstr "المبالغ بثلاث خانات (الدينار = 1000 فلس)"
+
+msgid "x.lc_decimals_fix"
+msgstr "التقريب الآن لـ %(n)s خانة، فتضيع فلوس في كل بند."
+
+msgid "x.lc_absence_base"
+msgstr "الغياب يُخصم من الأجر كله"
+
+msgid "x.lc_absence_base_fix"
+msgstr "يوم الغياب يُخصم من الأساسي وحده والبدلات تُصرف كاملة. والأجر في القانون يشمل البدلات."
+
+msgid "x.lc_apply"
+msgstr "طبّق"
+
+msgid "x.lc_fixed"
+msgstr "طُبّقت القيمة المطابقة"
+
+msgid "x.set_absence_base"
+msgstr "خصم الغياب من"
+
+msgid "x.set_absence_wage"
+msgstr "الأجر كله (الأساسي والبدلات)"
+
+msgid "x.set_absence_basic"
+msgstr "الأساسي وحده"
+
+msgid "x.lw_nothing_earned"
+msgstr "لا أيام مستحقة في الدورة: خُصم الأجر كله ({amount})"
+
+msgid "x.lw_net_floor"
+msgstr "الخصومات أكبر من المستحق: رُحّل {amount} ولم يُخصم"
+
+msgid "x.ps_title"
+msgstr "قسيمة الراتب"
+
+msgid "x.ps_all"
+msgstr "قسائم الرواتب (الكل)"
+
+msgid "x.ps_bank_file"
+msgstr "ملف تحويل البنك"
+
+msgid "x.ps_provisions"
+msgstr "مخصصات نهاية الخدمة والإجازات"
+
+msgid "x.ps_none"
+msgstr "لا توجد قسيمة لهذا الشهر بعد — تظهر بعد حفظ كشف الرواتب."
+
+msgid "x.ps_draft"
+msgstr "مسودة — الكشف لم يُحفظ"
+
+msgid "x.ps_bank"
+msgstr "البنك / الحساب"
+
+msgid "x.ps_leave_balance"
+msgstr "رصيد الإجازات (يوم)"
+
+msgid "x.ps_earnings"
+msgstr "الاستحقاقات"
+
+msgid "x.ps_deductions"
+msgstr "الاستقطاعات"
+
+msgid "x.ps_total_earnings"
+msgstr "إجمالي الاستحقاقات"
+
+msgid "x.ps_total_deductions"
+msgstr "إجمالي الاستقطاعات"
+
+msgid "x.ps_employee_sig"
+msgstr "توقيع الموظف"
+
+msgid "x.ps_hr_sig"
+msgstr "الموارد البشرية"
+
+msgid "x.ps_period_from"
+msgstr "من"
+
+msgid "x.ps_period_to"
+msgstr "إلى"

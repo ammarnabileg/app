@@ -24,6 +24,7 @@
                 <button class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
                 <ul class="dropdown-menu">
                     <li><a class="dropdown-item" href="#" onclick="pmPrintDetailed(); return false;">{{ _('x.pm_print_detailed') }}</a></li>
+                    <li><a class="dropdown-item" href="#" id="pmPayslipsLink" onclick="pmPayslips(); return false;">{{ _('x.ps_all') }}</a></li>
                 </ul>
             </div>
             <div class="btn-group">
@@ -33,6 +34,8 @@
                 <button class="btn btn-outline-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
                 <ul class="dropdown-menu">
                     <li><a class="dropdown-item" href="#" onclick="pmExportDetailed(); return false;">{{ _('x.pm_export_detailed') }}</a></li>
+                    <li><a class="dropdown-item" href="#" id="pmBankLink" onclick="pmBank(); return false;">{{ _('x.ps_bank_file') }}</a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('payroll.provisions_export') }}" id="pmProvLink">{{ _('x.ps_provisions') }}</a></li>
                 </ul>
             </div>
             {% if has_permission('salary.calculate') %}
@@ -140,8 +143,11 @@
             penalty_capped: {{ _('x.lw_penalty_capped')|tojson }},
             ot_year_90d: {{ _('x.lw_ot_year_90d')|tojson }},
             ramadan_6h: {{ _('x.lw_ramadan_6h')|tojson }},
-            loan_capped: {{ _('x.lw_loan_capped')|tojson }}
+            loan_capped: {{ _('x.lw_loan_capped')|tojson }},
+            nothing_earned: {{ _('x.lw_nothing_earned')|tojson }},
+            net_floor: {{ _('x.lw_net_floor')|tojson }}
         },
+        payslip: {{ _('x.ps_title')|tojson }},
         earning: {{ _('x.tx_kind_earning')|tojson }},
         deduction: {{ _('x.tx_kind_deduction')|tojson }},
         noItems: {{ _('x.no_items')|tojson }},
@@ -258,6 +264,10 @@
                             <div class="fw-semibold small mb-1" style="color: var(--debit);">
                                 <i class="fas fa-minus-circle me-1"></i>${esc(T.deduction)}</div>
                             ${detailList(r.deductions)}
+                        </div>
+                        <div class="col-12 text-end">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="pmPayslips(${r.employee_id})">
+                                <i class="fas fa-file-invoice-dollar me-1"></i>${esc(T.payslip)}</button>
                         </div>
                     </div>
                 </td>
@@ -453,6 +463,13 @@
     }
     function pmPrintDetailed() {
         window.open({{ url_for('payroll.monthly_print')|tojson }} + '?' + pmQuery(), '_blank');
+    }
+    function pmPayslips(emp) {
+        window.open({{ url_for('payroll.payslips')|tojson }} + '?' + pmQuery()
+                    + (emp ? '&employee_id=' + emp : ''), '_blank');
+    }
+    function pmBank() {
+        window.location = {{ url_for('payroll.bank_export')|tojson }} + '?' + pmQuery();
     }
     function pmExportDetailed() {
         window.location = {{ url_for('payroll.monthly_export')|tojson }} + '?' + pmQuery();

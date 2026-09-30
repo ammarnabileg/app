@@ -1295,6 +1295,66 @@ def monthly_sheet_print():
                            company=(get_system_settings() or {}).get('company_name', ''))
 
 
+def _company_currency():
+    from utils.settings_utils import get_system_settings
+    sysx = get_system_settings() or {}
+    return sysx.get('company_name', ''), sysx.get('currency_symbol', '')
+
+
+@payroll_bp.route('/payroll/payslips')
+@login_required
+@require_permission('salary.calculate')
+def payslips():
+    """قسائمُ الرواتب — لموظّفٍ أو للجميع — من المحرّك كما يعرضه الكشف."""
+    from utils.payslip import slips_live
+    per = _sheet_period()
+    if not per:
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    month, year = per
+    emp = request.args.get('employee_id')
+    try:
+        emp = int(emp) if emp else None
+    except ValueError:
+        return jsonify({'success': False, 'message': 'bad employee'}), 400
+    company, currency = _company_currency()
+    return render_template('payslip.html', slips=slips_live(get_db_connection(), month, year, emp),
+                           month=month, year=year, company=company, currency=currency,
+                           lang=str(get_locale()))
+
+
+@payroll_bp.route('/payroll/monthly/bank_export')
+@login_required
+@require_permission('salary.calculate')
+def bank_export():
+    """ملفُّ تحويل الرواتب للبنك (utils/payslip)."""
+    from utils.payslip import bank_workbook
+    per = _sheet_period()
+    if not per:
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    month, year = per
+    company, _cur = _company_currency()
+    buf, _src = bank_workbook(get_db_connection(), month, year, company)
+    return send_file(buf, as_attachment=True, download_name=f'bank_transfer_{year}-{month:02d}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@payroll_bp.route('/payroll/provisions/export')
+@login_required
+@require_permission('salary.calculate')
+def provisions_export():
+    """مخصّصاتُ نهاية الخدمة والإجازات في تاريخ (افتراضًا اليوم)."""
+    from utils.payslip import provisions_workbook
+    raw = (request.args.get('as_of') or '').strip() or datetime.now().strftime('%Y-%m-%d')
+    try:
+        as_of = datetime.strptime(raw, '%Y-%m-%d').strftime('%Y-%m-%d')
+    except ValueError:
+        return jsonify({'success': False, 'message': 'bad date'}), 400
+    company, _cur = _company_currency()
+    buf, _rows = provisions_workbook(get_db_connection(), as_of, company)
+    return send_file(buf, as_attachment=True, download_name=f'provisions_{as_of}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @payroll_bp.route('/payroll/monthly/export')
 @login_required
 @require_permission('salary.calculate')

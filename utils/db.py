@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 65
+SCHEMA_VERSION = 66
 
 
 def get_schema_version(conn):
@@ -442,7 +442,7 @@ def init_db():
         ('currency_symbol', 'د.ك', 'رمز العملة', 'currency'),
         ('currency_position', 'right', 'موضع العملة (right/left)', 'currency'),
         ('rounding_internal_decimals', '3', 'عدد المنازل العشرية للحسابات الداخلية', 'calculation'),
-        ('rounding_display_decimals', '2', 'عدد المنازل العشرية للعرض', 'calculation'),
+        ('rounding_display_decimals', '3', 'عدد المنازل العشرية (الدينار 3: فلوس)', 'calculation'),
         ('attendance_grace_minutes', '10', 'فترة السماح للحضور (دقائق)', 'attendance'),
         ('grace_early_minutes', '5', 'فترة السماح للانصراف المبكر (دقائق)', 'attendance'), # Deprecated logic, but keeping key for now as 'early deduction threshold' maybe? Or removal requested.
         # User requested clean up. Let's keep grace_early_minutes as "Early Exit Tolerance" if needed, but per spec "Early exit deducts". 

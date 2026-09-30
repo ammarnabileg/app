@@ -589,6 +589,11 @@
                                     <div class="col-md-2"><label class="form-label small">{{ _('x.set_pifss_er') }}</label>
                                         <input type="number" step="0.01" min="0" max="50" class="form-control"
                                                name="pifss_employer_pct" value="{{ sal.get('pifss_employer_pct', '11.5') }}"></div>
+                                    <div class="col-md-3"><label class="form-label small">{{ _('x.set_absence_base') }}</label>
+                                        <select class="form-select" name="absence_deduction_base">
+                                            <option value="wage" {% if sal.get('absence_deduction_base', 'wage') == 'wage' %}selected{% endif %}>{{ _('x.set_absence_wage') }}</option>
+                                            <option value="basic" {% if sal.get('absence_deduction_base') == 'basic' %}selected{% endif %}>{{ _('x.set_absence_basic') }}</option>
+                                        </select></div>
                                     <div class="col-md-3"><label class="form-label small">{{ _('x.set_loan_cap') }}</label>
                                         <input type="number" step="1" min="0" max="100" class="form-control"
                                                name="loan_deduction_cap_pct" value="{{ sal.get('loan_deduction_cap_pct', '10') }}"></div>

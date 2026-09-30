@@ -1559,6 +1559,19 @@
                 </div>
             </div>
 
+            <!-- قسيمةُ الراتب: من الكشف المحفوظ وحده -->
+            {% if has_feature is not defined or has_feature('payroll') %}
+            <div style="display:flex; gap:8px; margin-top:24px; align-items:center;" id="payslipBox">
+                <input type="month" id="payslipMonth" class="form-control" style="max-width:180px"
+                       value="{{ now_month if now_month is defined else '' }}">
+                <button class="btn-ios-submit" style="margin:0" onclick="(function(){
+                    const v = document.getElementById('payslipMonth').value || new Date().toISOString().slice(0,7);
+                    const [y, m] = v.split('-');
+                    window.open('{{ url_for('portal.payslip') }}?month=' + parseInt(m) + '&year=' + y, '_blank');
+                })()"><i class="fas fa-file-invoice-dollar me-2"></i> {{ _('x.ps_title') }}</button>
+            </div>
+            {% endif %}
+
             <!-- Logout Button -->
             <a href="{{ url_for('auth.logout') }}" style="text-decoration: none;">
                 <button class="btn-ios-submit" style="background: rgba(255, 59, 48, 0.1); color: var(--ios-red); box-shadow: none; margin-top: 24px;">
