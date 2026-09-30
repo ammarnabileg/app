@@ -40,6 +40,9 @@
                 <a class="btn btn-outline-secondary" id="haPrintBtn" target="_blank" href="#">
                     <i class="fas fa-print me-2"></i>{{ _('x.pr_print_all') }}
                 </a>
+                <a class="btn btn-outline-success" id="haExportBtn" href="#">
+                    <i class="fas fa-file-excel me-2"></i>{{ _('x.hx_export') }}
+                </a>
                 <button class="btn btn-success" id="haApproveBtn" onclick="haApproveSelected()">
                     <i class="fas fa-signature me-2"></i>{{ _('x.ha_attest_selected') }}
                 </button>
@@ -147,7 +150,9 @@
         excIn: {{ _('x.exc_in')|tojson }},
         excOut: {{ _('x.exc_out')|tojson }},
         nLate: {{ _('x.n_late')|tojson }},
-        lateChargedAs: {{ _('x.late_charged_as')|tojson }},
+        // يمرّ النصُّ إلى JavaScript بعلاماته: gettext في القوالب يطبّق `%`
+        // دائمًا، فالنصُّ بـ%(n)s بلا معاملاتٍ يرمي KeyError ويُسقط الصفحة.
+        lateChargedAs: {{ _('x.late_charged_as', n='%(n)s', policy='%(policy)s')|tojson }},
         latePolicy: {quarter_day: {{ _('x.late_policy_quarter_day')|tojson }},
                      half_day: {{ _('x.late_policy_half_day')|tojson }},
                      full_day: {{ _('x.late_policy_full_day')|tojson }}},
@@ -307,6 +312,9 @@
             '<tr><td colspan="23" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
         document.getElementById('haPrintBtn').href =
             {{ url_for('payroll.hours_approval_print')|tojson }} +
+            `?month=${m}&year=${y}&dept=${encodeURIComponent(d)}`;
+        document.getElementById('haExportBtn').href =
+            {{ url_for('payroll.hours_approval_export')|tojson }} +
             `?month=${m}&year=${y}&dept=${encodeURIComponent(d)}`;
         fetch(`${HA_API}?month=${m}&year=${y}&dept=${encodeURIComponent(d)}`,
               { headers: { 'X-Requested-With': 'XMLHttpRequest' } })

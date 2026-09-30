@@ -792,6 +792,31 @@ def hours_approval_print():
                            printed_at=now.strftime('%Y-%m-%d %H:%M'))
 
 
+@payroll_bp.route('/payroll/hours_approval/export')
+@login_required
+@require_permission('salary.approve_hours')
+def hours_approval_export():
+    """اعتمادُ الساعات إلى Excel: صفٌّ لكلّ موظّف وعمودٌ لكلّ يوم
+    (utils/hours_export). والمالُ لمن يملك حسابَ الرواتب وحده."""
+    from utils.hours_export import build_hours_workbook
+    from utils.rbac import RBACService
+    now = datetime.now()
+    try:
+        month = int(request.args.get('month', now.month))
+        year = int(request.args.get('year', now.year))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    if not (1 <= month <= 12) or not (2000 <= year <= 2100):
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    dept = request.args.get('dept', '').strip()
+    with_money = RBACService.has_permission(session.get('user_id'), 'salary.calculate')
+    buf = build_hours_workbook(get_db_connection(), month, year, dept=dept,
+                               with_money=with_money, gettext=gettext)
+    name = f'hours_{year}-{month:02d}' + (f'_{dept}' if dept else '') + '.xlsx'
+    return send_file(buf, as_attachment=True, download_name=name,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @payroll_bp.route('/api/payroll/day_actions/hourly_perm', methods=['POST'])
 @login_required
 @require_permission('salary.approve_hours')

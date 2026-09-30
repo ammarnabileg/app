@@ -9082,7 +9082,7 @@ msgid "x.filter_placeholder"
 msgstr "تصفية القائمة..."
 
 msgid "x.filter_showing"
-msgstr "عدد النتائج: %s"
+msgstr "عدد النتائج: %(n)s"
 
 msgid "x.aud_title"
 msgstr "سجل التغييرات"
@@ -9853,3 +9853,99 @@ msgstr "ساعتا الرضاعة حتى"
 
 msgid "x.nursing_until_hint"
 msgstr "للعاملة: ساعتان يوميًا لا تُحسبان تأخيرًا أو انصرافًا مبكرًا (المادة 25)."
+
+msgid "x.hx_export"
+msgstr "تصدير Excel"
+
+msgid "x.hx_title"
+msgstr "اعتماد الساعات — كشف الأيام"
+
+msgid "x.hx_file_no"
+msgstr "رقم الملف"
+
+msgid "x.hx_name"
+msgstr "الاسم"
+
+msgid "x.hx_department"
+msgstr "القسم"
+
+msgid "x.hx_position"
+msgstr "المسمى الوظيفي"
+
+msgid "x.hx_work_days"
+msgstr "أيام العمل"
+
+msgid "x.hx_sick_emergency"
+msgstr "المرضية/الطارئة"
+
+msgid "x.hx_required"
+msgstr "الساعات المطلوبة"
+
+msgid "x.hx_actual"
+msgstr "الساعات الفعلية"
+
+msgid "x.hx_missing"
+msgstr "الساعات الناقصة"
+
+msgid "x.hx_ot"
+msgstr "إضافي"
+
+msgid "x.hx_total"
+msgstr "الإجمالي"
+
+msgid "x.hx_late"
+msgstr "التأخير"
+
+msgid "x.hx_present"
+msgstr "الحضور"
+
+msgid "x.hx_absent_days"
+msgstr "الغياب"
+
+msgid "x.hx_basic"
+msgstr "الراتب الأساسي"
+
+msgid "x.hx_ot_value"
+msgstr "قيمة الإضافي"
+
+msgid "x.hx_deductions"
+msgstr "إجمالي الخصومات"
+
+msgid "x.hx_net"
+msgstr "صافي الراتب"
+
+msgid "x.hx_totals"
+msgstr "الإجمالي"
+
+msgid "x.hx_legend"
+msgstr "مفتاح الرموز"
+
+msgid "x.hx_absent"
+msgstr "غياب"
+
+msgid "x.hx_partial"
+msgstr "بصمة ناقصة"
+
+msgid "x.hx_rest"
+msgstr "راحة أسبوعية"
+
+msgid "x.hx_holiday"
+msgstr "عطلة رسمية"
+
+msgid "x.hx_leave"
+msgstr "إجازة مدفوعة"
+
+msgid "x.hx_sick"
+msgstr "إجازة مرضية"
+
+msgid "x.hx_unpaid"
+msgstr "إجازة بدون راتب"
+
+msgid "x.hx_excused"
+msgstr "عذر"
+
+msgid "x.hx_outside"
+msgstr "خارج الخدمة"
+
+msgid "x.hx_worked_off"
+msgstr "ساعات عمل في يوم راحة أو عطلة"

@@ -9108,7 +9108,7 @@ msgid "x.filter_placeholder"
 msgstr "Filter list..."
 
 msgid "x.filter_showing"
-msgstr "Showing %s"
+msgstr "Showing %(n)s"
 
 msgid "x.aud_title"
 msgstr "Change history"
@@ -9862,3 +9862,99 @@ msgstr "Nursing hours until"
 
 msgid "x.nursing_until_hint"
 msgstr "For female workers: two hours a day not counted as late arrival or early leave (Art. 25)."
+
+msgid "x.hx_export"
+msgstr "Export to Excel"
+
+msgid "x.hx_title"
+msgstr "Hours approval — daily sheet"
+
+msgid "x.hx_file_no"
+msgstr "File no."
+
+msgid "x.hx_name"
+msgstr "Name"
+
+msgid "x.hx_department"
+msgstr "Department"
+
+msgid "x.hx_position"
+msgstr "Job title"
+
+msgid "x.hx_work_days"
+msgstr "Working days"
+
+msgid "x.hx_sick_emergency"
+msgstr "Sick/emergency"
+
+msgid "x.hx_required"
+msgstr "Required hours"
+
+msgid "x.hx_actual"
+msgstr "Actual hours"
+
+msgid "x.hx_missing"
+msgstr "Missing hours"
+
+msgid "x.hx_ot"
+msgstr "Overtime"
+
+msgid "x.hx_total"
+msgstr "Total"
+
+msgid "x.hx_late"
+msgstr "Lateness"
+
+msgid "x.hx_present"
+msgstr "Present"
+
+msgid "x.hx_absent_days"
+msgstr "Absent"
+
+msgid "x.hx_basic"
+msgstr "Basic salary"
+
+msgid "x.hx_ot_value"
+msgstr "Overtime pay"
+
+msgid "x.hx_deductions"
+msgstr "Total deductions"
+
+msgid "x.hx_net"
+msgstr "Net salary"
+
+msgid "x.hx_totals"
+msgstr "Totals"
+
+msgid "x.hx_legend"
+msgstr "Legend"
+
+msgid "x.hx_absent"
+msgstr "Absent"
+
+msgid "x.hx_partial"
+msgstr "Missing punch"
+
+msgid "x.hx_rest"
+msgstr "Weekly rest"
+
+msgid "x.hx_holiday"
+msgstr "Official holiday"
+
+msgid "x.hx_leave"
+msgstr "Paid leave"
+
+msgid "x.hx_sick"
+msgstr "Sick leave"
+
+msgid "x.hx_unpaid"
+msgstr "Unpaid leave"
+
+msgid "x.hx_excused"
+msgstr "Excused"
+
+msgid "x.hx_outside"
+msgstr "Outside service"
+
+msgid "x.hx_worked_off"
+msgstr "Hours worked on a rest day or holiday"

@@ -25,7 +25,7 @@
 {% macro table_filter_assets() -%}
 <script>
 (function () {
-    const COUNT_TPL = {{ _('x.filter_showing')|tojson }};
+    const COUNT_TPL = {{ _('x.filter_showing', n='%(n)s')|tojson }};
     const NONE = {{ _('x.picker_no_results')|tojson }};
 
     function initFilter(box) {
@@ -48,7 +48,7 @@
             });
             if (q) {
                 note.textContent = shown
-                    ? COUNT_TPL.replace('%s', shown).replace('%d', shown)
+                    ? COUNT_TPL.replace('%(n)s', shown)
                     : NONE;
                 note.classList.remove('d-none');
             } else {
