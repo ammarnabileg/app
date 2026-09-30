@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>Monthly Payroll — {{ '%02d'|format(s.month) }}/{{ s.year }}</title>
+<style>
+    @page { size: A3 landscape; margin: 8mm; }
+    body { font-family: Calibri, 'Segoe UI', Tahoma, sans-serif; margin: 10px; color: #111; }
+    h2 { margin: 0; font-size: 18px; display: inline-block; }
+    .sub { color: #555; font-size: 11px; margin: 2px 0 8px; }
+    table { border-collapse: collapse; width: 100%; font-size: 8.5px; }
+    th, td { border: 1px solid #999; padding: 2px 3px; }
+    thead th { background: #DDEBF7; text-align: center; white-space: pre-line; }
+    thead tr.g th.grp { background: #BDD7EE; }
+    td.n { text-align: right; white-space: nowrap; }
+    td.t { white-space: nowrap; }
+    td.neg { color: #C00000; font-weight: 700; }
+    tr.tot td { background: #FFF2CC; font-weight: 700; }
+    .sig { display: flex; justify-content: space-around; margin-top: 40px; font-size: 12px; font-weight: 700; }
+    .sig div { width: 150px; border-top: 1px solid #333; text-align: center; padding-top: 4px; }
+    @media print { .noprint { display: none; } thead { display: table-header-group; } }
+</style>
+</head>
+<body>
+<button class="noprint" onclick="window.print()" style="float:right">🖨 Print</button>
+<h2>Monthly Payroll — {{ month_label }}</h2>
+<div class="sub"><bdi>{{ company }}</bdi> · <span dir="ltr">{{ s.period.start }} → {{ s.period.end }}</span></div>
+<table>
+    <thead>
+        {% for hr in grid %}
+        <tr class="g">
+            {% for c in hr %}<th class="{{ 'grp' if c.colspan > 1 else '' }}" colspan="{{ c.colspan }}" rowspan="{{ c.rowspan }}">{{ c.text }}</th>{% endfor %}
+        </tr>
+        {% endfor %}
+    </thead>
+    <tbody>
+        {% for r in s.rows %}
+        <tr>
+            {% for key, title, typ in columns %}
+            {% set v = r[key] %}
+            {% if typ == 'text' %}<td class="t">{{ v }}</td>
+            {% elif typ == 'money' %}<td class="n{{ ' neg' if key == 'net' and v < 0 else '' }}">{{ '{:,.3f}'.format(v or 0) }}</td>
+            {% elif typ == 'hours' %}<td class="n">{{ v|hm if v else '' }}</td>
+            {% else %}<td class="n">{{ '' if v is none else ('%g'|format(v)) }}</td>{% endif %}
+            {% endfor %}
+        </tr>
+        {% endfor %}
+        <tr class="tot">
+            {% for key, title, typ in columns %}
+            {% set v = s.totals.get(key) %}
+            {% if key == 'name_e' %}<td>Total</td>
+            {% elif typ == 'text' or key == 'leave_balance' %}<td></td>
+            {% elif typ == 'money' %}<td class="n">{{ '{:,.3f}'.format(v or 0) }}</td>
+            {% elif typ == 'hours' %}<td class="n">{{ v|hm if v else '' }}</td>
+            {% else %}<td class="n">{{ '%g'|format(v or 0) }}</td>{% endif %}
+            {% endfor %}
+        </tr>
+    </tbody>
+</table>
+<div class="sig">
+    {% for key, label in signatures %}<div>{{ label }}</div>{% endfor %}
+</div>
+<script>
+// الكشفُ أعرضُ من ورقة A3: يُصغَّر ليملأ عرضها بالضبط عند الطباعة، لا يُقصّ.
+(function () {
+    const PAGE_PX = 1500;   // عرضُ A3 بالعرض ناقص الهوامش، بكسلات 96dpi
+    function fit() {
+        const t = document.querySelector('table');
+        document.body.style.zoom = 1;
+        const w = t.scrollWidth + 20;
+        document.body.style.zoom = w > PAGE_PX ? (PAGE_PX / w).toFixed(3) : 1;
+    }
+    function unfit() { document.body.style.zoom = 1; }
+    window.addEventListener('beforeprint', fit);
+    window.addEventListener('afterprint', unfit);
+    if (window.matchMedia) window.matchMedia('print').addEventListener('change', e => e.matches ? fit() : unfit());
+})();
+</script>
+</body>
+</html>

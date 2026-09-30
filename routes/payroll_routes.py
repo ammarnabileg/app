@@ -1247,6 +1247,54 @@ def monthly_print():
                            fmt='%.' + str(dec) + 'f')
 
 
+def _sheet_period():
+    now = datetime.now()
+    try:
+        month = int(request.args.get('month', now.month))
+        year = int(request.args.get('year', now.year))
+    except (TypeError, ValueError):
+        return None
+    if not (1 <= month <= 12) or not (2000 <= year <= 2100):
+        return None
+    return month, year
+
+
+@payroll_bp.route('/payroll/monthly/sheet/export')
+@login_required
+@require_permission('salary.calculate')
+def monthly_sheet_export():
+    """كشفُ الرواتب بشكل شيت الشركة (utils/payroll_sheet) — Excel."""
+    from utils.payroll_sheet import build_sheet, write_workbook
+    from utils.settings_utils import get_system_settings
+    per = _sheet_period()
+    if not per:
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    month, year = per
+    sheet = build_sheet(get_db_connection(), month, year)
+    buf = write_workbook(sheet, company=(get_system_settings() or {}).get('company_name', ''))
+    return send_file(buf, as_attachment=True, download_name=f'payroll_{year}-{month:02d}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@payroll_bp.route('/payroll/monthly/sheet/print')
+@login_required
+@require_permission('salary.calculate')
+def monthly_sheet_print():
+    """الكشفُ نفسُه للطباعة: A3 بالعرض، والعناوينُ تتكرّر في كلّ صفحة."""
+    from datetime import date as _date
+    from utils.payroll_sheet import build_sheet, header_grid, COLUMNS, SIGNATURES
+    from utils.settings_utils import get_system_settings
+    per = _sheet_period()
+    if not per:
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    month, year = per
+    sheet = build_sheet(get_db_connection(), month, year)
+    return render_template('payroll_sheet_print.html', s=sheet, grid=header_grid(),
+                           columns=COLUMNS, signatures=SIGNATURES,
+                           month_label=_date(year, month, 1).strftime('%b-%Y'),
+                           company=(get_system_settings() or {}).get('company_name', ''))
+
+
 @payroll_bp.route('/payroll/monthly/export')
 @login_required
 @require_permission('salary.calculate')

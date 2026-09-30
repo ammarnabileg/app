@@ -9958,3 +9958,9 @@ msgstr "Outside service"
 
 msgid "x.hx_worked_off"
 msgstr "Hours worked on a rest day or holiday"
+
+msgid "x.pm_print_detailed"
+msgstr "Detailed print (every item)"
+
+msgid "x.pm_export_detailed"
+msgstr "Detailed Excel (a column per item)"

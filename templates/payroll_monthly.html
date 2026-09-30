@@ -16,12 +16,25 @@
             <button id="pmLockBtn" class="btn btn-outline-dark d-none" onclick="pmLock()">
                 <i class="fas fa-lock me-2"></i>{{ _('x.pm_lock_run') }}
             </button>
-            <button class="btn btn-outline-secondary" onclick="pmPrint()">
-                <i class="fas fa-print me-2"></i>{{ _('x.eh_print') }}
-            </button>
-            <button class="btn btn-outline-success" onclick="pmExport()">
-                <i class="fas fa-file-excel me-2"></i>{{ _('x.pm_export_excel') }}
-            </button>
+            <!-- الافتراضيّ كشفُ الشركة (Monthly Payroll)؛ والتفصيليُّ بعمودٍ لكلّ بند في القائمة. -->
+            <div class="btn-group">
+                <button class="btn btn-outline-secondary" id="pmSheetPrintBtn" onclick="pmPrint()">
+                    <i class="fas fa-print me-2"></i>{{ _('x.eh_print') }}
+                </button>
+                <button class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#" onclick="pmPrintDetailed(); return false;">{{ _('x.pm_print_detailed') }}</a></li>
+                </ul>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-outline-success" id="pmSheetExportBtn" onclick="pmExport()">
+                    <i class="fas fa-file-excel me-2"></i>{{ _('x.pm_export_excel') }}
+                </button>
+                <button class="btn btn-outline-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#" onclick="pmExportDetailed(); return false;">{{ _('x.pm_export_detailed') }}</a></li>
+                </ul>
+            </div>
             {% if has_permission('salary.calculate') %}
             <button id="pmSaveBtn" class="btn btn-success" onclick="pmSave()">
                 <i class="fas fa-save me-2"></i>{{ _('x.pm_save_run') }}
@@ -433,9 +446,15 @@
                '&year=' + document.getElementById('pmYear').value;
     }
     function pmPrint() {
-        window.open({{ url_for('payroll.monthly_print')|tojson }} + '?' + pmQuery(), '_blank');
+        window.open({{ url_for('payroll.monthly_sheet_print')|tojson }} + '?' + pmQuery(), '_blank');
     }
     function pmExport() {
+        window.location = {{ url_for('payroll.monthly_sheet_export')|tojson }} + '?' + pmQuery();
+    }
+    function pmPrintDetailed() {
+        window.open({{ url_for('payroll.monthly_print')|tojson }} + '?' + pmQuery(), '_blank');
+    }
+    function pmExportDetailed() {
         window.location = {{ url_for('payroll.monthly_export')|tojson }} + '?' + pmQuery();
     }
 

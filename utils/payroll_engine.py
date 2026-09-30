@@ -956,6 +956,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
 
         allowances, deductions = [], []
         law_warnings = []
+        ot_detail = None    # الإضافيُّ مفصّلًا بنوعه — لكشف الرواتب المطبوع
         penalties = []      # [(البند, الجزء الذي هو جزاءٌ لا أجرُ وقتٍ لم يُعمل)]
         for it in fixed_map.get(emp_id, []):
             if it['calc_method'] == 'percent_of_basic':
@@ -999,13 +1000,13 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                                    'name_ar': f"خصم غياب ({att['absent_days']} يوم)",
                                    'name_en': f"Absence Deduction ({att['absent_days']} d)",
                                    'amount': round(att['absent_days'] * daily_rate, 3),
-                                   'source': 'computed'})
+                                   'source': 'computed', 'days': att['absent_days']})
             if att['unpaid_days'] > 0:
                 deductions.append({'code': 'unpaid_leave_deduction',
                                    'name_ar': f"خصم إجازة بدون راتب ({att['unpaid_days']} يوم)",
                                    'name_en': f"Unpaid Leave ({att['unpaid_days']} d)",
                                    'amount': round(att['unpaid_days'] * daily_rate, 3),
-                                   'source': 'computed'})
+                                   'source': 'computed', 'days': att['unpaid_days']})
             hourly_rate = round(daily_rate / float(emp['hours_per_day'] or 8), 4)
             if att['late_mins'] > 0:
                 _e = {'code': 'lateness_deduction',
@@ -1041,7 +1042,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                     _e = {'code': 'missing_punch_penalty',
                           'name_ar': f"عقوبة بصمة ناقصة ({n} يوم)",
                           'name_en': f"Missing Punch Penalty ({n} d)",
-                          'amount': mp_amount, 'source': 'computed'}
+                          'amount': mp_amount, 'source': 'computed', 'days': n}
                     deductions.append(_e)
                     penalties.append((_e, mp_amount))
             pmp = sal.get('presence_missing_policy', 'warning')
@@ -1064,7 +1065,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                     _e = {'code': 'presence_penalty',
                           'name_ar': f"جزاء بصمة تواجد ({n} يوم)",
                           'name_en': f"Presence Penalty ({n} d)",
-                          'amount': pp_amount, 'source': 'computed'}
+                          'amount': pp_amount, 'source': 'computed', 'days': n}
                     deductions.append(_e)
                     penalties.append((_e, pp_amount))
             # سقفُ الجزاءات: ما فوق الوقت الفعليّ جزاءٌ، ومجموعُه في الشهر لا
@@ -1128,6 +1129,13 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                 m_ho = float(sal.get('holiday_ot_multiplier', 2.0) or 0)
                 ot_amount = round((wk_h * m_wk + we_h * m_we + ho_h * m_ho)
                                   * hourly_rate, 3)
+                _wk_amt = round(wk_h * m_wk * hourly_rate, 3)
+                _we_amt = round(we_h * m_we * hourly_rate, 3)
+                ot_detail = {'weekday_hours': round(wk_h, 4), 'weekend_hours': round(we_h, 4),
+                             'holiday_hours': round(ho_h, 4),
+                             'weekday_amount': _wk_amt, 'weekend_amount': _we_amt,
+                             # الباقي للعطلة: المجموعُ يساوي البندَ بالضبط رغم التقريب
+                             'holiday_amount': round(ot_amount - _wk_amt - _we_amt, 3)}
                 if ot_amount > MONEY_EPS:
                     allowances.append({'code': 'overtime',
                                        'name_ar': f"العمل الإضافي ({round(ot_total, 2)} س)",
@@ -1156,7 +1164,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                                'name_ar': f'خصم أيام راحة غير مستحقة ({_rest_n} يوم)',
                                'name_en': f'Unearned rest days ({_rest_n} d)',
                                'amount': round(_rest_n * daily_rate, 3),
-                               'source': 'computed'})
+                               'source': 'computed', 'days': _rest_n})
 
         if daily_rate > MONEY_EPS:
             _h = _parse_d(emp['hire_date']) if 'hire_date' in emp.keys() else None
@@ -1175,13 +1183,13 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                                    'name_ar': f'خصم ما قبل التعيين ({pre_days} يوم)',
                                    'name_en': f'Pre-hire days ({pre_days} d)',
                                    'amount': round(pre_days * daily_rate, 3),
-                                   'source': 'computed'})
+                                   'source': 'computed', 'days': pre_days})
             if post_days > 0:
                 deductions.append({'code': 'post_service_days',
                                    'name_ar': f'خصم ما بعد انتهاء الخدمة ({post_days} يوم)',
                                    'name_en': f'Post-service days ({post_days} d)',
                                    'amount': round(post_days * daily_rate, 3),
-                                   'source': 'computed'})
+                                   'source': 'computed', 'days': post_days})
 
         employer_pifss = 0.0
         if _pifss_on and is_kuwaiti(emp['nationality'] if 'nationality' in emp.keys() else None):
@@ -1209,6 +1217,13 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
 
         for _it in allowances:
             _it['amount'] = _rnd(_it['amount'])
+        if ot_detail:
+            # التفصيلُ بدقّة العرض نفسِها، والباقي للعطلة: مجموعُه = بندُ الإضافيّ.
+            _ot_item = sum(a['amount'] for a in allowances if a['code'] == 'overtime')
+            ot_detail['weekday_amount'] = _rnd(ot_detail['weekday_amount'])
+            ot_detail['weekend_amount'] = _rnd(ot_detail['weekend_amount'])
+            ot_detail['holiday_amount'] = _rnd(_ot_item - ot_detail['weekday_amount']
+                                               - ot_detail['weekend_amount'])
         for _it in deductions:
             _it['amount'] = _rnd(_it['amount'])
         basic = _rnd(basic)
@@ -1229,6 +1244,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                      'total_allowances': total_allow,
                      'total_deductions': total_ded, 'net': net,
                      'employer_pifss': _rnd(employer_pifss),
+                     'daily_rate': round(daily_rate, 6),
+                     'ot_detail': ot_detail,
                      'law_warnings': law_warnings})
         totals['employer_pifss'] += employer_pifss
 

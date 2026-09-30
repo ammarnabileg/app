@@ -9949,3 +9949,9 @@ msgstr "خارج الخدمة"
 
 msgid "x.hx_worked_off"
 msgstr "ساعات عمل في يوم راحة أو عطلة"
+
+msgid "x.pm_print_detailed"
+msgstr "طباعة تفصيلية (كل البنود)"
+
+msgid "x.pm_export_detailed"
+msgstr "Excel تفصيلي (عمود لكل بند)"
