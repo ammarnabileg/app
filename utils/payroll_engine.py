@@ -1190,6 +1190,20 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
                                    'name_en': f'Post-service days ({post_days} d)',
                                    'amount': round(post_days * daily_rate, 3),
                                    'source': 'computed', 'days': post_days})
+            # البدلاتُ الثابتة تُستحقّ عن أيّام الخدمة كالأساسيّ: من عُيّن في
+            # منتصف الدورة أو انتهت خدمتُه فيها يأخذ منها بقدر أيّامه، بالقاسم
+            # نفسِه (26 أو 30 أو أيّام الجدول). `full_amount` يبقى للعرض.
+            _out_days = pre_days + post_days
+            if _out_days > 0:
+                _div = basic / daily_rate
+                for _it in allowances:
+                    if _it.get('source') != 'fixed':
+                        continue
+                    _full = _it['amount']
+                    _cut = round(min(_full, _full / _div * _out_days), 3)
+                    _it['full_amount'] = _full
+                    _it['prorated_days'] = _out_days
+                    _it['amount'] = round(_full - _cut, 3)
 
         employer_pifss = 0.0
         if _pifss_on and is_kuwaiti(emp['nationality'] if 'nationality' in emp.keys() else None):

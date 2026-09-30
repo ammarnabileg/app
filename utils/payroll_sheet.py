@@ -16,8 +16,8 @@
 ## أيّامُ العمل
 
 قاسمُ اليوم (26 أو 30 أو أيّام الجدول) ناقصًا ما قبل التعيين وما بعد
-انتهاء الخدمة. فالأساسيُّ المستحقّ = الأساسيّ − خصمُهما، والشيتُ يُظهره
-تناسبًا بالأيّام كما كان. والبدلاتُ الثابتة تُدفع كاملةً كما في المحرّك.
+انتهاء الخدمة. فالأساسيُّ المستحقّ = الأساسيّ − خصمُهما، والبدلاتُ الثابتة
+يناسبها المحرّكُ بالأيّام نفسِها (`full_amount` للعقد، و`amount` للمستحقّ).
 
 ## الجزاءات (Fine)
 
@@ -56,11 +56,18 @@ def build_sheet(conn, month, year):
         ek = e.keys() if e else []
         alw, ded = r['allowances'], r['deductions']
         fixed = [a for a in alw if a.get('source') == 'fixed']
-        c_tr = _sum(fixed, lambda a: a['code'] == 'transport')
-        c_ho = _sum(fixed, lambda a: a['code'] == 'housing')
-        c_ph = _sum(fixed, lambda a: a['code'] == 'phone')
-        c_ot = _sum(fixed, lambda a: a['code'] not in FIXED_COLS)
+        # بالعقد: البدلُ كاملًا؛ والمستحقّ: ما يصرفه المحرّك بعد تناسب الأيّام.
+        full = [dict(a, amount=a.get('full_amount', a['amount'])) for a in fixed]
+        c_tr = _sum(full, lambda a: a['code'] == 'transport')
+        c_ho = _sum(full, lambda a: a['code'] == 'housing')
+        c_ph = _sum(full, lambda a: a['code'] == 'phone')
+        c_ot = _sum(full, lambda a: a['code'] not in FIXED_COLS)
         c_allow = round(c_tr + c_ho + c_ph + c_ot, 3)
+        e_tr = _sum(fixed, lambda a: a['code'] == 'transport')
+        e_ho = _sum(fixed, lambda a: a['code'] == 'housing')
+        e_ph = _sum(fixed, lambda a: a['code'] == 'phone')
+        e_ot = _sum(fixed, lambda a: a['code'] not in FIXED_COLS)
+        e_allow = round(e_tr + e_ho + e_ph + e_ot, 3)
 
         daily = float(r.get('daily_rate') or 0)
         base_days = round(r['basic'] / daily) if daily > MONEY_EPS else 0
@@ -74,7 +81,7 @@ def build_sheet(conn, month, year):
         comm = _sum(alw, lambda a: a['code'] == 'commission')
         others = _sum(alw, lambda a: a.get('source') != 'fixed'
                       and a['code'] not in ('overtime', 'leave_encashment', 'commission'))
-        gross = round(e_basic + c_allow + ot_amt + leave_amt + comm + others, 3)
+        gross = round(e_basic + e_allow + ot_amt + leave_amt + comm + others, 3)
 
         absent = [d for d in ded if d['code'] == 'absence_deduction']
         abs_days = sum(float(d.get('days') or 0) for d in absent)
@@ -106,8 +113,8 @@ def build_sheet(conn, month, year):
             'c_basic': r['basic'], 'c_trans': c_tr, 'c_house': c_ho, 'c_phone': c_ph,
             'c_other': c_ot, 'c_allow': c_allow, 'c_total': round(r['basic'] + c_allow, 3),
             'work_days': max(0, base_days - pro_days),
-            'e_basic': e_basic, 'e_trans': c_tr, 'e_house': c_ho, 'e_phone': c_ph,
-            'e_other': c_ot, 'e_allow': c_allow, 'e_total': round(e_basic + c_allow, 3),
+            'e_basic': e_basic, 'e_trans': e_tr, 'e_house': e_ho, 'e_phone': e_ph,
+            'e_other': e_ot, 'e_allow': e_allow, 'e_total': round(e_basic + e_allow, 3),
             'ot_h_daily': otd.get('weekday_hours', 0), 'ot_h_fri': otd.get('weekend_hours', 0),
             'ot_h_hol': otd.get('holiday_hours', 0),
             'ot_a_daily': otd.get('weekday_amount', 0), 'ot_a_fri': otd.get('weekend_amount', 0),

@@ -13,7 +13,7 @@ import io
 import os
 import sqlite3
 import sys
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 
@@ -228,3 +228,70 @@ def test_the_payroll_page_buttons_use_the_sheet(web):
     body = c.get(f'/payroll/monthly?month={MONTH}&year={YEAR}').get_data(as_text=True)
     assert '/payroll/monthly/sheet/print' in body and '/payroll/monthly/sheet/export' in body
     assert 'pmExportDetailed' in body and '/payroll/monthly/export' in body
+
+
+# ------------------------------------------------ تناسبُ البدلات مع أيّام الخدمة
+
+def _add_fixed(conn, eid, code, amt):
+    tid = conn.execute('SELECT id FROM payroll_item_types WHERE code = ?', (code,)).fetchone()[0]
+    conn.execute("INSERT INTO employee_salary_items (employee_id, item_type_id, calc_method, amount,"
+                 " is_active) VALUES (?, ?, 'fixed', ?, 1)", (eid, tid, amt))
+    conn.commit()
+
+
+def test_a_mid_month_hire_gets_allowances_for_his_days(env):
+    conn, pe = env
+    _add_fixed(conn, 2, 'transport', 26)
+    _add_fixed(conn, 2, 'housing', 52)
+    tid = conn.execute("SELECT id FROM payroll_item_types WHERE code = 'commission'").fetchone()[0]
+    conn.execute("INSERT INTO payroll_transactions (employee_id, item_type_id, month, year, amount, status)"
+                 " VALUES (2, ?, ?, ?, 40, 'active')", (tid, MONTH, YEAR))
+    conn.commit()
+    eng = _engine(pe, conn, 2)
+    assert next(a for a in eng['allowances'] if a['code'] == 'commission')['amount'] == 40, \
+        'العمولةُ ليست بدلًا ثابتًا: لا تُناسَب'
+    pre = next(d for d in eng['deductions'] if d['code'] == 'pre_hire_days')['days']
+    tr = next(a for a in eng['allowances'] if a['code'] == 'transport')
+    assert tr['full_amount'] == 26 and tr['amount'] == pytest.approx(26 - pre)
+    assert tr['prorated_days'] == pre
+    r = _sheet(conn)[0]['2']
+    assert (r['c_trans'], r['c_house']) == (26, 52), 'بالعقد: كاملًا'
+    assert r['e_trans'] == pytest.approx(26 - pre) and r['e_house'] == pytest.approx(52 - 2 * pre)
+    assert r['e_total'] == pytest.approx(r['e_basic'] + r['e_allow'])
+    assert r['net'] == pytest.approx(eng['net'], abs=1e-6)
+
+
+def test_end_of_service_prorates_allowances_too(env):
+    conn, pe = env
+    start, end = pe.resolve_period(conn, MONTH, YEAR)
+    conn.execute("UPDATE employees SET end_of_service_date = ? WHERE id = 1",
+                 ((start + timedelta(days=14)).isoformat(),))
+    conn.commit()
+    eng = _engine(pe, conn, 1)
+    post = next(d for d in eng['deductions'] if d['code'] == 'post_service_days')['days']
+    ho = next(a for a in eng['allowances'] if a['code'] == 'housing')
+    assert ho['amount'] == pytest.approx(50 - 50 / 26 * post, abs=0.01)
+    assert _sheet(conn)[0]['1']['net'] == pytest.approx(eng['net'], abs=1e-6)
+
+
+def test_a_full_month_keeps_allowances_whole(env):
+    conn, pe = env
+    for a in _engine(pe, conn, 1)['allowances']:
+        if a.get('source') == 'fixed':
+            assert 'full_amount' not in a
+
+
+def test_the_thirty_day_basis_prorates_by_calendar_days(env):
+    conn, pe = env
+    conn.execute("UPDATE salary_settings_v2 SET setting_value = '30' WHERE setting_name = 'daily_rate_basis'")
+    if not conn.execute("SELECT changes()").fetchone()[0]:
+        conn.execute("INSERT INTO salary_settings_v2 (setting_name, setting_value) VALUES ('daily_rate_basis', '30')")
+    conn.commit()
+    _add_fixed(conn, 2, 'transport', 30)
+    eng = _engine(pe, conn, 2)
+    pre = next(d for d in eng['deductions'] if d['code'] == 'pre_hire_days')['days']
+    start, _ = pe.resolve_period(conn, MONTH, YEAR)
+    assert pre == (date.fromisoformat('2026-08-10') - start).days
+    tr = next(a for a in eng['allowances'] if a['code'] == 'transport')
+    assert tr['amount'] == pytest.approx(30 - pre)
+    assert _sheet(conn)[0]['2']['work_days'] == 30 - pre
