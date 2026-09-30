@@ -9,9 +9,15 @@
 
 كلُّ مبلغٍ بندٌ من `compute_monthly_payroll` — المحرّكِ الذي يعرضه الكشف
 ويحفظه ويصرفه. هنا توزيعٌ على الأعمدة لا حسابٌ ثانٍ، وكلُّ صفٍّ يتحقّق:
-**الإجماليّ − الخصومات = صافي المحرّك** (`check`). والشيتُ الأصليّ كان
-يحسب بمعادلاتٍ في الخلايا؛ هنا قيمٌ ثابتة، فلا يفترق الملفُّ عن النظام
-إن فُتح على جهازٍ بإعداداتٍ أخرى.
+**الإجماليّ − الخصومات = صافي المحرّك** (`check`).
+
+## ملفُّ Excel
+
+قالبُ الشركة نفسُه (`templates/xlsx/monthly_payroll.xlsx`، بلا بيانات):
+تنسيقُه وأعمدتُه المخفيّة ومعادلاتُه. القيمُ كلُّها من النظام، والأيّامُ
+(غياب، جزاء) تُكتب بحيث تُرجع معادلةُ الشيت مبلغَ المحرّك نفسَه. وما لا
+يحمله النظام (اسمٌ عربيّ، مركزُ تكلفة، حسابٌ بنكيّ، راتب، بصمات الفترة…)
+يُلوَّن بالأحمر (`missing_cells`).
 
 ## أيّامُ العمل
 
@@ -26,6 +32,7 @@
 لأنّ التأخير دقائقُ لا أيّام.
 """
 import io
+import os
 from datetime import date
 
 FIXED_COLS = ('transport', 'housing', 'phone')
@@ -126,10 +133,14 @@ def build_sheet(conn, month, year):
             'pay_type': 'Bank Transfer' if bank.strip() else 'Cash',
             'term': CONTRACT_TYPES.get(ct, ct),
             'leave_balance': leave_bal,
+            'has_bank': bool(bank.strip()),
+            'nothing_earned': any((w if isinstance(w, str) else w.get('code')) == 'nothing_earned'
+                                  for w in (r.get('law_warnings') or [])),
         })
 
     num_keys = [k for k in (rows[0].keys() if rows else [])
-                if isinstance(rows[0][k], (int, float)) and k not in ('employee_id', 'leave_balance')]
+                if isinstance(rows[0][k], (int, float)) and not isinstance(rows[0][k], bool)
+                and k not in ('employee_id', 'leave_balance')]
     totals = {k: round(sum(float(x[k] or 0) for x in rows), 3) for k in num_keys}
     return {'period': data['period'], 'month': month, 'year': year, 'rows': rows,
             'totals': totals}
@@ -213,99 +224,137 @@ def header_grid():
     return grid
 
 
+TEMPLATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        'templates', 'xlsx', 'monthly_payroll.xlsx')
+PROTO_DATA, PROTO_TOTAL, PROTO_SIGN = 5, 6, 7        # صفوفُ النموذج في القالب
+MISSING_FILL = 'FFFF8B8B'
+LEGEND = 'الخلايا الحمراء: بياناتٌ غير مسجّلة في النظام (أو لا بصمات في الفترة) — راجعها قبل الاعتماد.'
+
+
+def missing_cells(row):
+    """أعمدةُ الصفّ التي لا يحمل النظامُ قيمتَها — تُلوَّن بالأحمر."""
+    out = []
+    for col, key in (('B', 'name_e'), ('C', 'name_a'), ('D', 'doj'), ('E', 'cost_center'),
+                     ('F', 'dept'), ('G', 'location'), ('H', 'job'), ('AR', 'term')):
+        if not str(row.get(key) or '').strip():
+            out.append(col)
+    if not (row.get('c_basic') or 0) > MONEY_EPS:
+        out.append('I')
+    if not row.get('has_bank'):
+        out.append('AQ')
+    if row.get('leave_balance') is None:
+        out.append('AS')
+    if row.get('nothing_earned'):
+        out.append('AI')
+    return out
+
+
+def _days_of(amount, total_salary):
+    """أيّامٌ تُرجع معادلةُ الشيت منها المبلغَ نفسَه: (الإجماليّ ÷ 26) × الأيّام."""
+    return round(amount / (total_salary / 26.0), 6) if total_salary > MONEY_EPS else 0
+
+
 def write_workbook(sheet, company=''):
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    """شيتُ الشركة نفسُه (templates/xlsx/monthly_payroll.xlsx): تنسيقُه وأعمدتُه
+    ومعادلاتُه — والقيمُ من النظام وحده. ما لا يحمله النظام يُلوَّن بالأحمر.
+
+    المعادلاتُ كما في شيت الشركة: المستحقّ = العقد ÷ 26 × أيّام العمل، والغياب
+    والجزاء = الإجماليّ ÷ 26 × الأيّام. والأيّامُ تُكتب بحيث تُرجع المعادلةُ
+    مبلغَ المحرّك نفسَه، فصافي الشيت = صافي المحرّك. والإجماليّ يضمّ الإضافيّ
+    والعمولة (كانا خارج معادلته في الشيت الأصليّ)، وتظهر أعمدتُهما إن كان لهما قيمة.
+    """
+    import copy
+    from datetime import datetime
+    from openpyxl import load_workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
-    from utils.timefmt import EXCEL_HOURS_FORMAT, excel_hours
 
-    wb = Workbook()
+    wb = load_workbook(TEMPLATE)
     ws = wb.active
-    ws.title = f"{sheet['month']:02d}-{sheet['year']}"
-    thin = Side(style='thin', color='999999')
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    head_fill = PatternFill('solid', fgColor='DDEBF7')
-    group_fill = PatternFill('solid', fgColor='BDD7EE')
-    bold = Font(bold=True, size=10)
-    n = len(COLUMNS)
+    ws.title = f"Payroll {sheet['month']:02d}-{sheet['year']}"
+    MAXC = 50
+    proto = {}
+    for name, r in (('data', PROTO_DATA), ('total', PROTO_TOTAL), ('sign', PROTO_SIGN)):
+        proto[name] = ({c: copy.copy(ws.cell(r, c)._style) for c in range(1, MAXC + 1)},
+                       ws.row_dimensions[r].height)
+    blank = copy.copy(ws.cell(8, 1)._style)
+    for r in (PROTO_DATA, PROTO_TOTAL, PROTO_SIGN):
+        for c in range(1, MAXC + 1):
+            ws.cell(r, c)._style = copy.copy(blank)
 
-    # الصفّ 1: أرقامُ الأعمدة كما في الشيت
-    for i in range(1, n + 1):
-        c = ws.cell(row=1, column=i, value=i)
-        c.font, c.alignment = Font(size=8, color='888888'), center
+    def styled(r, name):
+        styles, h = proto[name]
+        for c in range(1, MAXC + 1):
+            ws.cell(r, c)._style = copy.copy(styles[c])
+        ws.row_dimensions[r].height = h
 
-    ws.cell(row=2, column=1, value='Monthly Payroll').font = Font(bold=True, size=14)
-    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=2)
-    c = ws.cell(row=2, column=3, value=date(sheet['year'], sheet['month'], 1))
-    c.number_format, c.font = 'mmm-yyyy', Font(bold=True, size=14)
-    ws.cell(row=3, column=1, value=f"{sheet['period']['start']} → {sheet['period']['end']}"
-            + (f'   {company}' if company else '')).font = Font(size=9, color='555555')
-    ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=8)
+    ws['C2'] = datetime(sheet['year'], sheet['month'], 1)
+    p = sheet['period']
+    ws['A3'] = f"{p['start']} → {p['end']}" + (f'   {company}' if company else '')
+    ws['A3'].font = Font(size=11, italic=True)
 
-    for key, title, typ in COLUMNS:
-        col = KEY_INDEX[key]
-        if key in TALL:
-            ws.merge_cells(start_row=2, start_column=col, end_row=4, end_column=col)
-            c = ws.cell(row=2, column=col, value=title)
-        else:
-            c = ws.cell(row=4, column=col, value=title)
-        c.font, c.alignment, c.fill, c.border = bold, center, head_fill, border
-    for first, last, title, row in GROUPS:
-        a, b = KEY_INDEX[first], KEY_INDEX[last]
-        ws.merge_cells(start_row=row, start_column=a, end_row=row, end_column=b)
-        c = ws.cell(row=row, column=a, value=title)
-        c.font, c.alignment, c.fill = bold, center, group_fill
-        for i in range(a, b + 1):
-            ws.cell(row=row, column=i).border = border
-
-    r = 4
-    for row in sheet['rows']:
-        r += 1
-        for key, _title, typ in COLUMNS:
-            v = row[key]
-            if typ == 'hours':
-                v = excel_hours(v)
-            c = ws.cell(row=r, column=KEY_INDEX[key], value=v)
-            c.border = border
-            c.alignment = Alignment(vertical='center',
-                                    horizontal='left' if typ == 'text' else 'center')
-            if typ == 'money':
-                c.number_format = '#,##0.000'
-            elif typ == 'hours':
-                c.number_format = EXCEL_HOURS_FORMAT
-            elif typ == 'days':
-                c.number_format = '0.##'
-        if row['net'] < 0:
-            ws.cell(row=r, column=KEY_INDEX['net']).font = Font(color='C00000', bold=True)
-
-    r += 1
-    ws.cell(row=r, column=KEY_INDEX['name_e'], value='Total').font = bold
-    for key, _title, typ in COLUMNS:
-        if typ == 'text' or key == 'leave_balance':
-            continue
-        v = sheet['totals'].get(key, 0)
-        c = ws.cell(row=r, column=KEY_INDEX[key], value=excel_hours(v) if typ == 'hours' else v)
-        c.font, c.border, c.alignment = bold, border, center
-        c.fill = PatternFill('solid', fgColor='FFF2CC')
-        c.number_format = {'money': '#,##0.000', 'hours': EXCEL_HOURS_FORMAT}.get(typ, '0.##')
-
-    r += 4
-    for key, label in SIGNATURES:
-        ws.cell(row=r, column=KEY_INDEX[key], value=label).font = bold
-
-    widths = {'emp_no': 7, 'name_e': 24, 'name_a': 24, 'doj': 11, 'cost_center': 10, 'dept': 12,
-              'location': 11, 'job': 14, 'pay_type': 14, 'term': 11}
-    for key, _t, typ in COLUMNS:
-        ws.column_dimensions[get_column_letter(KEY_INDEX[key])].width = widths.get(
-            key, 9 if typ in ('days', 'hours') else 11)
-    ws.row_dimensions[4].height = 30
-    ws.freeze_panes = ws.cell(row=5, column=KEY_INDEX['c_basic'])
-    ws.print_title_rows = '2:4'
-    ws.page_setup.orientation = 'landscape'
-    ws.page_setup.paperSize = ws.PAPERSIZE_A3
-    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
-    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    red = PatternFill('solid', fgColor=MISSING_FILL)
+    first = 5
+    rows = sheet['rows']
+    for i, row in enumerate(rows):
+        r = first + i
+        styled(r, 'data')
+        total = float(row['c_total'] or 0)
+        num = row['emp_no']
+        doj = row['doj']
+        try:
+            doj = datetime.strptime(str(doj)[:10], '%Y-%m-%d') if doj else None
+        except ValueError:
+            pass
+        vals = {
+            'A': int(num) if str(num).isdigit() else num, 'B': row['name_e'] or None,
+            'C': row['name_a'] or None, 'D': doj, 'E': row['cost_center'] or None,
+            'F': row['dept'] or None, 'G': row['location'] or None, 'H': row['job'] or None,
+            'I': row['c_basic'], 'J': row['c_trans'], 'K': row['c_house'], 'L': row['c_phone'],
+            'M': row['c_other'], 'N': row['c_allow'], 'O': row['c_total'], 'P': row['work_days'],
+            'Q': f'=(I{r}/26)*$P{r}', 'R': f'=(J{r}/26)*$P{r}', 'S': f'=(K{r}/26)*$P{r}',
+            'T': f'=(L{r}/26)*$P{r}', 'U': f'=(M{r}/26)*$P{r}', 'V': f'=SUM(R{r}:U{r})',
+            'W': f'=V{r}+Q{r}',
+            'X': round(row['ot_h_daily'], 2), 'Y': round(row['ot_h_fri'], 2),
+            'Z': round(row['ot_h_hol'], 2), 'AA': row['ot_a_daily'], 'AB': row['ot_a_fri'],
+            'AC': row['ot_a_hol'], 'AD': f'=SUM(AA{r}:AC{r})',
+            'AE': row['leave'], 'AF': row['commission'], 'AG': row['others'],
+            'AH': f'=W{r}+AD{r}+AE{r}+AF{r}+AG{r}',
+            'AI': _days_of(row['abs_amt'], total) if total > MONEY_EPS else row['abs_days'],
+            'AJ': f'=(O{r}/26)*AI{r}',
+            'AK': _days_of(row['fine_amt'], total), 'AL': f'=(O{r}/26)*AK{r}',
+            'AM': row['loan'], 'AN': row['other_ded'],
+            'AO': f'=AN{r}+AM{r}+AL{r}+AJ{r}', 'AP': f'=AH{r}-AO{r}',
+            'AQ': row['pay_type'], 'AR': row['term'] or None,
+            'AS': round(row['leave_balance'], 2) if row['leave_balance'] is not None else None,
+        }
+        for col, v in vals.items():
+            ws[f'{col}{r}'] = v
+        for col in missing_cells(row):
+            ws[f'{col}{r}'].fill = red
+    last = first + len(rows) - 1
+    tot = max(last, first) + 3
+    styled(tot, 'total')
+    for c in range(9, 43):
+        col = get_column_letter(c)
+        ws[f'{col}{tot}'] = f'=SUM({col}{first}:{col}{tot - 1})'
+    sig = tot + 4
+    styled(sig, 'sign')
+    for col, v in (('B', 'Preparat By'), ('F', 'HR'), ('P', 'Finance'),
+                   ('AF', 'Financial manager'), ('AO', 'GM.')):
+        ws[f'{col}{sig}'] = v
+    ws.merge_cells(f'AO{sig}:AP{sig}')
+    ws[f'B{sig + 2}'] = LEGEND
+    ws[f'B{sig + 2}'].fill = red
+    ws[f'B{sig + 2}'].font = Font(size=12, bold=True)
+    ws[f'B{sig + 2}'].alignment = Alignment(horizontal='left')
+    ws.print_area = f'A2:AQ{sig + 2}'
+    # الإضافيّ والعمولة: مخفيّةٌ في الشيت الأصليّ — تظهر إن حملت قيمة
+    if any((x['ot_total'] or 0) > MONEY_EPS for x in rows):
+        for col in ('X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD'):
+            ws.column_dimensions[col].hidden = False
+    if any((x['commission'] or 0) > MONEY_EPS for x in rows):
+        ws.column_dimensions['AF'].hidden = False
 
     buf = io.BytesIO()
     wb.save(buf)

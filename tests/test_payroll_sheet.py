@@ -170,29 +170,94 @@ def web(env):
     return c, conn, A
 
 
-def test_the_excel_file_has_the_sheet_layout(web):
+def _eval(ws, ref, seen=()):
+    """يقيّم خليّةً كما يقيّمها Excel — للمعادلات التي يكتبها الشيت: أرقامٌ ومراجعُ و+ - * / وSUM."""
+    import re
+    from openpyxl.utils import column_index_from_string, get_column_letter
+    v = ws[ref].value
+    if not (isinstance(v, str) and v.startswith('=')):
+        return float(v or 0) if not isinstance(v, str) else 0.0
+    assert ref not in seen
+    expr = v[1:].replace('$', '')
+
+    def rng(m):
+        c1, r1, c2, r2 = m.group(1), int(m.group(2)), m.group(3), int(m.group(4))
+        cells = [f'{get_column_letter(c)}{r}' for c in range(column_index_from_string(c1), column_index_from_string(c2) + 1)
+                 for r in range(r1, r2 + 1)]
+        return '(' + '+'.join(repr(_eval(ws, x, seen + (ref,))) for x in cells) + ')'
+    expr = re.sub(r'SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)', rng, expr)
+    expr = re.sub(r'\b([A-Z]{1,3})(\d+)\b', lambda m: repr(_eval(ws, m.group(0), seen + (ref,))), expr)
+    assert re.fullmatch(r'[0-9.eE+\-*/() ]+', expr), expr
+    return eval(expr)
+
+
+def _formula_net(ws, r):
+    """صافي الصفّ r كما تحسبه معادلاتُ الملف نفسُه."""
+    return _eval(ws, f'AP{r}')
+
+
+def test_the_excel_file_is_the_company_sheet(web):
+    """قالبُ الشركة نفسُه: أعمدتُه ومعادلاتُه — والصافي من معادلاته = صافي المحرّك."""
+    from datetime import datetime
     from openpyxl import load_workbook
     c, conn, A = web
     r = c.get(f'/payroll/monthly/sheet/export?month={MONTH}&year={YEAR}')
     assert r.status_code == 200 and r.mimetype.endswith('spreadsheetml.sheet')
-    ws = load_workbook(io.BytesIO(r.data)).active
-    head = [ws.cell(4, i).value for i in range(1, 9)]
-    assert head == ['Emp#.', 'Name_E', 'Name_A', 'DOJ.', 'Cost Center', 'Dept.', 'Location', 'Job']
-    assert ws.cell(2, 1).value == 'Monthly Payroll'
+    wb = load_workbook(io.BytesIO(r.data))
+    ws = wb.active
+    assert [ws.cell(4, i).value for i in range(1, 17)] == [
+        'Emp#.', 'Name_E', 'Name_A', 'DOJ.', 'Cost Center', 'Dept.', 'Location', 'Job', 'Basic salary',
+        'Trans.', 'House', 'Phone', 'OT.', 'Total \nAllowances', 'Total Salalary', 'working Days']
+    assert ws['A2'].value.strip() == 'Monthly Payroll' and ws['C2'].value == datetime(YEAR, MONTH, 1)
     groups = {ws.cell(rng.min_row, rng.min_col).value for rng in ws.merged_cells.ranges}
     assert {'additions', 'Hours', 'Amt.', 'Deduction', 'Absent', 'Fine', 'Gross salary',
-            'Net Salary'} <= groups
-    from utils.payroll_sheet import KEY_INDEX
-    row1 = next(rr for rr in range(5, ws.max_row + 1) if ws.cell(rr, 1).value == '1')
-    assert ws.cell(row1, KEY_INDEX['ot_h_fri']).number_format == '[h]:mm'
-    assert ws.cell(row1, KEY_INDEX['ot_h_fri']).value == timedelta(hours=3, minutes=30)
-    assert ws.cell(row1, KEY_INDEX['net']).value == pytest.approx(
-        next(x for x in _sheet(conn)[0].values() if x['emp_no'] == '1')['net'])
-    total_row = row1 + 2
-    assert ws.cell(total_row, KEY_INDEX['name_e']).value == 'Total'
-    assert ws.freeze_panes == 'I5' and ws.print_title_rows == '$2:$4'
-    assert ws.page_setup.orientation == 'landscape'
-    assert 'Prepared By' in [ws.cell(ws.max_row, i).value for i in range(1, ws.max_column + 1)]
+            'Net Salary', 'Leave'} <= groups
+    rows = {str(ws.cell(rr, 1).value): rr for rr in range(5, ws.max_row + 1)
+            if isinstance(ws.cell(rr, 1).value, int)}
+    assert set(rows) == {'1', '2'}
+    for eid in (1, 2):
+        rr = rows[str(eid)]
+        assert ws[f'AP{rr}'].value == f'=AH{rr}-AO{rr}' and ws[f'AJ{rr}'].value == f'=(O{rr}/26)*AI{rr}'
+        import utils.payroll_engine as pe
+        assert _formula_net(ws, rr) == pytest.approx(_engine(pe, conn, eid)['net'], abs=0.001)
+    r1 = rows['1']
+    assert ws[f'Y{r1}'].value == pytest.approx(3.5)                     # إضافيّ الجمعة بالساعات
+    assert not ws.column_dimensions['Y'].hidden and not ws.column_dimensions['AF'].hidden
+    assert ws.freeze_panes == 'M17' and ws.print_title_rows == '$2:$4'
+    assert ws.page_setup.orientation == 'landscape' and int(ws.page_setup.paperSize) == 8
+    cells = [ws.cell(rr, i).value for rr in range(1, ws.max_row + 1) for i in range(1, 45)]
+    assert 'GM.' in cells and 'Preparat By' in cells
+    assert not wb._external_links
+
+
+def test_missing_data_is_marked_red(web):
+    """ما لا يحمله النظام يُلوَّن بالأحمر: لا حساب بنكيّ، ولا بصمات في الفترة، ولا اسم عربيّ."""
+    from openpyxl import load_workbook
+    from utils.payroll_sheet import MISSING_FILL
+    c, conn, A = web
+    conn.execute("UPDATE employees SET arabic_name = '' WHERE id = 2")
+    conn.commit()
+    ws = load_workbook(io.BytesIO(c.get(f'/payroll/monthly/sheet/export?month={MONTH}&year={YEAR}').data)).active
+    rows = {ws.cell(rr, 1).value: rr for rr in range(5, ws.max_row + 1) if isinstance(ws.cell(rr, 1).value, int)}
+    red = lambda cell: (cell.fill.fgColor.rgb or '') == MISSING_FILL
+    r1, r2 = rows[1], rows[2]
+    assert not any(red(ws.cell(r1, i)) for i in range(1, 46)), 'موظّفٌ بياناته كاملة: لا أحمر'
+    assert red(ws[f'AQ{r2}']) and ws[f'AQ{r2}'].value == 'Cash', 'لا حساب بنكيّ'
+    assert red(ws[f'AI{r2}']), 'لا بصمات في الفترة'
+    assert red(ws[f'C{r2}']), 'لا اسم عربيّ'
+    assert not red(ws[f'B{r2}']) and not red(ws[f'I{r2}'])
+
+
+def test_the_template_carries_no_customer_data():
+    """القالبُ في الشيفرة: عناوينُ وتنسيقٌ فقط — لا أسماء ولا أرقام ولا تعليقات ولا روابط."""
+    from openpyxl import load_workbook
+    from utils.payroll_sheet import TEMPLATE
+    wb = load_workbook(TEMPLATE)
+    ws = wb.active
+    assert not wb._external_links
+    assert all(ws.cell(r, c).value is None for r in range(5, ws.max_row + 1) for c in range(1, 51))
+    assert all(ws.cell(r, c).comment is None for r in range(1, ws.max_row + 1) for c in range(1, 51))
+    assert ws['C2'].value is None and wb.properties.creator == 'onz.one'
 
 
 def test_the_print_view(web):
