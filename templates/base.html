@@ -7,6 +7,9 @@
     <title>{% block title %}{% if session.username %}{{ settings.app_name if settings and settings.app_name else
         _('app.name') }}{% else %}{{ _('app.name') }}{% endif %}{% endblock %}</title>
 
+    {# Bootstrap أوّلًا ثم هويّةُ النظام: كان العكس، فكان Bootstrap يغلب ألوانَ
+       الهويّة كلَّها (الأزرار زرقاء، ورؤوس البطاقات بنصٍّ داكن على الأخضر). #}
+    {% include '_partials/assets.html' %}
     <style>
         /* ============================================================
            الهوية البصرية: دفتر أستاذ + سطح زجاجي  (Ledger + Glass)
@@ -19,7 +22,7 @@
             --paper-line: #E3E0D3;
             --ink: #1A2420;
             --ink-muted: #5F6B62;
-            --ink-faint: #98A199;
+            --ink-faint: #6B766E;   /* كان #98A199: 2.7:1 على الأبيض لا يُقرأ؛ هذا 4.7:1 */
             --ledger: #1F5C4A;
             --ledger-dark: #163F32;
             --ledger-light: #E7F1EC;
@@ -178,6 +181,38 @@
             border: none;
         }
         .card-header .text-muted { color: rgba(255, 255, 255, 0.75) !important; }
+        /* Bootstrap يُحمَّل بعد هذا الملف ويعيد لون رأس البطاقة إلى الداكن
+           (.card-header { color: var(--bs-card-cap-color) })، فيصير النصّ داكنًا
+           على الأخضر الداكن. محدّديّةٌ أعلى، ولون العناوين يتبع الرأس. */
+        .card > .card-header {
+            color: #fff;
+            --bs-card-cap-color: #fff;
+            --bs-heading-color: #fff;
+        }
+        .card > .card-header :is(h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6, .card-title) { color: inherit; }
+        /* رأسٌ أُريد له الفاتح: بلا التدرّج الأخضر، وبنصٍّ داكن */
+        .card > .card-header:is(.bg-light, .bg-white, .bg-transparent, .bg-body) {
+            background-image: none !important;
+            color: var(--ink);
+            --bs-card-cap-color: var(--ink);
+            --bs-heading-color: var(--ink);
+        }
+        .card > .card-header:is(.bg-light, .bg-white, .bg-transparent, .bg-body) .text-muted { color: var(--ink-muted) !important; }
+        /* رأسٌ بلونٍ صريح (أزرق، أحمر…): لونُه هو لا التدرّج */
+        .card > .card-header:is(.bg-primary, .bg-danger, .bg-success, .bg-info, .bg-warning, .bg-secondary, .bg-dark) { background-image: none !important; }
+        .card > .card-header.bg-warning { color: var(--accrual); --bs-heading-color: var(--accrual); }
+        /* داخل الرأس الأخضر: نصوصٌ ملوّنة/خافتة وأزرارٌ مُحدَّدة تصير فاتحة */
+        .card > .card-header:not(:is(.bg-light, .bg-white, .bg-transparent, .bg-body, .bg-info, .bg-warning))
+            :is(.text-primary, .text-dark, .text-secondary, .text-success, .text-info, .text-body, .report-desc) {
+            color: rgba(255, 255, 255, 0.85) !important; opacity: 1;
+        }
+        .card > .card-header:not(:is(.bg-light, .bg-white, .bg-transparent, .bg-body, .bg-info, .bg-warning))
+            .btn:is(.btn-outline-primary, .btn-outline-secondary, .btn-outline-success, .btn-outline-dark, .btn-outline-info) {
+            --bs-btn-color: #fff; --bs-btn-border-color: rgba(255, 255, 255, 0.55);
+            --bs-btn-hover-bg: rgba(255, 255, 255, 0.14); --bs-btn-hover-color: #fff; --bs-btn-hover-border-color: #fff;
+            --bs-btn-disabled-color: rgba(255, 255, 255, 0.6); --bs-btn-disabled-border-color: rgba(255, 255, 255, 0.35);
+            color: #fff; border-color: rgba(255, 255, 255, 0.55);
+        }
 
         /* بطاقة الإحصائيات */
         .stats-card {
@@ -243,6 +278,10 @@
             --bs-table-accent-bg: var(--ledger-light);
         }
         .table-light th, .table-light td { background-color: var(--ledger-light) !important; color: var(--ledger-dark); }
+        /* رأسُ الجدول الأخضر: الخافتُ فيه فاتح؛ وخليّةُ رأسٍ فاتحة الخلفية نصُّها داكن */
+        .table thead:not(.table-light) :is(.text-muted, .text-secondary) { color: rgba(255, 255, 255, 0.72) !important; }
+        .table thead th:is(.bg-light, .bg-white) { color: var(--ink) !important; }
+        .table thead.table-light th, .table thead tr.table-light th { color: var(--ledger-dark); }
 
         /* ============ النماذج ============ */
         .form-control, .form-select {
@@ -271,14 +310,53 @@
 
         /* ============ الشارات وخلفيات الألوان ============ */
         .badge { font-weight: 600; }
-        .bg-primary   { background-color: var(--ledger) !important; }
-        .bg-success   { background-color: var(--ledger) !important; }
-        .bg-danger    { background-color: var(--debit) !important; }
-        .bg-secondary { background-color: var(--ink-muted) !important; }
-        .bg-info      { background-color: var(--ledger-light) !important; color: var(--ledger-dark) !important; }
-        .bg-warning   { background-color: var(--accrual-light) !important; color: var(--accrual) !important; }
-        .bg-warning.text-dark { color: var(--accrual) !important; }
-        .badge.bg-primary, .badge.bg-success, .badge.bg-danger, .badge.bg-secondary { color: #fff !important; }
+        /* ألوانُ Bootstrap من الهويّة عبر متغيّراتها، لا بلونٍ صلب: فتعمل معها
+           الشفافية (bg-opacity-10/25) ولونُ النصّ (text-*) والحدود كما صُمّمت.
+           كان اللونُ الصلب يجعل خلايا تقرير التواجد الفاتحة حمراءَ داكنة. */
+        :root {
+            --bs-primary-rgb: 31, 92, 74;
+            --bs-success-rgb: 31, 92, 74;
+            --bs-danger-rgb: 168, 64, 47;
+            --bs-secondary-rgb: 95, 107, 98;
+            --bs-info-rgb: 31, 92, 74;
+            --bs-warning-rgb: 138, 100, 32;
+        }
+        /* المعلوماتُ والتنبيه بلا شفافية: شريحةٌ فاتحة بنصٍّ داكن من عائلتها —
+           ولو كُتب عليها text-white (نصٌّ أبيض على فاتح لا يُقرأ) */
+        .bg-info:not([class*="bg-opacity-"]) { background-color: var(--ledger-light) !important; color: var(--ledger-dark) !important; }
+        .bg-warning:not([class*="bg-opacity-"]) { background-color: var(--accrual-light) !important; color: var(--accrual) !important; }
+        .bg-info:not([class*="bg-opacity-"]).text-white, .bg-info:not([class*="bg-opacity-"]) .text-white,
+        .bg-info:not([class*="bg-opacity-"]) :is(h1, h2, h3, h4, h5, h6, p, small, .report-desc) { color: var(--ledger-dark) !important; }
+        .bg-warning:not([class*="bg-opacity-"]).text-white, .bg-warning:not([class*="bg-opacity-"]) .text-white,
+        .bg-warning:not([class*="bg-opacity-"]) :is(h1, h2, h3, h4, h5, h6, p, small) { color: var(--accrual) !important; }
+        .badge:is(.bg-primary, .bg-success, .bg-danger, .bg-secondary):not([class*="bg-opacity-"]) { color: #fff !important; }
+        /* داخل خلفيةٍ حمراء صلبة (يوم ناقص البصمة): الأوقاتُ الملوّنة بيضاء */
+        .bg-danger:not([class*="bg-opacity-"]) :is(.text-success, .text-primary, .text-muted, .text-info, .text-dark) { color: #fff !important; }
+        /* شارةٌ شفّافة الخلفية بلا لون نصٍّ صريح: نصٌّ داكن لا أبيض */
+        .badge[class*="bg-opacity-"]:not([class*="text-"]) { color: var(--ink) !important; }
+        /* شاراتُ Bootstrap 4 القديمة (badge-success…): لا وجود لها في 5، فكان نصُّها أبيض بلا خلفية */
+        .badge-primary, .badge-success { background-color: var(--ledger); color: #fff; }
+        .badge-danger { background-color: var(--debit); color: #fff; }
+        .badge-secondary { background-color: var(--ink-muted); color: #fff; }
+        .badge-dark { background-color: var(--ink); color: #fff; }
+        .badge-info { background-color: var(--ledger-light); color: var(--ledger-dark); }
+        .badge-warning { background-color: var(--accrual-light); color: var(--accrual); }
+        .badge-light { background-color: var(--paper); color: var(--ink); border: 1px solid var(--border); }
+        /* أزرارُ info/warning: بدل السماويّ والأصفر الفاقعين */
+        .btn-info {
+            --bs-btn-bg: var(--ledger-light); --bs-btn-border-color: #CFE3D9; --bs-btn-color: var(--ledger-dark);
+            --bs-btn-hover-bg: #D5E8DE; --bs-btn-hover-border-color: #BCD8CA; --bs-btn-hover-color: var(--ledger-dark);
+            --bs-btn-active-bg: #CFE3D9; --bs-btn-active-color: var(--ledger-dark);
+        }
+        .btn-info.text-white { color: var(--ledger-dark) !important; }
+        .btn-outline-info {
+            --bs-btn-color: var(--ledger); --bs-btn-border-color: var(--ledger);
+            --bs-btn-hover-bg: var(--ledger); --bs-btn-hover-border-color: var(--ledger); --bs-btn-hover-color: #fff;
+        }
+        .btn-outline-warning {
+            --bs-btn-color: var(--accrual); --bs-btn-border-color: var(--accrual);
+            --bs-btn-hover-bg: var(--accrual); --bs-btn-hover-border-color: var(--accrual); --bs-btn-hover-color: #fff;
+        }
         .bg-light { background-color: var(--paper) !important; }
         .bg-white { background-color: var(--paper-raised) !important; }
 
@@ -487,7 +565,6 @@
             .main-content { width: 100% !important; max-width: 100% !important; }
         }
     </style>
-{% include '_partials/assets.html' %}
     <script>
         // ساعاتٌ عشريّة ← «ساعات:دقائق» في كل التقارير: 8.85 تُقرأ «8 ساعات و85
         // دقيقة» وهي 8:51 — الكسرُ جزءٌ من ستّين. في <head> ليُعرَّف قبل أيّ
