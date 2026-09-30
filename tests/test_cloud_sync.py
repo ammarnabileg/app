@@ -427,3 +427,70 @@ def test_the_first_upload_does_not_wait_two_minutes_per_batch(live):
     assert res['ok'] and not cs.has_backlog(res)
     assert not cs.has_backlog({'ok': False, 'pending': 5}), 'الفشلُ لا يُسرِّع المحاولة'
     assert not cs.has_backlog({'ok': True, 'idle': True})
+
+
+# ------------------------------------------------ تاريخُ الشفتات (٢.٢٥)
+#
+# بلا تاريخ الشفتات لا تعرف البوّابةُ أنّ بصمةَ السادسة صباحًا خروجُ
+# ليلةِ أمس، فتقسم الشفتَ الليليَّ يومين ناقصين.
+
+class _AcceptingServer(FakeServer):
+    def __init__(self, accepts):
+        super().__init__(body={'status': 'success', 'stats': {}, 'accepts': accepts})
+        self.got = {}
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        for t, rows in (json or {}).get('data', {}).items():
+            for r in rows:
+                self.got.setdefault(t, {})[r['id']] = r
+        return super().post(url, json=json, headers=headers, timeout=timeout)
+
+
+def test_a_shift_change_reaches_the_cloud_without_who_made_it(live):
+    conn, ob, cs, db, _ = live
+    _configure(db)
+    eid = _employee(conn, 'N1')
+    _drain_baseline(conn, cs, ob)
+    conn.execute('INSERT INTO employee_shift_history (employee_id, shift_type, effective_from,'
+                 " created_by) VALUES (?, 'ليلي', '2026-07-01', 7)", (eid,))
+    conn.commit()
+    server = _AcceptingServer(list(ob.SYNC_TABLES))
+    assert cs.run_once(conn=conn, session=server).get('ok')
+    rows = list(server.got.get('employee_shift_history', {}).values())
+    assert [r['shift_type'] for r in rows] == ['ليلي']
+    assert 'created_by' not in rows[0]
+
+
+def test_the_shift_history_is_sent_again_once_an_old_server_learns_it(live):
+    """خادمٌ قديم يتخطّى الجدولَ بلا خطأ ويُقَرّ الدفتر — فيُعاد مرّةً حين يقبله."""
+    conn, ob, cs, db, _ = live
+    _configure(db)
+    eid = _employee(conn, 'N2')
+    conn.execute("INSERT INTO employee_shift_history (employee_id, shift_type, effective_from)"
+                 " VALUES (?, 'ليلي', '2026-07-01')", (eid,))
+    conn.commit()
+    old = [t for t in ob.SYNC_TABLES if t != 'employee_shift_history']
+
+    def drain(server):
+        for _ in range(50):
+            res = cs.run_once(conn=conn, session=server, force=True)
+            if not cs.has_backlog(res):
+                break
+
+    drain(_AcceptingServer(old))
+    assert ob.pending_count(conn) == 0 and ob.baseline_done(conn)
+
+    conn.execute('INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)'
+                 " VALUES (?, 'T', '2026-07-01 22:00:00', 'IN')", (eid,))
+    conn.commit()
+    new = _AcceptingServer(list(ob.SYNC_TABLES))
+    drain(new)
+    got = new.got.get('employee_shift_history', {})
+    assert {r['employee_id'] for r in got.values()} == {eid}, list(new.got)
+
+    conn.execute('INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)'
+                 " VALUES (?, 'T', '2026-07-02 06:00:00', 'OUT')", (eid,))
+    conn.commit()
+    again = _AcceptingServer(list(ob.SYNC_TABLES))
+    drain(again)
+    assert 'employee_shift_history' not in again.got, 'الإعادةُ تتكرّر في كلّ رفع'

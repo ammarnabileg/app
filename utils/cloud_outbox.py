@@ -61,6 +61,16 @@ SYNC_TABLES = {
     'payroll_run_lines': set(),
     # الكشفُ يومًا بيوم — ما عدّه المحرّك، بلا مال (انظر db.py).
     'payroll_run_days': set(),
+    # تاريخُ الشفتات: به تعرف البوّابةُ أنّ بصمةَ السادسة صباحًا خروجُ
+    # ليلةِ أمس لا دخولُ اليوم. `created_by` رقمُ مستخدمٍ لا يُرفع جدولُه.
+    'employee_shift_history': {'created_by'},
+}
+
+# جداولُ أُضيفت إلى الرفع بعد أن صار للعملاء خوادمُ لا تعرفها. خادمٌ
+# قديم يتخطّاها بلا خطأ فيُقَرّ الدفتر ولا يصل شيء — فتُعاد مرّةً واحدة
+# حين يُعلن الخادمُ قبولها (انظر `resend_when_accepted`).
+LATE_TABLES = {
+    'employee_shift_history': 'resend:employee_shift_history:1',
 }
 
 # ------------------------------------------------------------ الترشيح
@@ -219,6 +229,22 @@ def resend_when_accepted(conn, accepts):
             SELECT '{table}', id, 'upsert' FROM "{table}"{extra}''')
     set_state(conn, key, 'done')
     return True
+
+
+def resend_late_tables(conn, accepts):
+    """إعادةُ `LATE_TABLES` كاملةً مرّةً واحدة حين يقبلها الخادم. تُرجع ما أُعيد."""
+    if not isinstance(accepts, (list, tuple)):
+        return []
+    done = []
+    for table, key in LATE_TABLES.items():
+        if table not in accepts or get_state(conn, key) is not None:
+            continue
+        if _table_exists(conn, table):
+            conn.execute(f'''INSERT INTO {OUTBOX_TABLE} (table_name, row_id, op)
+                SELECT '{table}', id, 'upsert' FROM "{table}"''')
+        set_state(conn, key, 'done')
+        done.append(table)
+    return done
 
 
 def uninstall_triggers(conn):

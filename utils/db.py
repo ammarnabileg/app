@@ -1855,6 +1855,14 @@ def init_db():
     except Exception as e:
         print(f'labor law migration failed: {e}')
 
+    # ثانيةً: جداولُ تُنشئها الترحيلاتُ أعلاه (تاريخُ الشفتات) لم تكن
+    # موجودةً عند التثبيت الأوّل في قاعدةٍ جديدة. `IF NOT EXISTS` يجعلها بلا كلفة.
+    try:
+        from utils.cloud_outbox import install as _install_outbox
+        _install_outbox(conn)
+    except Exception as e:
+        print(f'cloud outbox install failed: {e}')
+
     # Stamp the schema version last: reaching this point means every
     # migration above completed without raising.
     try:

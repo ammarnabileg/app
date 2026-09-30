@@ -65,8 +65,9 @@ def background_cloud_sync_worker():
     while True:
         delay = 120
         try:
-            from utils.cloud_sync import run_once
+            from utils.cloud_sync import run_once, mark_auto_attempt
             res = run_once()
+            mark_auto_attempt(res)
             if res.get('skipped') == 'disabled':
                 # مُطفأ: ننام أطول فلا نسأل القاعدة كلّ دقيقتين بلا داع.
                 delay = 600
@@ -110,7 +111,12 @@ def background_cloud_sync_worker():
         except Exception as e:
             print(f'[msg] خطأ في بوّابة الرسائل: {e}')
 
-        time.sleep(delay)
+        # نومٌ يُقطع إن فُعِّل الرفعُ من الإعدادات: فيبدأ الآن لا بعد ١٠ دقائق
+        try:
+            from utils.cloud_sync import sleep_or_wake
+            sleep_or_wake(delay)
+        except Exception:
+            time.sleep(delay)
 
 
 def background_license_checker():

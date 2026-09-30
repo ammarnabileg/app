@@ -155,6 +155,23 @@
                         </div>
 
                         <hr>
+                        {# حالُ الرفع التلقائيّ: الزرُّ يعمل ولو كان مُطفأً، فنجاحُه وحده
+                           لا يعني أنّ البرنامج يرفع وحده. #}
+                        <div class="small mb-2" id="cloudAutoStatus" data-state="{{ cloud.auto }}">
+                            {% if cloud.auto == 'off' %}
+                                <span class="badge bg-danger">الرفع التلقائي مُطفأ</span>
+                                <span class="text-muted">— «ارفع الآن» يرفع مرةً واحدة. علّم «تفعيل رفع البيانات» واحفظ ليرفع البرنامج وحده.</span>
+                            {% elif cloud.auto == 'waiting' %}
+                                <span class="badge bg-warning">الرفع التلقائي مُفعَّل</span>
+                                <span class="text-muted">— أول محاولة خلال دقيقة من الحفظ أو من تشغيل البرنامج.</span>
+                            {% elif cloud.auto == 'stale' %}
+                                <span class="badge bg-danger">الرفع التلقائي متوقف</span>
+                                <span class="text-muted">— آخر محاولة تلقائية <span dir="ltr">{{ cloud.last_auto }}</span>. أعد تشغيل البرنامج.</span>
+                            {% else %}
+                                <span class="badge bg-success">الرفع التلقائي يعمل</span>
+                                <span class="text-muted">— آخر محاولة تلقائية <span dir="ltr">{{ cloud.last_auto }}</span>، ثم كل دقيقتين.</span>
+                            {% endif %}
+                        </div>
                         <div class="small">
                             {% if cloud.last_ok %}
                                 <span class="text-success">

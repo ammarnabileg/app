@@ -109,6 +109,10 @@ def _cloud_sync_state(conn):
         'has_key': bool((get_setting(cs.SETTING_KEY, '') or '').strip()),
         'last_ok': get_setting(cs.SETTING_LAST_OK, '') or '',
         'last_error': get_setting(cs.SETTING_LAST_ERROR, '') or '',
+        'last_auto': get_setting(cs.SETTING_LAST_AUTO, '') or '',
+        'auto': cs.auto_status(
+            str(get_setting(cs.SETTING_ENABLED, '0') or '0') in ('1', 'true', 'True'),
+            get_setting(cs.SETTING_LAST_AUTO, '') or ''),
         'pending': pending,
     }
 
@@ -203,8 +207,8 @@ def update_settings():
     if request.form.get('cloud_sync_form_present'):
         from utils.db import set_setting
         from utils import cloud_sync as _cs
-        set_setting(_cs.SETTING_ENABLED,
-                    '1' if request.form.get('cloud_sync_enabled') in ('1', 'on', 'true') else '0')
+        _enable = request.form.get('cloud_sync_enabled') in ('1', 'on', 'true')
+        set_setting(_cs.SETTING_ENABLED, '1' if _enable else '0')
         for _field_name, _key in (('cloud_sync_url', _cs.SETTING_URL),
                                   ('cloud_sync_client_id', _cs.SETTING_CLIENT)):
             set_setting(_key, request.form.get(_field_name, '').strip())
@@ -214,6 +218,8 @@ def update_settings():
         _new_key = request.form.get('cloud_sync_api_key', '').strip()
         if _new_key:
             set_setting(_cs.SETTING_KEY, _new_key)
+        if _enable:
+            _cs.wake()          # يبدأ الرفعُ التلقائيّ الآن، لا بعد نومة الخيط
 
     # --- بوّابة الرسائل ---
     # مستقلّةٌ عن الرفع في التفعيل، ومشتركةٌ معه في المفتاح: العميلُ
@@ -275,6 +281,7 @@ def run_cloud_sync_now():
     أوّلًا يقلب الترتيب ويجعل أوّل تجربةٍ على بياناتٍ تُرفع فعلًا.
     """
     from utils import cloud_sync as _cs
+    from utils.db import get_setting
 
     conn = get_db_connection()
     try:
@@ -294,6 +301,13 @@ def run_cloud_sync_now():
     else:
         flash(f"رُفع {res.get('sent', 0)} سجلًّا، وحُذف {res.get('deleted', 0)}، "
               f"وبقي {res.get('pending', 0)}.", 'success')
+    # الزرُّ يعمل والرفعُ مُطفأ (عن قصد: جرّب ثم فعّل). لكنّ من رأى الزرَّ ينجح
+    # يظنّ الرفعَ يعمل وحده — فيُقال له صراحةً إنه لن يعمل حتى يُفعَّل.
+    if res.get('ok') and str(get_setting(_cs.SETTING_ENABLED, '0') or '0') not in ('1', 'true', 'True'):
+        flash('تنبيه: الرفع التلقائي مُطفأ — «ارفع الآن» يرفع مرةً واحدة فقط. '
+              'علّم «تفعيل رفع البيانات» ثم احفظ، ليرفع البرنامج وحده كل دقيقتين.', 'warning')
+    elif res.get('ok') and _cs.has_backlog(res):
+        _cs.wake()
     return redirect(url_for('main.settings') + '#cloud-sync')
 
 

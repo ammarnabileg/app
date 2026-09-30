@@ -30,6 +30,7 @@
 """
 import logging
 import os
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,51 @@ SETTING_CLIENT = 'cloud_sync_client_id'
 SETTING_KEY = 'cloud_sync_api_key'
 SETTING_LAST_OK = 'cloud_sync_last_ok'
 SETTING_LAST_ERROR = 'cloud_sync_last_error'
+# آخرُ محاولةٍ **تلقائيّة** (من الخيط الخلفيّ لا من الزرّ): بها تعرف الشاشةُ
+# أنّ الرفعَ التلقائيّ يعمل فعلًا، لا أنّ الزرَّ نجح وحده.
+SETTING_LAST_AUTO = 'cloud_sync_last_auto'
+AUTO_STALE_MINUTES = 15
+
+# يُوقظ الخيطَ الخلفيّ فورًا (عند تفعيل الرفع من الإعدادات) بدل أن ينتظر
+# نومتَه — وكانت ١٠ دقائق حين يكون الرفعُ مُطفأً.
+WAKE = threading.Event()
+
+
+def wake():
+    WAKE.set()
+
+
+def sleep_or_wake(seconds):
+    """ينام حتى تنقضي المدّة أو يُوقَظ. يعيد True إن أُوقظ."""
+    woke = WAKE.wait(seconds)
+    WAKE.clear()
+    return woke
+
+
+def mark_auto_attempt(res):
+    """تسجّل الخيطُ الخلفيّ محاولتَه — إلا وهو مُطفأ (لا محاولةَ إذن)."""
+    if res and res.get('skipped') == 'disabled':
+        return
+    _note(SETTING_LAST_AUTO, time.strftime('%Y-%m-%d %H:%M:%S'))
+
+
+def auto_status(enabled, last_auto, now=None):
+    """حالُ الرفع التلقائيّ للشاشة: 'off' | 'waiting' | 'running' | 'stale'.
+
+    `stale`: مُفعَّلٌ ولم يحاول الخيطُ منذ أكثر من ربع ساعة — أي أنّه
+    لا يعمل (البرنامج شُغِّل بطريقةٍ لا تُطلق الخيوط، أو سقط).
+    """
+    from datetime import datetime, timedelta
+    if not enabled:
+        return 'off'
+    if not last_auto:
+        return 'waiting'
+    try:
+        t = datetime.strptime(str(last_auto)[:19], '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return 'waiting'
+    now = now or datetime.now()
+    return 'stale' if now - t > timedelta(minutes=AUTO_STALE_MINUTES) else 'running'
 
 
 def _settings():
@@ -230,6 +276,8 @@ def _run_once(conn, session=None):
     try:
         from utils import cloud_outbox as ob
         ob.resend_when_accepted(conn, body.get('accepts'))
+        ob.resend_late_tables(conn, body.get('accepts'))
+        conn.commit()
     except Exception as e:
         logger.warning(f'cloud sync: payroll resend skipped: {e}')
     _note(SETTING_LAST_ERROR, '')
@@ -263,6 +311,7 @@ def run_forever(interval=DEFAULT_INTERVAL):
     while True:
         try:
             res = run_once()
+            mark_auto_attempt(res)
             if res.get('skipped'):
                 logger.info(f"sync skipped: {res['skipped']}")
             elif res.get('ok'):
@@ -275,7 +324,7 @@ def run_forever(interval=DEFAULT_INTERVAL):
         except Exception as e:                      # pragma: no cover - حارس
             logger.exception(f'sync cycle crashed: {e}')
             res = None
-        time.sleep(CATCH_UP_DELAY if has_backlog(res) else interval)
+        sleep_or_wake(CATCH_UP_DELAY if has_backlog(res) else interval)
 
 
 if __name__ == '__main__':

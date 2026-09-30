@@ -182,3 +182,90 @@ def test_run_routes_require_admin_permission():
         block = src[src.index('def ' + name) - 200:src.index('def ' + name)]
         assert "require_permission('admin.settings')" in block, name
         assert '@login_required' in block, name
+
+
+# ------------------------------------------------ الرفع التلقائيّ: ظاهرٌ حالُه
+
+def test_auto_status_reports_off_waiting_running_and_stale():
+    from datetime import datetime
+    from utils.cloud_sync import auto_status
+    now = datetime(2026, 9, 30, 12, 0, 0)
+    assert auto_status(False, '2026-09-30 11:59:00', now) == 'off'
+    assert auto_status(True, '', now) == 'waiting'
+    assert auto_status(True, '2026-09-30 11:58:00', now) == 'running'
+    assert auto_status(True, '2026-09-30 11:30:00', now) == 'stale'
+
+
+def test_the_background_thread_records_its_attempts_but_not_while_disabled(live):
+    conn, cs, mo, db = live
+    cs.mark_auto_attempt({'ok': True, 'skipped': 'disabled'})
+    assert not db.get_setting(cs.SETTING_LAST_AUTO, '')
+    cs.mark_auto_attempt({'ok': True, 'idle': True})
+    assert db.get_setting(cs.SETTING_LAST_AUTO, '')
+
+
+def test_enabling_wakes_the_thread_instead_of_a_ten_minute_wait(live):
+    conn, cs, mo, db = live
+    cs.WAKE.clear()
+    import time as _t
+    t0 = _t.time()
+    cs.wake()
+    assert cs.sleep_or_wake(30) is True and _t.time() - t0 < 1
+    assert not cs.WAKE.is_set(), 'يُمسح بعد الإيقاظ فلا تصير كلُّ نومةٍ صفرًا'
+
+
+@pytest.fixture
+def web(live, monkeypatch):
+    import importlib
+    conn, cs, mo, db = live
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True, 'days_left': 300}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    A.app.config['TESTING'] = True
+    admin = conn.execute("SELECT id FROM users WHERE role='admin'").fetchone()[0]
+    c = A.app.test_client()
+    with c.session_transaction() as s:
+        s.update({'user_id': admin, 'role': 'admin', 'username': 'admin'})
+    fake = FakeServer()
+    import requests
+    monkeypatch.setattr(requests, 'post', fake.post)
+    return c, conn, cs, db, fake
+
+
+def _flashes(c):
+    with c.session_transaction() as s:
+        return [m for _cat, m in s.pop('_flashes', [])]
+
+
+def test_the_button_while_disabled_says_automatic_upload_is_off(web):
+    """كانت الشكوى: «مش بيرفع أوتوماتيك — ارفع الآن بس». الزرُّ يعمل والرفعُ
+    مُطفأ عن قصد؛ فيُقال ذلك صراحةً في الشاشة وعلى الزرّ."""
+    c, conn, cs, db, fake = web
+    _configure(db)
+    db.set_setting('cloud_sync_enabled', '0')
+    conn.execute("INSERT INTO employees (name, employee_number, department, position, hire_date, salary,"
+                 " is_active) VALUES ('x', '77', 'D', 'P', '2026-01-01', 100, 1)")
+    conn.commit()
+    r = c.post('/settings/cloud-sync/run')
+    assert r.status_code == 302 and fake.calls
+    msgs = _flashes(c)
+    assert any('الرفع التلقائي مُطفأ' in m for m in msgs), msgs
+    body = c.get('/settings').get_data(as_text=True)
+    assert 'id="cloudAutoStatus" data-state="off"' in body
+
+
+def test_enabling_from_settings_wakes_the_thread_and_shows_waiting(web):
+    c, conn, cs, db, fake = web
+    _configure(db)
+    cs.WAKE.clear()
+    c.post('/settings/update', data={'cloud_sync_form_present': '1', 'cloud_sync_enabled': '1',
+                              'cloud_sync_url': 'https://onz.one/api/sync', 'cloud_sync_client_id': 'uid-1'})
+    assert db.get_setting('cloud_sync_enabled') == '1', _flashes(c)
+    assert cs.WAKE.is_set(), 'التفعيل يُوقظ الخيط فيبدأ الآن'
+    assert 'data-state="waiting"' in c.get('/settings').get_data(as_text=True)
+    cs.mark_auto_attempt({'ok': True, 'idle': True})
+    assert 'data-state="running"' in c.get('/settings').get_data(as_text=True)
