@@ -416,6 +416,10 @@ def test_history_routes_add_and_delete(web):
     assert conn.execute('SELECT COUNT(*) FROM employee_salary_history WHERE employee_id = 1').fetchone()[0] == 1
     body = c.get('/employees/edit/1').get_data(as_text=True)
     assert 'id="shiftHistTable"' in body and 'id="histShiftForm"' in body and 'مساء' in body
+    # نماذجُ الإرسال المساعدة داخل حاوية flex: ظاهرةً تأخذ كلٌّ منها حصّةً من العرض
+    # فتنضغط الصفحة إلى ربعها
+    for f in ('histShiftForm', 'histSalaryForm', 'histDeleteForm'):
+        assert f'hidden id="{f}"' in body
 
 
 def test_one_click_fix_applies_the_compliant_value(web):
@@ -441,6 +445,23 @@ def test_the_admin_payslip_shows_the_engine_figures(web):
     body = c.get(f'/payroll/payslips?month={MONTH}&year={YEAR}&employee_id=1').get_data(as_text=True)
     assert 'قسيمة الراتب' in body and '%.3f' % net in body and 'data-emp="1"' in body
     assert 'مسودة' in body, 'قبل الحفظ: مسودة'
+
+
+def test_the_admin_payslip_after_saving_is_the_saved_one(web):
+    """بعد الحفظ: ما صُرف فعلًا، لا حسابٌ حيّ قد يتغيّر ببصمةٍ تُصحَّح — ولا «مسودة»."""
+    c, conn, A, pe = web
+    for d in _workdays()[:10]:
+        _punch(conn, 1, f'{d} 08:00', f'{d} 16:00')
+    conn.execute("INSERT INTO payroll_runs (month, year, status, employees_count, period_start, period_end)"
+                 " VALUES (?, ?, 'saved', 1, '2026-08-01', '2026-08-31')", (MONTH, YEAR))
+    rid = conn.execute('SELECT id FROM payroll_runs').fetchone()[0]
+    conn.execute("INSERT INTO payroll_run_lines (run_id, employee_id, basic, net, details_json)"
+                 " VALUES (?, 1, 260, 123.456, ?)", (rid, json.dumps({'allowances': [], 'deductions': []})))
+    conn.commit()
+    body = c.get(f'/payroll/payslips?month={MONTH}&year={YEAR}&employee_id=1').get_data(as_text=True)
+    assert '123.456' in body and 'data-emp="1"' in body
+    assert '%.3f' % _row(pe, conn)['net'] not in body
+    assert 'class="draft"' not in body
 
 
 def _portal_client(conn, A, eid):
@@ -470,6 +491,7 @@ def test_the_portal_payslip_is_the_saved_one_and_only_ones_own(web):
     conn.commit()
     body = p.get(f'/portal/payslip?month={MONTH}&year={YEAR}&employee_id=2').get_data(as_text=True)
     assert 'data-emp="1"' in body and '111.500' in body
+    assert 'name="viewport"' in body, 'تُفتح من الجوّال: بلا viewport تُصغَّر الصفحةُ حتى لا تُقرأ'
     assert '999.000' not in body, 'لا يرى الموظّفُ قسيمةَ غيره'
 
 

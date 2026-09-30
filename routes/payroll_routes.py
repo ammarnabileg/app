@@ -1305,8 +1305,9 @@ def _company_currency():
 @login_required
 @require_permission('salary.calculate')
 def payslips():
-    """قسائمُ الرواتب — لموظّفٍ أو للجميع — من المحرّك كما يعرضه الكشف."""
-    from utils.payslip import slips_live
+    """قسائمُ الرواتب — لموظّفٍ أو للجميع: من الكشف المحفوظ إن حُفظ (ما صُرف
+    فعلًا، كملفّ البنك)، وإلّا من المحرّك حيًّا بعلامة «مسودّة»."""
+    from utils.payslip import slips_for
     per = _sheet_period()
     if not per:
         return jsonify({'success': False, 'message': 'bad period'}), 400
@@ -1317,7 +1318,7 @@ def payslips():
     except ValueError:
         return jsonify({'success': False, 'message': 'bad employee'}), 400
     company, currency = _company_currency()
-    return render_template('payslip.html', slips=slips_live(get_db_connection(), month, year, emp),
+    return render_template('payslip.html', slips=slips_for(get_db_connection(), month, year, emp),
                            month=month, year=year, company=company, currency=currency,
                            lang=str(get_locale()))
 

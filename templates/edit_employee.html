@@ -17,6 +17,7 @@
 .emp-form-page .card-body { padding: 1.9rem; }
 .emp-shell { display: flex; gap: 1.75rem; align-items: flex-start; }
 .emp-shell > form { flex: 1; min-width: 0; }
+.emp-shell > form[hidden] { display: none; }
 
 /* side rail */
 .emp-rail { flex: 0 0 236px; position: sticky; top: 96px; display: flex; flex-direction: column; gap: .3rem; padding: .45rem; background: var(--paper); border: 1px solid var(--paper-line); border-radius: 14px; }
@@ -876,9 +877,9 @@
                     </div>
                 </form>
                 {# نماذجُ التاريخ خارج نموذج الموظّف: HTML لا يسمح بنموذجٍ داخل نموذج #}
-                <form method="POST" id="histShiftForm" action="{{ url_for('employee.add_shift_history', id=employee.id) }}"></form>
-                <form method="POST" id="histSalaryForm" action="{{ url_for('employee.add_salary_history', id=employee.id) }}"></form>
-                <form method="POST" id="histDeleteForm"></form>
+                <form method="POST" hidden id="histShiftForm" action="{{ url_for('employee.add_shift_history', id=employee.id) }}"></form>
+                <form method="POST" hidden id="histSalaryForm" action="{{ url_for('employee.add_salary_history', id=employee.id) }}"></form>
+                <form method="POST" hidden id="histDeleteForm"></form>
                 <script>
                 // بعد إضافة سطرٍ إلى التاريخ يعود المتصفّح إلى تبويب التاريخ نفسه
                 document.addEventListener('DOMContentLoaded', function () {

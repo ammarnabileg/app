@@ -3,7 +3,8 @@
 
 ## القسيمة
 
-- **للإدارة:** من محرّك الرواتب كما يعرضه الكشف الآن (قبل الحفظ أو بعده).
+- **للإدارة:** من الكشف المحفوظ إن حُفظ الشهر — ما صُرف فعلًا — وإلّا من
+  المحرّك حيًّا بعلامة «مسودّة».
 - **للموظّف في البوّابة:** من الكشف **المحفوظ** وحده — ما اعتُمد وحُفظ، لا
   حسابٌ حيّ قد يتغيّر بعد بصمةٍ تُصحَّح. وقبل الحفظ لا قسيمة.
 
@@ -43,6 +44,13 @@ def _leave_balance(conn, emp_id, as_of):
 def saved_run(conn, month, year):
     return conn.execute('SELECT * FROM payroll_runs WHERE month = ? AND year = ?',
                         (int(month), int(year))).fetchone()
+
+
+def slips_for(conn, month, year, employee_id=None):
+    """المحفوظُ إن وُجد كشفٌ للشهر، وإلّا الحيّ."""
+    if saved_run(conn, month, year):
+        return slips_saved(conn, month, year, employee_id)
+    return slips_live(conn, month, year, employee_id)
 
 
 def slips_live(conn, month, year, employee_id=None):

@@ -2,6 +2,7 @@
 <html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ _('x.ps_title') }} — {{ '%02d'|format(month) }}/{{ year }}</title>
 <style>
     @page { size: A4; margin: 12mm; }
@@ -22,6 +23,14 @@
     .sig { display: flex; justify-content: space-between; margin-top: 30px; font-size: 12px; }
     .sig div { width: 40%; border-top: 1px solid #333; text-align: center; padding-top: 4px; }
     @media print { .noprint { display: none; } }
+    @media (max-width: 600px) {
+        body { margin: 8px; }
+        .slip { padding: 12px; }
+        .grid, .cols { grid-template-columns: 1fr; }
+        .head { flex-direction: column; gap: 6px; }
+        .head > div:last-child { text-align: start !important; }
+        .noprint { float: none !important; width: 100%; margin-bottom: 8px; }
+    }
 </style>
 </head>
 <body>
