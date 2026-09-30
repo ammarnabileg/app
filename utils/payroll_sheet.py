@@ -107,7 +107,8 @@ def build_sheet(conn, month, year):
         except Exception:
             leave_bal = None
         ct = (e['contract_type'] if e is not None and 'contract_type' in ek else '') or ''
-        bank = (e['bank_account_number'] if e is not None and 'bank_account_number' in ek else '') or ''
+        from utils.employee_gaps import payment_label
+        pay_label, pay_known = payment_label(e) if e is not None else ('Cash', False)
         rows.append({
             'employee_id': r['employee_id'],
             'emp_no': r['employee_number'], 'name_e': r['name'] or '',
@@ -130,10 +131,10 @@ def build_sheet(conn, month, year):
             'abs_days': abs_days, 'abs_amt': abs_amt, 'fine_days': fine_days, 'fine_amt': fine_amt,
             'loan': loan, 'other_ded': other_ded, 'total_ded': total_ded, 'net': net,
             'engine_net': r['net'],
-            'pay_type': 'Bank Transfer' if bank.strip() else 'Cash',
+            'pay_type': pay_label,
             'term': CONTRACT_TYPES.get(ct, ct),
             'leave_balance': leave_bal,
-            'has_bank': bool(bank.strip()),
+            'has_bank': pay_known,
             'nothing_earned': any((w if isinstance(w, str) else w.get('code')) == 'nothing_earned'
                                   for w in (r.get('law_warnings') or [])),
         })

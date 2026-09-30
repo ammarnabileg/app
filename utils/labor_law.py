@@ -157,6 +157,7 @@ def migrate(conn):
                             ('employees', 'probation_end_date', 'DATE'),
                             ('employees', 'nursing_until', 'DATE'),
                             ('employees', 'pay_type', "TEXT DEFAULT 'monthly'"),
+                            ('employees', 'payment_method', 'TEXT'),
                             ('payroll_hours_approvals', 'ot_days', 'INTEGER')):
         try:
             if col not in cols(table):

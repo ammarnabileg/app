@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 66
+SCHEMA_VERSION = 67
 
 
 def get_schema_version(conn):

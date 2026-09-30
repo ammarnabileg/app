@@ -10072,3 +10072,66 @@ msgstr "من"
 
 msgid "x.ps_period_to"
 msgstr "إلى"
+
+msgid "x.payment_method"
+msgstr "طريقة الدفع"
+
+msgid "x.payment_method_auto"
+msgstr "تلقائي (تحويل إن وُجد حساب، وإلا نقدًا)"
+
+msgid "x.payment_bank"
+msgstr "تحويل بنكي"
+
+msgid "x.payment_cash"
+msgstr "نقدًا"
+
+msgid "x.payment_check"
+msgstr "شيك"
+
+msgid "x.gaps_title"
+msgstr "استكمال البيانات الناقصة"
+
+msgid "x.gaps_intro"
+msgstr "ما ينقص بيانات الموظفين النشطين، وهو نفسه ما يظهر بالأحمر في كشف الرواتب. نزّل الملف، املأ الخانات الحمراء، ثم ارفعه."
+
+msgid "x.gaps_summary"
+msgstr "موظفون ناقصو البيانات: %(n)s"
+
+msgid "x.gaps_review_hire"
+msgstr "تاريخ تعيين مشترك بين عدة موظفين (يُراجَع)"
+
+msgid "x.gaps_step_download"
+msgstr "نزّل ملف البيانات الناقصة"
+
+msgid "x.gaps_step_download_hint"
+msgstr "صف لكل موظف ناقص البيانات بقيمه الحالية. الخانة الناقصة حمراء، والتي تحتاج مراجعة صفراء."
+
+msgid "x.gaps_download"
+msgstr "تنزيل ملف Excel"
+
+msgid "x.gaps_step_upload"
+msgstr "ارفع الملف بعد ملئه"
+
+msgid "x.gaps_step_upload_hint"
+msgstr "تُطبَّق الخانات المملوءة فقط، ويُسجَّل كل تغيير في سجل الموظف. الراتب يُملأ هنا لمن راتبه صفر فقط."
+
+msgid "x.gaps_upload"
+msgstr "رفع وتطبيق"
+
+msgid "x.gaps_done"
+msgstr "تم تحديث %(n)s موظف (%(f)s خانة)"
+
+msgid "x.gaps_row"
+msgstr "الصف"
+
+msgid "x.gaps_field"
+msgstr "الخانة"
+
+msgid "x.gaps_reason"
+msgstr "السبب"
+
+msgid "x.gaps_need_xlsx"
+msgstr "اختر ملف Excel بصيغة ‎.xlsx"
+
+msgid "x.gaps_bad_file"
+msgstr "تعذّرت قراءة الملف"

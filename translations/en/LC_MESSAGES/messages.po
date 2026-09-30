@@ -10081,3 +10081,66 @@ msgstr "From"
 
 msgid "x.ps_period_to"
 msgstr "to"
+
+msgid "x.payment_method"
+msgstr "Payment method"
+
+msgid "x.payment_method_auto"
+msgstr "Automatic (transfer if an account exists, otherwise cash)"
+
+msgid "x.payment_bank"
+msgstr "Bank transfer"
+
+msgid "x.payment_cash"
+msgstr "Cash"
+
+msgid "x.payment_check"
+msgstr "Check"
+
+msgid "x.gaps_title"
+msgstr "Complete missing data"
+
+msgid "x.gaps_intro"
+msgstr "What is missing from active employees' records — the same cells shown in red on the payroll sheet. Download the file, fill the red cells, then upload it."
+
+msgid "x.gaps_summary"
+msgstr "Employees with missing data: %(n)s"
+
+msgid "x.gaps_review_hire"
+msgstr "Hire date shared by several employees (review)"
+
+msgid "x.gaps_step_download"
+msgstr "Download the missing-data file"
+
+msgid "x.gaps_step_download_hint"
+msgstr "One row per employee with missing data, with current values. Missing cells are red; cells to review are yellow."
+
+msgid "x.gaps_download"
+msgstr "Download Excel file"
+
+msgid "x.gaps_step_upload"
+msgstr "Upload the filled file"
+
+msgid "x.gaps_step_upload_hint"
+msgstr "Only filled cells are applied, and every change is logged on the employee. Basic salary is filled here only where it is zero."
+
+msgid "x.gaps_upload"
+msgstr "Upload and apply"
+
+msgid "x.gaps_done"
+msgstr "Updated %(n)s employees (%(f)s fields)"
+
+msgid "x.gaps_row"
+msgstr "Row"
+
+msgid "x.gaps_field"
+msgstr "Field"
+
+msgid "x.gaps_reason"
+msgstr "Reason"
+
+msgid "x.gaps_need_xlsx"
+msgstr "Choose an Excel .xlsx file"
+
+msgid "x.gaps_bad_file"
+msgstr "Could not read the file"

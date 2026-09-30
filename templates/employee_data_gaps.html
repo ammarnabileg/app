@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('x.gaps_title') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2"><i class="fas fa-clipboard-check me-2"></i>{{ _('x.gaps_title') }}</h1>
+    <a href="{{ url_for('employee.employees') }}" class="btn btn-outline-secondary">{{ _('x.back') }}</a>
+</div>
+
+<p class="text-muted">{{ _('x.gaps_intro') }}</p>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header fw-bold text-white">{{ _('x.gaps_summary', n=total) }}</div>
+            <ul class="list-group list-group-flush" id="gapsSummary">
+                {% for key, label, n in labels %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>{{ label }}</span>
+                    {% if n %}<span class="badge bg-danger rounded-pill">{{ n }}</span>
+                    {% else %}<span class="badge bg-success rounded-pill"><i class="fas fa-check"></i></span>{% endif %}
+                </li>
+                {% endfor %}
+                {% if review_hire %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>{{ _('x.gaps_review_hire') }}</span>
+                    <span class="badge bg-warning text-dark rounded-pill">{{ review_hire }}</span>
+                </li>
+                {% endif %}
+            </ul>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title">1. {{ _('x.gaps_step_download') }}</h5>
+                <p class="card-text small text-muted">{{ _('x.gaps_step_download_hint') }}</p>
+                <a href="{{ url_for('employee.data_gaps_export') }}" class="btn btn-success" id="gapsDownload">
+                    <i class="fas fa-file-excel me-2"></i>{{ _('x.gaps_download') }}</a>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">2. {{ _('x.gaps_step_upload') }}</h5>
+                <p class="card-text small text-muted">{{ _('x.gaps_step_upload_hint') }}</p>
+                <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap" id="gapsUpload">
+                    <input type="file" name="file" id="gapsFile" accept=".xlsx" class="form-control" style="max-width: 360px" required>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload me-2"></i>{{ _('x.gaps_upload') }}</button>
+                </form>
+            </div>
+        </div>
+        {% if result %}
+        <div class="card mt-3" id="gapsResult">
+            <div class="card-body">
+                <h5 class="card-title">{{ _('x.gaps_done', n=result.employees, f=result.fields) }}</h5>
+                {% if result.errors or result.skipped %}
+                <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead><tr><th>{{ _('x.gaps_row') }}</th><th>{{ _('x.hx_file_no') }}</th><th>{{ _('x.gaps_field') }}</th><th>{{ _('x.gaps_reason') }}</th></tr></thead>
+                    <tbody>
+                    {% for r, num, field, why in result.errors %}
+                    <tr class="table-danger"><td>{{ r }}</td><td>{{ num }}</td><td>{{ field }}</td><td>{{ why }}</td></tr>
+                    {% endfor %}
+                    {% for r, num, field, why in result.skipped %}
+                    <tr class="table-warning"><td>{{ r }}</td><td>{{ num }}</td><td>{{ field }}</td><td>{{ why }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

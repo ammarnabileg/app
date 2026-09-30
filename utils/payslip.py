@@ -92,6 +92,7 @@ def slips_saved(conn, month, year, employee_id=None):
 
 def _slip(conn, emp, period, basic, allowances, deductions, t_allow, t_ded, net,
           req_h, act_h, saved, status=None):
+    from utils.employee_gaps import payment_label
     e = emp
     ek = e.keys() if e is not None else []
     return {
@@ -103,7 +104,9 @@ def _slip(conn, emp, period, basic, allowances, deductions, t_allow, t_ded, net,
         'position': (e['position'] if e is not None else '') or '',
         'hire_date': (e['hire_date'] if e is not None else '') or '',
         'bank': (e['bank_name'] if e is not None and 'bank_name' in ek else '') or '',
-        'account': (e['bank_account_number'] if e is not None and 'bank_account_number' in ek else '') or '',
+        'account': ((e['bank_account_number'] if e is not None and 'bank_account_number' in ek else '')
+                    or (e['bank_iban'] if e is not None and 'bank_iban' in ek else '') or ''),
+        'payment': payment_label(e)[0] if e is not None else 'Cash',
         'period': period, 'basic': basic,
         'allowances': allowances, 'deductions': deductions,
         'total_allowances': t_allow, 'total_deductions': t_ded, 'net': net,
@@ -126,9 +129,10 @@ def bank_workbook(conn, month, year, company=''):
     ws = wb.active
     ws.title = 'Bank'
     cash = wb.create_sheet('Cash')
+    check = wb.create_sheet('Check')
     head_fill = PatternFill('solid', fgColor='1F5C4A')
     head = ['Emp#', 'Name', 'Civil ID', 'Bank', 'Account / IBAN', 'Amount', 'Reference']
-    for sheet, title in ((ws, 'Bank transfer'), (cash, 'Cash / no account')):
+    for sheet, title in ((ws, 'Bank transfer'), (cash, 'Cash'), (check, 'Check')):
         sheet.append([f'{company} — {title} — {ref}'
                       + ('' if source == 'saved' else '  (NOT SAVED: live figures)')])
         sheet.cell(1, 1).font = Font(bold=True, size=12,
@@ -140,7 +144,7 @@ def bank_workbook(conn, month, year, company=''):
             c.font, c.fill = Font(bold=True, color='FFFFFF'), head_fill
             c.alignment = Alignment(horizontal='center')
     emps = _emp_rows(conn, [s['employee_id'] for s in slips])
-    tot = {'Bank': 0.0, 'Cash': 0.0}
+    tot = {'Bank': 0.0, 'Cash': 0.0, 'Check': 0.0}
     for s in slips:
         if (s['net'] or 0) <= 0.0005:
             continue
@@ -148,11 +152,14 @@ def bank_workbook(conn, month, year, company=''):
         civil = (e['national_id'] if e is not None and 'national_id' in e.keys() else '') or ''
         row = [s['employee_number'], s['name_en'] or s['name'], civil, s['bank'], s['account'],
                round(float(s['net']), 3), ref]
-        target = ws if s['account'].strip() else cash
+        # بطريقة الدفع المسجّلة؛ والتحويلُ بلا حسابٍ يذهب نقدًا (ويظهر ناقصًا في الكشف)
+        target = {'Bank Transfer': ws, 'Check': check}.get(s['payment'], cash)
+        if target is ws and not s['account'].strip():
+            target = cash
         target.append(row)
         target.cell(target.max_row, 6).number_format = '#,##0.000'
         tot[target.title] += float(s['net'])
-    for sheet in (ws, cash):
+    for sheet in (ws, cash, check):
         sheet.append([])
         sheet.append(['', 'Total', '', '', '', round(tot[sheet.title], 3), ''])
         sheet.cell(sheet.max_row, 6).number_format = '#,##0.000'

@@ -1668,6 +1668,7 @@ AUDIT_FIELDS = {
     'bank_iban': 'bank', 'bank_account_number': 'bank', 'bank_name': 'bank',
     'name': 'identity', 'arabic_name': 'identity', 'employee_number': 'identity',
     'national_id': 'identity', 'phone': 'contact', 'email': 'contact',
+    'cost_center': 'org', 'payment_method': 'bank',
 }
 
 

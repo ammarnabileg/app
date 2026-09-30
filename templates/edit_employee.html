@@ -415,6 +415,16 @@
                                     <label class="form-label">{{ _('x.cost_center') }}</label>
                                     <input type="text" class="form-control" name="cost_center" value="{{ employee.cost_center or '' }}">
                                 </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">{{ _('x.payment_method') }}</label>
+                                    {% set pm = employee.payment_method or '' %}
+                                    <select class="form-select" name="payment_method" id="payment_method">
+                                        <option value="" {{ 'selected' if not pm else '' }}>{{ _('x.payment_method_auto') }}</option>
+                                        <option value="bank" {{ 'selected' if pm == 'bank' else '' }}>{{ _('x.payment_bank') }}</option>
+                                        <option value="cash" {{ 'selected' if pm == 'cash' else '' }}>{{ _('x.payment_cash') }}</option>
+                                        <option value="check" {{ 'selected' if pm == 'check' else '' }}>{{ _('x.payment_check') }}</option>
+                                    </select>
+                                </div>
                                 <div class="col-md-4 mb-3">
                                     <label class="form-label">{{ _('x.bank_name') }}</label>
                                     <input type="text" class="form-control" name="bank_name" value="{{ employee.bank_name or '' }}">

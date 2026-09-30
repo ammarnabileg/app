@@ -1492,6 +1492,12 @@ def _apply_probation(conn, employee_id):
     if request.form.get('pay_type') in ('monthly', 'daily'):
         conn.execute('UPDATE employees SET pay_type = ? WHERE id = ?',
                      (request.form['pay_type'], employee_id))
+    # طريقةُ الدفع: فارغةٌ = تُستنتج من وجود الحساب البنكيّ (utils/employee_gaps)
+    if 'payment_method' in request.form:
+        _pm = (request.form.get('payment_method') or '').strip()
+        if _pm in ('', 'bank', 'cash', 'check'):
+            conn.execute('UPDATE employees SET payment_method = ? WHERE id = ?',
+                         (_pm or None, employee_id))
     if 'nursing_until' in request.form:
         _nu = _d((request.form.get('nursing_until') or '').strip())
         conn.execute('UPDATE employees SET nursing_until = ? WHERE id = ?',
@@ -2413,3 +2419,47 @@ def api_toggle_account_status(emp_id):
     })
 
 
+
+
+# ------------------------------------------------ استكمالُ البيانات الناقصة
+
+@employee_bp.route('/employees/data_gaps', methods=['GET', 'POST'])
+@login_required
+@require_permission('employee.edit')
+def data_gaps():
+    """ملخّصُ ما ينقص بياناتِ الموظّفين، وتنزيلُ ملفّ الاستكمال ورفعُه (utils/employee_gaps)."""
+    from utils import employee_gaps as eg
+    conn = get_db_connection()
+    result = None
+    if request.method == 'POST':
+        f = request.files.get('file')
+        if not f or not f.filename or not f.filename.lower().endswith('.xlsx'):
+            flash(gettext('x.gaps_need_xlsx'), 'error')
+            return redirect(url_for('employee.data_gaps'))
+        try:
+            result = eg.import_workbook(conn, io.BytesIO(f.read()), user_id=session.get('user_id'))
+            conn.commit()
+        except ValueError as e:
+            conn.rollback()
+            flash(str(e), 'error')
+            return redirect(url_for('employee.data_gaps'))
+        except Exception as e:
+            conn.rollback()
+            flash(gettext('x.gaps_bad_file') + f' ({e})', 'error')
+            return redirect(url_for('employee.data_gaps'))
+        flash(gettext('x.gaps_done', n=result['employees'], f=result['fields']), 'success')
+    counts = eg.summary(conn)
+    total = len(eg.employees_with_gaps(conn))
+    labels = [(k, h, counts.get(k, 0)) for k, _c, h, _t in eg.FIELDS]
+    return render_template('employee_data_gaps.html', labels=labels, total=total,
+                           review_hire=counts.get('review_hire_date', 0), result=result)
+
+
+@employee_bp.route('/employees/data_gaps/export')
+@login_required
+@require_permission('employee.edit')
+def data_gaps_export():
+    from utils.employee_gaps import export_workbook
+    buf = export_workbook(get_db_connection())
+    return send_file(buf, as_attachment=True, download_name='employees_missing_data.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

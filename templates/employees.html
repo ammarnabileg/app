@@ -15,6 +15,11 @@
                 <i class="fas fa-file-excel me-2"></i>{{ _('btn.import_excel') }}
             </a>
             {% endif %}
+            {% if has_permission('employee.edit') %}
+            <a href="{{ url_for('employee.data_gaps') }}" class="btn btn-outline-danger" id="dataGapsBtn">
+                <i class="fas fa-clipboard-check me-2"></i>{{ _('x.gaps_title') }}
+            </a>
+            {% endif %}
             {% if has_permission('employee.delete') %}
             <form action="{{ url_for('employee.delete_all_employees') }}" method="POST"
                 onsubmit="return confirmDeleteAll();">
