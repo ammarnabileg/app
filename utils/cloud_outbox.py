@@ -355,12 +355,16 @@ def read_rows(conn, table, row_ids):
         return []
     col_sql = ', '.join(f'"{c}"' for c in cols)
     marks = ', '.join('?' for _ in row_ids)
-    conn.row_factory = None
+    # صفوفٌ خامٌ على **هذا المؤشّر** وحده: كان `conn.row_factory = None`
+    # يُغيّر اتصالَ المُنادي إلى الأبد، فما يقرأ بعده `row['col']` من
+    # الاتصال نفسه (زرّ «ارفع الآن» يمرّر اتصالَ الطلب) يسقط بـTypeError.
+    cur = conn.cursor()
+    cur.row_factory = None
     # الصفُّ الذي يسقط من الترشيح لا يُقرأ، و`build_batch` ترسله
     # حذفًا — انظر شرح `SYNC_FILTERS`.
     where = SYNC_FILTERS.get(table)
     extra = f' AND ({where})' if where else ''
-    rows = conn.execute(
+    rows = cur.execute(
         f'SELECT {col_sql} FROM "{table}" WHERE id IN ({marks}){extra}',
         list(row_ids)).fetchall()
     return [dict(zip(cols, r)) for r in rows]

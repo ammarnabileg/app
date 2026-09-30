@@ -390,3 +390,40 @@ def test_there_is_only_one_sync_agent():
 
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-v']))
+
+
+def test_a_sync_run_leaves_the_callers_connection_as_it_was(live):
+    """زرّ «ارفع الآن» يمرّر اتصالَ الطلب نفسَه. كان القارئ يجعل
+    `row_factory = None` على الاتصال كلِّه، فما يقرأ بعده `row['col']`
+    يسقط بـTypeError."""
+    conn, ob, cs, db, _ = live
+    conn.row_factory = sqlite3.Row
+    _employee(conn, '905')
+    _configure(db)
+    res = cs.run_once(conn=conn, session=FakeServer())
+    assert res['ok'] and res['sent'] > 0
+    assert conn.row_factory is sqlite3.Row
+    assert conn.execute("SELECT name FROM employees WHERE employee_number = '905'").fetchone()['name'] == 'أحمد'
+
+
+def test_the_first_upload_does_not_wait_two_minutes_per_batch(live):
+    """أوّلُ تفعيل: الدفترُ فارغ والقاعدةُ كلُّها في المشي الأوّل. كان الخيطُ
+    يسأل عن الدفتر وحده فينام دقيقتين بعد كل ٢٠٠ صفّ."""
+    conn, ob, cs, db, _ = live
+    for i in range(cs.BATCH_SIZE + 50):
+        conn.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)"
+                     " VALUES (1, 'D', ?, 'I')", (f'2026-01-01 08:{i // 60:02d}:{i % 60:02d}',))
+    # بياناتٌ سبقت تفعيلَ الرفع: في القاعدة لا في الدفتر
+    conn.execute(f'DELETE FROM {ob.OUTBOX_TABLE}')
+    conn.commit()
+    _configure(db)
+    res = cs.run_once(conn=conn, session=FakeServer())
+    assert res['ok'] and res['pending'] == 0 and res['baseline_done'] is False
+    assert cs.has_backlog(res), 'بقي من المشي الأوّل — يُتابَع فورًا'
+    for _ in range(20):
+        res = cs.run_once(conn=conn, session=FakeServer())
+        if not cs.has_backlog(res):
+            break
+    assert res['ok'] and not cs.has_backlog(res)
+    assert not cs.has_backlog({'ok': False, 'pending': 5}), 'الفشلُ لا يُسرِّع المحاولة'
+    assert not cs.has_backlog({'ok': True, 'idle': True})

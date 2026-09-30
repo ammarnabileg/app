@@ -77,9 +77,10 @@ def background_cloud_sync_worker():
             elif not res.get('idle'):
                 print(f"[cloud] رُفع {res.get('sent')} سجلًّا، "
                       f"وحُذف {res.get('deleted')}، وبقي {res.get('pending')}")
-                # بقيت دفعات: نتابع فورًا بدل انتظار الدورة القادمة.
-                if res.get('pending'):
-                    delay = 5
+                # بقيت دفعات — في الدفتر أو في الرفع الأوّل: نتابع فورًا.
+                from utils.cloud_sync import has_backlog, CATCH_UP_DELAY
+                if has_backlog(res):
+                    delay = CATCH_UP_DELAY
         except Exception as e:
             # خيطٌ مات يعني رفعًا توقّف بصمت، ولا يُكتشف إلا حين يسأل
             # العميل لِمَ بياناته قديمة.

@@ -241,6 +241,21 @@ def _run_once(conn, session=None):
             'stats': body.get('stats', {})}
 
 
+def has_backlog(res):
+    """بقي ما يُرفع بعد هذه الدورة؟ — فتُتابَع فورًا بدل انتظار الدورة القادمة.
+
+    الدفترُ وحده لا يكفي: عند أوّل تفعيلٍ يكون **فارغًا** والقاعدةُ كلُّها
+    لم تُرفع بعد (المشي الأوّل). فكان السؤالُ عن `pending` وحده يُبطئ الرفعَ
+    الأوّل إلى ٢٠٠ صفٍّ كلَّ دقيقتين: ٢٥ ألف صفّ ≈ ٤ ساعات بدل دقائق.
+    """
+    if not res or not res.get('ok') or res.get('idle') or res.get('skipped'):
+        return False
+    return bool(res.get('pending')) or res.get('baseline_done') is False
+
+
+CATCH_UP_DELAY = 5
+
+
 def run_forever(interval=DEFAULT_INTERVAL):
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s [%(levelname)s] %(message)s')
@@ -259,7 +274,8 @@ def run_forever(interval=DEFAULT_INTERVAL):
                 logger.warning(f"sync failed: {res.get('error')}")
         except Exception as e:                      # pragma: no cover - حارس
             logger.exception(f'sync cycle crashed: {e}')
-        time.sleep(interval)
+            res = None
+        time.sleep(CATCH_UP_DELAY if has_backlog(res) else interval)
 
 
 if __name__ == '__main__':
