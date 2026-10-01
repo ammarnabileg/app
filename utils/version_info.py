@@ -32,7 +32,7 @@
 """
 
 VERSION_MAJOR = 2
-VERSION_MINOR = 26
+VERSION_MINOR = 27
 VERSION_PATCH = 0
 VERSION_BUILD = 0
 
@@ -42,7 +42,7 @@ CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUI
 BUILD_DATE = "2026-09-30"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "بوابة الموظف بتصميم زجاجي"
+RELEASE_NAME = "تثبيت بوابة الموظف على الهاتف"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash
+from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash, send_from_directory, current_app
 from flask_babel import gettext as _
 from datetime import datetime, date, timedelta
 import os
@@ -101,6 +101,20 @@ def arabic_date(d):
     """«الخميس، 1 أكتوبر 2026» — كان `strftime('%A…')` يكتبها بالإنجليزيّة
     في واجهةٍ عربيّة («THURSDAY, 01 OCTOBER 2026»)."""
     return f'{_AR_DAYS[d.weekday()]}، {d.day} {_AR_MONTHS[d.month - 1]} {d.year}'
+
+
+@portal_bp.route('/sw.js')
+def service_worker():
+    """عاملُ الخدمة من /portal/ لا من /static/portal/.
+
+    نطاقُ عامل الخدمة مجلّدُ ملفّه: من /static/portal/sw.js لا يتحكّم إلا
+    في /static/portal/ — لا في صفحات البوّابة. فلم يكن كروم يَعدّ البوّابةَ
+    تطبيقًا قابلًا للتثبيت، ولا يظهر «تثبيت» أبدًا. ومن هنا نطاقُه /portal/."""
+    import os
+    resp = send_from_directory(os.path.join(current_app.root_path, 'static', 'portal'), 'sw.js',
+                               mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
 
 
 @portal_bp.route('/')

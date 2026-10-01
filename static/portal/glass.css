@@ -330,3 +330,16 @@ body::before {
 }
 .trip-wrap .btn-outline-danger { border-radius: 16px; color: var(--debit); border-color: var(--debit); }
 #tripBadge { background: rgba(15, 46, 36, 0.92) !important; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+
+/* ------------------------------------------------ تثبيتُ التطبيق */
+.install-sheet { text-align: center; }
+.install-icon { display: block; margin: 6px auto 12px; border-radius: 18px; box-shadow: 0 14px 28px -12px rgba(15, 46, 36, 0.6); }
+.install-lede { color: var(--ios-subtext); font-size: 0.9rem; font-weight: 600; margin: 0 6px 18px; line-height: 1.7; }
+.install-steps { text-align: right; margin: 0 0 14px; padding: 14px 34px 14px 14px; border-radius: 18px;
+    background: rgba(255, 255, 255, 0.6); border: 1px solid var(--glass-line); font-weight: 600; font-size: 0.92rem; line-height: 2; }
+.install-steps i { color: var(--brand); }
+.install-later { display: block; width: 100%; margin-top: 8px; padding: 12px; border: 0; background: transparent;
+    color: var(--ios-subtext); font-weight: 700; font-size: 0.95rem; cursor: pointer; }
+.pwa-card { display: flex; align-items: center; justify-content: space-between; }
+/* الخروجُ أحمرُ خفيف — لا بلون «إرسال» */
+.btn-logout { background: rgba(168, 64, 47, 0.1) !important; color: var(--debit) !important; box-shadow: none !important; }

@@ -75,6 +75,46 @@ def test_secondary_text_stays_readable_on_the_glass_background():
 
 def test_the_service_worker_caches_local_files_and_a_new_version():
     sw = _read('static', 'portal', 'sw.js')
-    assert "portal-cache-v2" in sw, 'بلا رفع الإصدار يبقى التصميمُ القديم في ذاكرة الهاتف'
+    v = re.search(r"portal-cache-v(\d+)", sw)
+    assert v and int(v.group(1)) >= 2, 'بلا رفع الإصدار يبقى التصميمُ القديم في ذاكرة الهاتف'
     assert '/static/portal/glass.css' in sw
     assert 'cdn.jsdelivr.net' not in sw and 'fonts.googleapis.com' not in sw
+
+
+# ------------------------------------------------ تثبيتُ التطبيق (٢.٢٧)
+
+def test_the_service_worker_is_served_from_the_portal_so_it_controls_it(tmp_path, monkeypatch):
+    """من /static/portal/sw.js لا يتحكّم إلا في /static/portal/ — فلا تثبيت."""
+    monkeypatch.setenv('HR_DATA_DIR', str(tmp_path))
+    import importlib
+    import utils.db as db
+    importlib.reload(db)
+    db.init_db()
+    import app as A
+    r = A.app.test_client().get('/portal/sw.js')
+    assert r.status_code == 200
+    assert 'javascript' in r.headers['Content-Type']
+    assert r.headers.get('Cache-Control') == 'no-cache'
+    assert b'portal-cache-v' in r.data
+    html = _read('templates', 'portal', 'index.html')
+    assert "register('/portal/sw.js', { scope: '/portal/' })" in html
+    assert "register('/static/portal/sw.js'" not in html
+
+
+def test_the_install_prompt_shows_once_and_never_when_installed():
+    html = _read('templates', 'portal', 'index.html')
+    for piece in ('id="installOverlay"', 'id="installIos"', 'id="installOther"', 'id="installAuto"',
+                  'id="pwaInstallCard"', "beforeinstallprompt", "appinstalled",
+                  "(display-mode: standalone)", "navigator.standalone"):
+        assert piece in html, piece
+    # مرّةً واحدة: يُعلَّم قبل أن يُعرض، ولا يُعرض إن كان معلَّمًا إلا بطلبٍ صريح (البطاقة).
+    i = html.index('function openInstallSheet(force)')
+    body = html[i:i + 600]
+    assert "if (pwaStandalone()) return;" in body
+    assert "!force && (pwaGet(PWA_SEEN)" in body
+    assert body.index('pwaSet(PWA_SEEN') < body.index("style.display = 'flex'")
+
+
+def test_logout_is_not_painted_as_a_submit_button():
+    assert 'btn-ios-submit btn-logout' in _read('templates', 'portal', 'index.html')
+    assert '.btn-logout' in _read('static', 'portal', 'glass.css')

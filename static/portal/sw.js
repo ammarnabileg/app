@@ -1,7 +1,7 @@
 // Service Worker — بوابة الموظف (onz.one)
-// v2: التصميم الزجاجيّ (٢.٢٦). الملفّاتُ محلّيّةٌ لا من شبكات التوزيع —
+// v2: التصميم الزجاجيّ (٢.٢٦). v3: يُخدَم من /portal/sw.js فيتحكّم في البوّابة كلِّها. الملفّاتُ محلّيّةٌ لا من شبكات التوزيع —
 // البرنامجُ يعمل في شبكة الشركة، وقد لا يصل الإنترنت.
-const CACHE_NAME = 'portal-cache-v2';
+const CACHE_NAME = 'portal-cache-v3';
 const STATIC_ASSETS = [
   '/portal/dashboard',
   '/static/portal/glass.css?v=2.26',
@@ -39,8 +39,9 @@ self.addEventListener('fetch', event => {
   }
   
   event.respondWith(
-    fetch(event.request).catch(() => {
-      return caches.match(event.request);
-    })
+    fetch(event.request).catch(() =>
+      caches.match(event.request).then(hit =>
+        // صفحةٌ بلا نسخة: البوّابةُ المحفوظة خيرٌ من خطأ المتصفّح بلا شبكة.
+        hit || (event.request.mode === 'navigate' ? caches.match('/portal/dashboard') : undefined)))
   );
 });

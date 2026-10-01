@@ -311,6 +311,10 @@ def check_license_globally():
     # Allow assets, static files, login/logout, and the license page itself
     if request.endpoint in ['main.license_page', 'auth.login', 'auth.logout', 'auth.reset_password', 'static'] or request.path.startswith('/static/'):
         return
+    # عاملُ خدمة البوّابة ملفٌّ ثابت كالذي في /static/ — والمتصفّحُ يرفض عاملَ
+    # خدمةٍ يصل بتحويلة، فلو مرّ بفحص الترخيص لسقط التثبيتُ بصمتٍ يومَ يتأخّر.
+    if request.endpoint == 'portal.service_worker':
+        return
     # بروتوكولُ جهاز البصمة: الجهازُ لا يتبع تحويلةً إلى صفحة الترخيص، فتضيع
     # بصماتُه. وخادمُ البصمة المستقلّ (adms_server) لا يفحص الترخيص أصلًا —
     # فالمسارُ نفسُه عبر الويب لا يُعامَل بغير ما يُعامَل به هناك. شاشاتُ

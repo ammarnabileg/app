@@ -1574,15 +1574,55 @@
             </div>
             {% endif %}
 
+            <!-- تثبيتُ التطبيق: دائمٌ هنا لمن أغلق النافذة أوّلَ مرّة — ويختفي إن كان مثبَّتًا -->
+            <div class="list-card pwa-card" id="pwaInstallCard" onclick="openInstallSheet(true)" style="display:none; cursor:pointer; margin-top:24px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <img src="/static/portal/icon-192.png" alt="" width="44" height="44" style="border-radius:12px">
+                    <div class="list-info">
+                        <h5>ثبّت التطبيق على هاتفك</h5>
+                        <p>يفتح من الشاشة الرئيسيّة كتطبيق، بلا متصفّح</p>
+                    </div>
+                </div>
+                <i class="fas fa-download" style="color: var(--ios-blue);"></i>
+            </div>
+
             <!-- Logout Button -->
             <a href="{{ url_for('auth.logout') }}" style="text-decoration: none;">
-                <button class="btn-ios-submit" style="background: rgba(255, 59, 48, 0.1); color: var(--ios-red); box-shadow: none; margin-top: 24px;">
+                <button class="btn-ios-submit btn-logout" style="margin-top: 24px;">
                     <i class="fas fa-arrow-right-from-bracket me-2"></i> تسجيل الخروج
                 </button>
             </a>
         </section>
 
     </main>
+
+
+    <!-- ============================================================== -->
+    <!-- تثبيتُ التطبيق على الهاتف — تظهر مرّةً واحدة، ولا تظهر لمن ثبّته     -->
+    <!-- ============================================================== -->
+    <div class="ios-sheet-overlay" id="installOverlay" onclick="closeInstallSheet(event)">
+        <div class="ios-sheet install-sheet" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <img src="/static/portal/icon-192.png" alt="" width="72" height="72" class="install-icon">
+            <h3 class="sheet-title" style="text-align:center">ثبّت تطبيق بوابة الموظف</h3>
+            <p class="install-lede">بصمتك وإجازاتك وقسيمة راتبك من الشاشة الرئيسيّة — يفتح كتطبيق، أسرع، وبلا شريط متصفّح.</p>
+
+            <div id="installAuto" style="display:none">
+                <button type="button" class="btn-ios-submit" onclick="runInstall()"><i class="fas fa-download me-2"></i> تثبيت الآن</button>
+            </div>
+            <ol class="install-steps" id="installIos" style="display:none">
+                <li>اضغط زرّ <b>المشاركة</b> <i class="fas fa-arrow-up-from-bracket"></i> أسفل الشاشة</li>
+                <li>اختر <b>«إضافة إلى الشاشة الرئيسيّة»</b></li>
+                <li>اضغط <b>«إضافة»</b> — وتجد الأيقونة على شاشتك</li>
+            </ol>
+            <ol class="install-steps" id="installOther" style="display:none">
+                <li>افتح قائمة المتصفّح <b><i class="fas fa-ellipsis-vertical"></i></b> أعلى الشاشة</li>
+                <li>اختر <b>«تثبيت التطبيق»</b> أو <b>«إضافة إلى الشاشة الرئيسيّة»</b></li>
+                <li>اضغط <b>«تثبيت»</b> — وتجد الأيقونة على شاشتك</li>
+            </ol>
+            <button type="button" class="install-later" onclick="closeInstallSheet()">لاحقًا</button>
+        </div>
+    </div>
 
     <!-- ============================================================== -->
     <!-- MODAL 1: REQUEST LEAVE                                         -->
@@ -2705,10 +2745,73 @@
         // Service Worker registration for PWA
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/static/portal/sw.js')
+                navigator.serviceWorker.register('/portal/sw.js', { scope: '/portal/' })
                     .then(reg => console.log('Portal PWA ServiceWorker registered'))
                     .catch(err => console.log('PWA ServiceWorker error:', err));
             });
+        }
+
+
+        // ------------------------------------------------ تثبيتُ التطبيق
+        // تظهر النافذةُ مرّةً واحدة على الهاتف إن لم يكن مثبَّتًا، وبعدها
+        // تبقى بطاقةُ «ثبّت التطبيق» في «حسابي». ثلاث حالات:
+        //   كروم/أندرويد (عبر https): زرّ «تثبيت الآن» يفتح نافذةَ النظام نفسها.
+        //   آيفون (Safari): لا واجهةَ برمجيّة للتثبيت — خطواتُ «المشاركة».
+        //   غيرهما (أو شبكةُ الشركة بلا https): خطواتُ قائمة المتصفّح.
+        const PWA_SEEN = 'onz_pwa_prompt_seen';
+        let pwaDeferred = null;
+        const pwaStandalone = () => window.matchMedia('(display-mode: standalone)').matches
+            || window.navigator.standalone === true;
+        const pwaIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const pwaMobile = () => pwaIOS() || /android|mobile/i.test(navigator.userAgent);
+        const pwaGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+        const pwaSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+
+        function pwaFill() {
+            document.getElementById('installAuto').style.display = pwaDeferred ? 'block' : 'none';
+            document.getElementById('installIos').style.display = (!pwaDeferred && pwaIOS()) ? 'block' : 'none';
+            document.getElementById('installOther').style.display = (!pwaDeferred && !pwaIOS()) ? 'block' : 'none';
+        }
+        function openInstallSheet(force) {
+            if (pwaStandalone()) return;
+            if (!force && (pwaGet(PWA_SEEN) || (!pwaMobile() && !pwaDeferred))) return;
+            pwaSet(PWA_SEEN, '1');
+            pwaFill();
+            document.getElementById('installOverlay').style.display = 'flex';
+        }
+        function closeInstallSheet(e) {
+            if (e && e.target !== e.currentTarget) return;
+            document.getElementById('installOverlay').style.display = 'none';
+        }
+        async function runInstall() {
+            if (!pwaDeferred) { pwaFill(); return; }
+            pwaDeferred.prompt();
+            const choice = await pwaDeferred.userChoice.catch(() => null);
+            pwaDeferred = null;
+            closeInstallSheet();
+            if (choice && choice.outcome === 'accepted') pwaInstalled();
+        }
+        function pwaInstalled() {
+            pwaSet('onz_pwa_installed', '1');
+            const card = document.getElementById('pwaInstallCard');
+            if (card) card.style.display = 'none';
+            closeInstallSheet();
+            if (typeof showToast === 'function') showToast('تجد «بوابة الموظف» على شاشتك الرئيسيّة.', 'success', 'تمّ التثبيت');
+        }
+        window.addEventListener('beforeinstallprompt', e => {
+            e.preventDefault();
+            pwaDeferred = e;
+            // النافذةُ مفتوحةٌ بالخطوات اليدويّة؟ يصير فيها الزرّ.
+            if (document.getElementById('installOverlay').style.display === 'flex') pwaFill();
+            else openInstallSheet(false);
+        });
+        window.addEventListener('appinstalled', pwaInstalled);
+        if (!pwaStandalone()) {
+            const card = document.getElementById('pwaInstallCard');
+            if (card) card.style.display = 'flex';
+            // بعد أن تستقرّ الصفحة — لا فوق أوّل ما يراه الموظّف لحظةَ الفتح.
+            setTimeout(() => openInstallSheet(false), 2500);
         }
 
         // Initial Load
