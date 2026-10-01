@@ -255,7 +255,7 @@ def _run_once(conn, session=None):
 
     if resp.status_code != 200:
         # لا نمحو من الدفتر: الدفعة تُعاد في الدورة القادمة.
-        msg = f'الخادم ردّ {resp.status_code}'
+        msg = server_error_message(resp)
         _note(SETTING_LAST_ERROR, msg)
         return {'ok': False, 'sent': 0, 'deleted': 0,
                 'status': resp.status_code, 'error': msg}
@@ -287,6 +287,32 @@ def _run_once(conn, session=None):
             'pending': ob.pending_count(conn),
             'baseline_done': ob.baseline_done(conn),
             'stats': body.get('stats', {})}
+
+
+def server_error_message(resp):
+    """ما يُكتب في الشاشة حين لا يردّ الخادم 200 — بسببه إن قاله.
+
+    كان «الخادم ردّ 500» وحده: الخادمُ يُرسل مرجعًا يُبحث به في سجلّه،
+    وسببًا حين يكون معروفًا (قاعدةُ العميل لم تُنشأ)، وكلاهما كان يُرمى."""
+    import re
+    code = resp.status_code
+    try:
+        info = resp.json() or {}
+    except Exception:
+        info = {}
+    if not isinstance(info, dict):
+        info = {}
+    clean = lambda v: re.sub(r'[^A-Za-z0-9_]', '', str(v or ''))[:64]
+    ref = clean(info.get('ref'))
+    if info.get('error') == 'client_db_unavailable':
+        db = clean(info.get('database')) or 'client_…_db'
+        return (f'الخادم ردّ {code}: لم يستطع فتح قاعدة بيانات العميل «{db}» على السيرفر. '
+                f'أنشئها من لوحة الاستضافة (Plesk ← Databases) بنفس مستخدم قاعدة اللوحة، ثم يُعاد الرفع وحده.')
+    if code in (401, 403):
+        return f'الخادم ردّ {code}: مُعرِّف العميل أو مفتاح الرفع غير صحيح.'
+    if ref:
+        return f'الخادم ردّ {code} — المرجع {ref} (ابحث عنه في سجلّ أخطاء السيرفر).'
+    return f'الخادم ردّ {code}'
 
 
 def has_backlog(res):

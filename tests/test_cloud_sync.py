@@ -494,3 +494,30 @@ def test_the_shift_history_is_sent_again_once_an_old_server_learns_it(live):
     again = _AcceptingServer(list(ob.SYNC_TABLES))
     drain(again)
     assert 'employee_shift_history' not in again.got, 'الإعادةُ تتكرّر في كلّ رفع'
+
+
+# ------------------------------------------------ الخادم يقول لماذا (٢.٢٥.٣)
+
+def test_a_missing_client_database_on_the_server_is_said_plainly(live):
+    conn, ob, cs, db, _ = live
+    _configure(db)
+    _employee(conn, 'S1')
+    server = FakeServer(status=500, body={'error': 'client_db_unavailable',
+                                          'database': 'client_7_db', 'ref': 'ab12cd34ef56'})
+    res = cs.run_once(conn=conn, session=server)
+    assert not res['ok']
+    assert 'client_7_db' in res['error'] and 'Plesk' in res['error']
+    assert db.get_setting('cloud_sync_last_error') == res['error']
+    assert ob.pending_count(conn) or not ob.baseline_done(conn), 'الدفعةُ لا تضيع'
+
+
+def test_any_other_500_shows_the_servers_reference(live):
+    conn, ob, cs, db, _ = live
+    _configure(db)
+    _employee(conn, 'S2')
+    res = cs.run_once(conn=conn, session=FakeServer(status=500, body={'error': 'Sync failed', 'ref': '5c800c58c75b'}))
+    assert '5c800c58c75b' in res['error']
+    res = cs.run_once(conn=conn, session=FakeServer(status=500, body={'ref': "x'<script>"}))
+    assert '<script>' not in res['error']
+    res = cs.run_once(conn=conn, session=FakeServer(status=403, body={'error': 'Invalid Client ID or API Key'}))
+    assert 'مفتاح الرفع' in res['error']
