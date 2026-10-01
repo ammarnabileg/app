@@ -159,19 +159,20 @@
                                    id="remoteApprovalSwitch" name="remote_payroll_approval" value="1"
                                    {% if cloud.remote_approval %}checked{% endif %}>
                             <label class="form-check-label fw-bold" for="remoteApprovalSwitch">
-                                السماح باعتماد كشف الرواتب من بوّابة الشركة
+                                السماح بتجهيز كشف الرواتب واعتماده من بوّابة الشركة
                             </label>
                             <div class="form-text mt-1 text-muted" style="font-size:.78rem">
-                                صاحبُ الشركة يرى مسودّةَ الكشف على <b dir="ltr">onz.one/portal</b>
-                                ويعتمدها من هاتفه، والبرنامجُ هنا يُنفّذ الاعتماد خلال دقائق —
-                                ما دام الكشفُ لم يتغيّر بعد أن رآه. ومنها أيضًا «مزامنة الأجهزة الآن».
+                                صاحبُ الشركة يطلب من <b dir="ltr">onz.one/portal</b> «جهّز كشف الشهر»
+                                فيسحب البرنامجُ هنا البصمات ويحسب الكشف ويحفظه مسودّة، ثم يراجعها
+                                ويعتمدها من هاتفه — ويُنفَّذ الاعتماد ما دام الكشفُ لم يتغيّر بعد أن رآه.
+                                ومنها أيضًا «مزامنة الأجهزة الآن».
                             </div>
                             {% if cloud.commands %}
                             <ul class="small mb-0 mt-2 ps-3" id="remoteCommandsLog">
                                 {% for c in cloud.commands %}
                                 <li>
                                     <bdi>{{ (c.received_at or '')[:16] }}</bdi> —
-                                    {{ 'اعتماد كشف' if c.type == 'approve_payroll' else ('مزامنة الأجهزة' if c.type == 'device_sync' else c.type) }}:
+                                    {{ {'approve_payroll': 'اعتماد كشف', 'prepare_payroll': 'تجهيز كشف', 'device_sync': 'مزامنة الأجهزة'}.get(c.type, c.type) }}:
                                     {% if c.done_at is none %}<span class="text-muted">جارٍ…</span>
                                     {% elif c.ok %}<span class="text-success">{{ c.message }}</span>
                                     {% else %}<span class="text-danger">{{ c.message }}</span>{% endif %}

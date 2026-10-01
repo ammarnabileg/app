@@ -39,7 +39,7 @@ STATE_LAST_POLL = 'commands:last_ok'
 RETRY_UNSUPPORTED = 3600        # خادمٌ قديم بلا قناة: يُسأل كلَّ ساعة لا كلَّ دقيقتين
 MIN_GAP = 30                    # الرفعُ يُعيد الدورةَ كلَّ ٥ ثوانٍ وفيه تراكم؛ السؤالُ لا يتبعه
 _last_poll = [0.0]
-TYPES = ('device_sync', 'approve_payroll')
+TYPES = ('device_sync', 'approve_payroll', 'prepare_payroll')
 
 
 def _now():
@@ -102,6 +102,86 @@ def approve_payroll(conn, payload):
     return True, f'اتعتمد كشف {month}/{year} في البرنامج بالمقرّ.'
 
 
+def prepare_payroll(conn, payload):
+    """(ok, message). «جهّز كشف الشهر» من البوّابة: ما كان يفعله المحاسبُ على الجهاز.
+
+    ١) يُثبّت الساعاتِ كما حسبها المحرّك لكلّ موظّفٍ لم تُثبَّت ساعاتُه (أو تغيّرت
+       بعد تثبيتها) — والمثبَّتُ في المقرّ لا يُمسّ. ويُقيَّد أنّه من البوّابة.
+    ٢) يحفظ الكشفَ **مسودّةً**، فتُرفع وتُراجَع في البوّابة ثم تُعتمد.
+
+    لا تصحيحَ هنا: العذرُ والإجازةُ والبصمةُ اليدويّة تبقى في المقرّ. ما لم يُصحَّح
+    يُحسب كما هو — ويراه صاحبُ الشركة في المسودّة يومًا بيوم قبل أن يعتمد.
+    """
+    from utils.payroll_engine import (attest_hours, compute_monthly_payroll, is_period_locked,
+                                      save_monthly_payroll, RunLockedError, HoursNotApprovedError)
+    if not remote_approval_enabled():
+        return False, 'تجهيز الكشف واعتماده من البوّابة مقفول في إعدادات البرنامج بالمقرّ.'
+    try:
+        month, year = int(payload.get('month')), int(payload.get('year'))
+        if not (1 <= month <= 12 and 2000 <= year <= 2100):
+            raise ValueError
+    except (TypeError, ValueError):
+        return False, 'طلبٌ ناقص.'
+    by = str(payload.get('by') or 'صاحب الشركة')[:80]
+    run = conn.execute('SELECT status FROM payroll_runs WHERE month = ? AND year = ?',
+                       (month, year)).fetchone()
+    if run and run['status'] == 'approved':
+        return False, f'كشف {month}/{year} معتمد بالفعل — لتعديله لازم يتفكّ قفله من البرنامج في المقرّ.'
+    if is_period_locked(conn, month, year):
+        return False, f'فترة {month}/{year} مقفولة في البرنامج بالمقرّ.'
+    try:
+        data = compute_monthly_payroll(conn, month, year)
+        todo = [{'employee_id': r['employee_id'], 'notes': f'ثُبّتت من بوّابة الشركة — {by}'}
+                for r in data['rows'] if r['hours_state'] != 'approved']
+        if todo:
+            attest_hours(conn, month, year, todo, None)
+        result = save_monthly_payroll(conn, month, year, None)
+        conn.commit()
+    except RunLockedError:
+        conn.rollback()
+        return False, f'كشف {month}/{year} معتمد بالفعل.'
+    except HoursNotApprovedError as e:
+        conn.rollback()
+        return False, f'تعذّر تثبيت ساعات {len(e.missing)} موظّف — راجعهم في البرنامج بالمقرّ.'
+    except Exception as e:                      # noqa: BLE001
+        conn.rollback()
+        return False, f'تعذّر تجهيز الكشف: {str(e)[:160]}'
+    row = conn.execute('SELECT employees_count, total_net FROM payroll_runs WHERE month = ? AND year = ?',
+                       (month, year)).fetchone()
+    n = int(row['employees_count'] or 0) if row else len(data['rows'])
+    net = float(row['total_net'] or 0) if row else 0.0
+    kept = n - len(todo)
+    msg = (f'اتجهّز كشف {month}/{year} مسودّة — {n} موظّف، الصافي {net:,.3f}. '
+           f'راجعه في البوابة واعتمده.')
+    if kept > 0:
+        msg += f' ({kept} موظّف ساعاتهم كانت متثبّتة في المقرّ واتسابت زي ما هي.)'
+    return True, msg
+
+
+def _prepare(command_id, payload):
+    """في خيطٍ مستقلّ: البصماتُ من الأجهزة أوّلًا (ليُحسب الشهرُ بآخرها)، ثم التجهيز."""
+    from utils import device_autosync
+    try:
+        if device_autosync._has_active_devices():
+            device_autosync.run_once(source='portal')
+    except Exception as e:                      # noqa: BLE001 — جهازٌ لا يردّ لا يمنع الكشف
+        logger.warning(f'prepare: device sync failed: {e}')
+    from utils.db import get_db_connection
+    c = get_db_connection()                     # خيطٌ بلا سياق Flask: اتصالٌ خاصّ به
+    try:
+        ok, msg = prepare_payroll(c, payload)
+    except Exception as e:                      # noqa: BLE001
+        ok, msg = False, f'تعذّر تجهيز الكشف: {str(e)[:160]}'
+    finally:
+        c.close()
+    _finish(command_id, ok, msg)
+    try:
+        from utils import cloud_sync
+        cloud_sync.wake()
+    except Exception:
+        pass
+
+
 def _finish(command_id, ok, message):
     import sqlite3
     from utils.db import DB_PATH
@@ -156,6 +236,8 @@ def execute(conn, cmd, just_reported=()):
     if ctype == 'approve_payroll':
         ok, msg = approve_payroll(conn, payload)
         _finish(cid, ok, msg)
+    elif ctype == 'prepare_payroll':
+        threading.Thread(target=_prepare, args=(cid, payload), daemon=True).start()
     elif ctype == 'device_sync':
         # دقائق مع الأجهزة: في خيطٍ مستقلّ، فلا يتوقّف الرفعُ أثناءها.
         threading.Thread(target=_device_sync, args=(cid,), daemon=True).start()

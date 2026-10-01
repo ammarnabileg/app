@@ -245,3 +245,83 @@ def test_pages_have_the_sync_now_button_history_and_the_approval_switch():
     assert 'name="remote_payroll_approval"' in st and "'remote_payroll_approval']" in st
     src = open(os.path.join(ROOT, 'utils', 'cloud_sync.py'), encoding='utf-8').read()
     assert 'remote_commands.poll()' in src
+
+
+# ------------------------------------------------------------ تجهيزُ الكشف (العميل لا يصل الجهاز أصلًا)
+
+def _employees(conn):
+    for i, n in ((1, '101'), (2, '102')):
+        conn.execute("INSERT INTO employees (id, name, employee_number, department, position, hire_date, salary, is_active)"
+                     " VALUES (?, ?, ?, 'D', 'P', '2025-01-01', 500, 1)", (i, 'م' + n, n))
+    conn.commit()
+
+
+def test_prepare_attests_hours_and_saves_a_draft(env):
+    db, das, rc, conn = env
+    _employees(conn)
+    ok, msg = rc.prepare_payroll(conn, {'month': 9, 'year': 2026, 'by': 'هاني'})
+    assert ok, msg
+    run = conn.execute('SELECT * FROM payroll_runs WHERE month = 9 AND year = 2026').fetchone()
+    assert run['status'] == 'saved', 'مسودّةٌ تُراجَع وتُعتمد — لا اعتمادَ بلا مراجعة'
+    assert run['employees_count'] == 2 and 'مسودّة' in msg
+    notes = [r[0] for r in conn.execute('SELECT notes FROM payroll_hours_approvals WHERE month = 9 AND year = 2026')]
+    assert len(notes) == 2 and all('بوّابة الشركة' in n and 'هاني' in n for n in notes)
+
+
+def test_prepare_keeps_hours_already_attested_at_the_office(env):
+    db, das, rc, conn = env
+    _employees(conn)
+    from utils.payroll_engine import attest_hours
+    attest_hours(conn, 9, 2026, [{'employee_id': 1, 'notes': 'راجعها المحاسب'}], 5)
+    conn.commit()
+    ok, msg = rc.prepare_payroll(conn, {'month': 9, 'year': 2026})
+    assert ok, msg
+    r = conn.execute('SELECT notes, approved_by FROM payroll_hours_approvals WHERE employee_id = 1 AND month = 9').fetchone()
+    assert r['notes'] == 'راجعها المحاسب' and r['approved_by'] == 5
+    assert '1 موظّف ساعاتهم كانت متثبّتة' in msg
+
+
+def test_prepare_again_refreshes_the_draft_so_an_old_approval_is_refused(env):
+    db, das, rc, conn = env
+    _employees(conn)
+    rc.prepare_payroll(conn, {'month': 9, 'year': 2026})
+    first = conn.execute('SELECT * FROM payroll_runs WHERE month = 9').fetchone()
+    time.sleep(1.1)
+    rc.prepare_payroll(conn, {'month': 9, 'year': 2026})
+    second = conn.execute('SELECT * FROM payroll_runs WHERE month = 9').fetchone()
+    assert second['id'] == first['id'] and rc.run_signature(second) != rc.run_signature(first)
+    ok, _ = rc.approve_payroll(conn, {'month': 9, 'year': 2026, 'run_id': first['id'],
+                                      'signature': rc.run_signature(first)})
+    assert not ok, 'اعتمادُ ما عُرض قبل التحديث'
+
+
+def test_prepare_refuses_an_approved_month_and_when_switched_off(env):
+    db, das, rc, conn = env
+    _employees(conn)
+    rc.prepare_payroll(conn, {'month': 9, 'year': 2026})
+    conn.execute("UPDATE payroll_runs SET status = 'approved'")
+    conn.commit()
+    ok, msg = rc.prepare_payroll(conn, {'month': 9, 'year': 2026})
+    assert not ok and 'معتمد' in msg
+    db.set_setting(rc.SETTING_REMOTE_APPROVAL, '0')
+    ok, msg = rc.prepare_payroll(conn, {'month': 10, 'year': 2026})
+    assert not ok and 'مقفول' in msg
+    assert not rc.prepare_payroll(conn, {'month': 13, 'year': 2026})[0]
+
+
+def test_prepare_command_syncs_devices_first_then_reports(env, monkeypatch):
+    db, das, rc, conn = env
+    _employees(conn)
+    order = []
+    monkeypatch.setattr(das, '_has_active_devices', lambda: True)
+    monkeypatch.setattr(das, 'run_once', lambda source='auto': order.append(('sync', source)))
+    real = rc.prepare_payroll
+    monkeypatch.setattr(rc, 'prepare_payroll', lambda c, p: (order.append(('prepare',)), real(c, p))[1])
+    rc.execute(conn, {'id': 'p1', 'type': 'prepare_payroll', 'payload': {'month': 9, 'year': 2026}})
+    for _ in range(100):
+        r = conn.execute("SELECT done_at, ok, message FROM remote_commands WHERE command_id = 'p1'").fetchone()
+        if r['done_at']:
+            break
+        time.sleep(0.05)
+    assert order[0] == ('sync', 'portal') and order[1] == ('prepare',)
+    assert r['ok'] == 1 and 'اتجهّز' in r['message']
