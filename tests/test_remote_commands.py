@@ -404,3 +404,111 @@ def test_a_prepared_sheet_is_uploaded_before_its_result_is_reported(env, monkeyp
     monkeypatch.setattr(rc, 'poll', lambda *a, **k: order.append('report') or {})
     rc._prepare('p9', {'month': 9, 'year': 2026})
     assert order == ['upload', 'report'], order
+
+
+# ------------------------------------------------------------ أمرٌ انقطع (أُغلق البرنامج في منتصفه)
+
+def _wait_done(conn, cid, tries=100):
+    for _ in range(tries):
+        r = conn.execute('SELECT done_at, ok, message FROM remote_commands WHERE command_id = ?', (cid,)).fetchone()
+        if r and r['done_at']:
+            return r
+        time.sleep(0.05)
+    return r
+
+
+def test_an_interrupted_command_runs_again_when_the_server_resends_it(env, monkeypatch):
+    db, das, rc, conn = env
+    _employees(conn)
+    monkeypatch.setattr(das, '_has_active_devices', lambda: False)
+    monkeypatch.setattr(rc, '_upload_then_report', lambda: None)
+    # استُلم في جلسةٍ سابقة ثم أُغلق البرنامج: صفٌّ بلا نهاية، وليس يعمل الآن.
+    conn.execute("INSERT INTO remote_commands (command_id, type, payload, received_at) "
+                 "VALUES ('p7', 'prepare_payroll', '{}', '2026-10-01 14:58:00')")
+    conn.commit()
+    rc.execute(conn, {'id': 'p7', 'type': 'prepare_payroll', 'payload': {'month': 9, 'year': 2026}})
+    r = _wait_done(conn, 'p7')
+    assert r['done_at'] and r['ok'] == 1, dict(r)
+    assert conn.execute("SELECT status FROM payroll_runs WHERE month = 9").fetchone()[0] == 'saved'
+
+
+def test_a_running_command_is_not_started_twice(env, monkeypatch):
+    db, das, rc, conn = env
+    gate = __import__('threading').Event()
+    runs = []
+    monkeypatch.setattr(rc, '_device_sync', lambda cid: (runs.append(cid), gate.wait(3)))
+    rc.execute(conn, {'id': 'd9', 'type': 'device_sync', 'payload': {}})
+    rc.execute(conn, {'id': 'd9', 'type': 'device_sync', 'payload': {}})
+    time.sleep(0.2)
+    gate.set()
+    assert runs == ['d9']
+
+
+def test_a_crashing_command_still_ends_with_a_result(env, monkeypatch):
+    db, das, rc, conn = env
+    monkeypatch.setattr(rc, '_upload_then_report', lambda: None)
+
+    def boom(cid, payload):
+        raise RuntimeError('انقطع')
+    monkeypatch.setattr(rc, '_prepare', boom)
+    rc.execute(conn, {'id': 'p8', 'type': 'prepare_payroll', 'payload': {'month': 9, 'year': 2026}})
+    r = _wait_done(conn, 'p8')
+    assert r['done_at'] and r['ok'] == 0 and 'اطلبه تاني' in r['message']
+    assert 'p8' not in rc._RUNNING
+
+
+# ------------------------------------------------------------ «min() arg is an empty sequence» (عند العميل)
+#
+# تركيبٌ أُخذ موظّفوه من جهاز البصمة اليوم: تاريخُ تعيين كلٍّ منهم = اليوم، وبصماتُ
+# سبتمبر سُحبت بعدها. فكشفُ سبتمبر بلا موظّفين، و`_prior_sick_map` تسقط على `min([])`.
+
+def _device_employee(conn, eid, num, created='2026-10-01 10:00:00', dept='غير محدد', salary=0):
+    conn.execute("INSERT INTO employees (id, name, employee_number, department, position, hire_date, salary,"
+                 " is_active, created_at) VALUES (?, ?, ?, ?, 'موظف', ?, ?, 1, ?)",
+                 (eid, 'ج' + num, num, dept, created[:10], salary, created))
+    for day in ('2026-09-07', '2026-09-08'):
+        conn.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)"
+                     " VALUES (?, 1, ?, 0)", (eid, day + ' 08:00:00'))
+    conn.commit()
+
+
+def test_a_period_without_employees_no_longer_crashes(env):
+    db, das, rc, conn = env
+    from utils.payroll_engine import compute_monthly_payroll
+    conn.execute("INSERT INTO employees (id, name, employee_number, department, position, hire_date, salary, is_active)"
+                 " VALUES (1, 'لاحق', '1', 'D', 'P', '2026-10-01', 500, 1)")
+    conn.commit()
+    data = compute_monthly_payroll(conn, 9, 2026)
+    assert data['rows'] == []
+
+
+def test_device_added_employees_take_their_first_punch_as_hire_date(env):
+    db, das, rc, conn = env
+    _device_employee(conn, 1, '11')
+    _device_employee(conn, 2, '12')
+    ok, msg = rc.prepare_payroll(conn, {'month': 9, 'year': 2026})
+    assert ok, msg
+    assert 'صُحّح تاريخ تعيين 2 موظّف' in msg
+    assert [r[0] for r in conn.execute('SELECT hire_date FROM employees ORDER BY id')] == ['2026-09-07'] * 2
+    assert conn.execute('SELECT employees_count FROM payroll_runs WHERE month = 9').fetchone()[0] == 2
+    note = conn.execute("SELECT note FROM employee_audit_log WHERE field = 'hire_date'").fetchone()[0]
+    assert 'أوّل بصمة' in note
+
+
+def test_employees_someone_already_edited_are_named_not_changed(env):
+    db, das, rc, conn = env
+    _device_employee(conn, 1, '21', dept='المبيعات', salary=300)   # عدّله المسؤول — قد يكون تاريخُه صحيحًا
+    ok, msg = rc.prepare_payroll(conn, {'month': 9, 'year': 2026})
+    assert not ok and 'مفيش موظّفين في فترة 9/2026' in msg
+    assert 'ج21 (21)' in msg and 'صحّح تاريخ التعيين' in msg
+    assert conn.execute('SELECT hire_date FROM employees WHERE id = 1').fetchone()[0] == '2026-10-01'
+    assert conn.execute('SELECT COUNT(*) FROM payroll_runs').fetchone()[0] == 0, 'لا كشفَ فارغ'
+
+
+def test_a_device_sync_fixes_hire_dates_too(env, monkeypatch):
+    db, das, rc, conn = env
+    import fingerprint_sync
+    _device_employee(conn, 1, '31')
+    monkeypatch.setattr(fingerprint_sync, 'sync_all_fingerprint_devices', lambda: {'success': True})
+    das.run_punches()
+    assert conn.execute('SELECT hire_date FROM employees WHERE id = 1').fetchone()[0] == '2026-09-07'

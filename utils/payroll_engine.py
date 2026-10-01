@@ -769,6 +769,10 @@ def _prior_sick_map(conn, employees, p_start, basis='calendar'):
         hire = e['hire_date'] if 'hire_date' in e.keys() else None
         ys_map[e['id']] = (_anniv(hire) if basis == 'hire'
                            else date(p_start.year, 1, 1))
+    if not ys_map:
+        # فترةٌ بلا موظّفين (كلُّهم عُيّنوا بعدها) — لا رصيدَ مرضيّ يُعدّ. كانت
+        # `min()` تسقط هنا، فيسقط الكشفُ كلُّه بدل أن يكون فارغًا.
+        return {}
     min_ys = min(ys_map.values())
     if p_start <= min_ys:
         return {}

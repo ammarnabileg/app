@@ -39,6 +39,9 @@ STATE_LAST_POLL = 'commands:last_ok'
 RETRY_UNSUPPORTED = 3600        # خادمٌ قديم بلا قناة: يُسأل كلَّ ساعة لا كلَّ دقيقتين
 MIN_GAP = 30                    # الرفعُ يُعيد الدورةَ كلَّ ٥ ثوانٍ وفيه تراكم؛ السؤالُ لا يتبعه
 _last_poll = [0.0]
+# أوامرُ تعمل الآن في هذه الجلسة. أمرٌ استُلم ولم يكتمل وليس هنا = انقطع
+# (أُغلق البرنامج أو أُعيد تشغيله في منتصفه) — فيُعاد حين يُعيد الخادمُ إرساله.
+_RUNNING = set()
 TYPES = ('device_sync', 'approve_payroll', 'prepare_payroll')
 
 
@@ -129,8 +132,27 @@ def prepare_payroll(conn, payload):
         return False, f'كشف {month}/{year} معتمد بالفعل — لتعديله لازم يتفكّ قفله من البرنامج في المقرّ.'
     if is_period_locked(conn, month, year):
         return False, f'فترة {month}/{year} مقفولة في البرنامج بالمقرّ.'
+    from utils.hire_dates import fix_device_placeholder_hire_dates, hired_after_period_with_punches
+    from utils.payroll_engine import resolve_period
+    fixed = []
+    try:
+        fixed = fix_device_placeholder_hire_dates(conn)
+    except Exception as e:                      # noqa: BLE001
+        logger.warning(f'hire date fix failed: {e}')
+    p_start, p_end = resolve_period(conn, month, year)
+    late = hired_after_period_with_punches(conn, p_start, p_end)
+    late_txt = ''
+    if late:
+        names = '، '.join(f"{r['name']} ({r['employee_number']})" for r in late[:8])
+        more = f' و{len(late) - 8} غيرهم' if len(late) > 8 else ''
+        late_txt = (f' ⚠ {len(late)} موظّف ليهم بصمات في الفترة وتاريخ تعيينهم بعدها فمش في الكشف: '
+                    f'{names}{more} — صحّح تاريخ التعيين من ملف الموظّف لو غلط.')
     try:
         data = compute_monthly_payroll(conn, month, year)
+        if not data['rows']:
+            conn.rollback()
+            return False, (f'مفيش موظّفين في فترة {month}/{year} '
+                           f'({p_start.isoformat()} → {p_end.isoformat()}).' + late_txt)
         todo = [{'employee_id': r['employee_id'], 'notes': f'ثُبّتت من بوّابة الشركة — {by}'}
                 for r in data['rows'] if r['hours_state'] != 'approved']
         if todo:
@@ -155,7 +177,10 @@ def prepare_payroll(conn, payload):
            f'راجعه في البوابة واعتمده.')
     if kept > 0:
         msg += f' ({kept} موظّف ساعاتهم كانت متثبّتة في المقرّ واتسابت زي ما هي.)'
-    return True, msg
+    if fixed:
+        msg += (f' صُحّح تاريخ تعيين {len(fixed)} موظّف مضاف من جهاز البصمة إلى أوّل بصمة له '
+                f'(كان يوم إضافته).')
+    return True, msg + late_txt
 
 
 def _prepare(command_id, payload):
@@ -198,7 +223,9 @@ def _upload_then_report():
 def _finish(command_id, ok, message):
     import sqlite3
     from utils.db import DB_PATH
-    c = sqlite3.connect(DB_PATH)
+    # مهلةٌ طويلة: الرفعُ والمزامنةُ يكتبان في الوقت نفسه، و«database is locked»
+    # هنا كانت تُسقط النتيجة فيبقى الأمرُ بلا نهاية.
+    c = sqlite3.connect(DB_PATH, timeout=60)
     try:
         c.execute('UPDATE remote_commands SET done_at = ?, ok = ?, message = ?, reported = 0 '
                   'WHERE command_id = ?', (_now(), 1 if ok else 0, str(message)[:400], command_id))
@@ -229,29 +256,53 @@ def execute(conn, cmd, just_reported=()):
     payload = cmd.get('payload') if isinstance(cmd.get('payload'), dict) else {}
     if not cid:
         return
-    if conn.execute('SELECT 1 FROM remote_commands WHERE command_id = ?', (cid,)).fetchone():
-        # استُلم من قبل: لا يُنفَّذ ثانيةً. وتُعاد نتيجتُه في الإبلاغ القادم إن
-        # كانت قد تمّت — إلّا ما أُبلغ في هذا الطلب نفسه (ردُّه سبق استلامَها).
-        if cid in just_reported:
+    seen = conn.execute('SELECT done_at FROM remote_commands WHERE command_id = ?', (cid,)).fetchone()
+    if seen is not None:
+        if seen[0] is not None:
+            # تمّ من قبل: لا يُنفَّذ ثانيةً. وتُعاد نتيجتُه في الإبلاغ القادم —
+            # إلّا ما أُبلغ في هذا الطلب نفسه (ردُّه سبق استلامَها).
+            if cid not in just_reported:
+                conn.execute('UPDATE remote_commands SET reported = 0 WHERE command_id = ?', (cid,))
+                conn.commit()
             return
-        conn.execute('UPDATE remote_commands SET reported = 0 WHERE command_id = ? AND done_at IS NOT NULL',
-                     (cid,))
+        if cid in _RUNNING:
+            return                               # يعمل الآن — نتيجتُه في الطريق
+        # استُلم ولم يكتمل ولا يعمل: انقطع. يُعاد (الأوامرُ الثلاثة آمنةُ الإعادة:
+        # التجهيزُ يُعيد حفظ المسودّة، والاعتمادُ يفحص التوقيع، والمزامنةُ مزامنة).
+        conn.execute('UPDATE remote_commands SET received_at = ? WHERE command_id = ?', (_now(), cid))
         conn.commit()
-        return
-    conn.execute('INSERT INTO remote_commands (command_id, type, payload, received_at) VALUES (?, ?, ?, ?)',
-                 (cid, ctype, json.dumps(payload, ensure_ascii=False)[:2000], _now()))
-    conn.commit()
+    else:
+        conn.execute('INSERT INTO remote_commands (command_id, type, payload, received_at) VALUES (?, ?, ?, ?)',
+                     (cid, ctype, json.dumps(payload, ensure_ascii=False)[:2000], _now()))
+        conn.commit()
 
     if ctype == 'approve_payroll':
         ok, msg = approve_payroll(conn, payload)
         _finish(cid, ok, msg)
-    elif ctype == 'prepare_payroll':
-        threading.Thread(target=_prepare, args=(cid, payload), daemon=True).start()
-    elif ctype == 'device_sync':
+    elif ctype in ('prepare_payroll', 'device_sync'):
         # دقائق مع الأجهزة: في خيطٍ مستقلّ، فلا يتوقّف الرفعُ أثناءها.
-        threading.Thread(target=_device_sync, args=(cid,), daemon=True).start()
+        _RUNNING.add(cid)
+        target = _prepare if ctype == 'prepare_payroll' else _device_sync
+        args = (cid, payload) if ctype == 'prepare_payroll' else (cid,)
+        threading.Thread(target=_guarded, args=(cid, target, args), daemon=True).start()
     else:
         _finish(cid, False, 'أمرٌ لا يعرفه هذا الإصدار — حدّث البرنامج.')
+
+
+def _guarded(cid, target, args):
+    """كلُّ أمرٍ ينتهي بنتيجة — ولو سقط خيطُه بما لم يُتوقَّع. أمرٌ بلا نتيجة
+    يبقى في البوّابة «البرنامج بيشتغل عليه» إلى الأبد."""
+    try:
+        target(*args)
+    except BaseException as e:                  # noqa: BLE001
+        logger.warning(f'remote command {cid} crashed: {e}')
+        try:
+            _finish(cid, False, f'تعذّر التنفيذ: {str(e)[:160]} — اطلبه تاني.')
+            _upload_then_report()
+        except Exception:
+            pass
+    finally:
+        _RUNNING.discard(cid)
 
 
 def pending_results(conn, limit=50):

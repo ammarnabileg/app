@@ -61,9 +61,33 @@ def run_punches():
         return None
     try:
         from fingerprint_sync import sync_all_fingerprint_devices
-        return sync_all_fingerprint_devices()
+        result = sync_all_fingerprint_devices()
+        _fix_hire_dates()
+        return result
     finally:
         LOCK.release()
+
+
+def _fix_hire_dates():
+    """بعد سحب البصمات: موظّفٌ أُضيف من الجهاز اليوم وله بصماتٌ قديمة يأخذ أوّلَها
+    تاريخَ تعيين (انظر `utils.hire_dates`) — وإلّا غاب عن كشف الأشهر التي عمل فيها."""
+    try:
+        import sqlite3
+        from utils.db import DB_PATH
+        from utils.hire_dates import fix_device_placeholder_hire_dates
+        # اتصالٌ خاصّ لا اتصالُ الطلب: الزرُّ يُنادي هذا داخل طلب Flask، وإغلاقُ
+        # اتصاله (g.db) يُسقط ما بعده في الطلب نفسه.
+        c = sqlite3.connect(DB_PATH, timeout=30)
+        c.row_factory = sqlite3.Row
+        try:
+            fix_device_placeholder_hire_dates(c)
+        finally:
+            try:
+                c.close()
+            except Exception:
+                pass
+    except Exception as e:                       # noqa: BLE001
+        print(f'[device-autosync] تصحيحُ تواريخ التعيين تعذّر: {e}')
 
 
 def run_users():
