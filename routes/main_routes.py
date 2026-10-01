@@ -205,21 +205,7 @@ def update_settings():
     # --- الرفع السحابي ---
     # خانةٌ غير معلَّمة لا تُرسَل، فالحقل المخفيّ يميّز أن النموذج أُرسل.
     if request.form.get('cloud_sync_form_present'):
-        from utils.db import set_setting
-        from utils import cloud_sync as _cs
-        _enable = request.form.get('cloud_sync_enabled') in ('1', 'on', 'true')
-        set_setting(_cs.SETTING_ENABLED, '1' if _enable else '0')
-        for _field_name, _key in (('cloud_sync_url', _cs.SETTING_URL),
-                                  ('cloud_sync_client_id', _cs.SETTING_CLIENT)):
-            set_setting(_key, request.form.get(_field_name, '').strip())
-        # المفتاح لا يُعاد إلى الصفحة، فحقلٌ فارغ يعني «لم يُغيَّر» لا
-        # «امحُه» — وإلا محا كلُّ حفظٍ للإعدادات مفتاحَ الرفع وتوقّف
-        # الرفع بلا سبب ظاهر.
-        _new_key = request.form.get('cloud_sync_api_key', '').strip()
-        if _new_key:
-            set_setting(_cs.SETTING_KEY, _new_key)
-        if _enable:
-            _cs.wake()          # يبدأ الرفعُ التلقائيّ الآن، لا بعد نومة الخيط
+        _save_cloud_sync_form(request.form)
 
     # --- بوّابة الرسائل ---
     # مستقلّةٌ عن الرفع في التفعيل، ومشتركةٌ معه في المفتاح: العميلُ
@@ -261,6 +247,25 @@ def update_settings():
     flash(_('msg.settings_saved'), 'success')
     return redirect(url_for('main.settings'))
 
+def _save_cloud_sync_form(form):
+    """يحفظ بطاقةَ الرفع السحابيّ كما في الشاشة — من «حفظ» ومن «ارفع الآن»."""
+    from utils.db import set_setting
+    from utils import cloud_sync as _cs
+    _enable = form.get('cloud_sync_enabled') in ('1', 'on', 'true')
+    set_setting(_cs.SETTING_ENABLED, '1' if _enable else '0')
+    for _field_name, _key in (('cloud_sync_url', _cs.SETTING_URL),
+                              ('cloud_sync_client_id', _cs.SETTING_CLIENT)):
+        set_setting(_key, form.get(_field_name, '').strip())
+    # المفتاح لا يُعاد إلى الصفحة، فحقلٌ فارغ يعني «لم يُغيَّر» لا
+    # «امحُه» — وإلا محا كلُّ حفظٍ للإعدادات مفتاحَ الرفع وتوقّف
+    # الرفع بلا سبب ظاهر.
+    _new_key = form.get('cloud_sync_api_key', '').strip()
+    if _new_key:
+        set_setting(_cs.SETTING_KEY, _new_key)
+    if _enable:
+        _cs.wake()          # يبدأ الرفعُ التلقائيّ الآن، لا بعد نومة الخيط
+
+
 @main_bp.route('/settings/cloud-sync/run', methods=['POST'])
 @login_required
 @require_permission('admin.settings')
@@ -283,6 +288,11 @@ def run_cloud_sync_now():
     from utils import cloud_sync as _cs
     from utils.db import get_setting
 
+    # ما كُتب في البطاقة يُحفظ أوّلًا: كان الزرّ يرفع بالمحفوظ وحده، فمن
+    # كتب الوجهةَ والمفتاح وضغطه قبل «حفظ» قيل له «أكمل…» وهي مكتوبة.
+    if request.form.get('cloud_sync_form_present'):
+        _save_cloud_sync_form(request.form)
+
     conn = get_db_connection()
     try:
         res = _cs.run_once(conn=conn, force=True)
@@ -293,7 +303,10 @@ def run_cloud_sync_now():
         return redirect(url_for('main.settings') + '#cloud-sync')
 
     if res.get('skipped') == 'unconfigured':
-        flash('أكمل وجهة الرفع ومُعرِّف العميل والمفتاح أولًا.', 'warning')
+        missing = [label for label, value in (('وجهة الرفع', _cs._settings()['url']),
+                                              ('مُعرِّف العميل', _cs._settings()['client_id']),
+                                              ('مفتاح الرفع', _cs._settings()['api_key'])) if not value]
+        flash('ناقص: ' + '، '.join(missing or ['وجهة الرفع']) + ' — اكتبه في البطاقة ثم اضغط «ارفع الآن».', 'warning')
     elif not res.get('ok'):
         flash(f"تعذّر الرفع: {res.get('error') or 'سبب غير معروف'}", 'danger')
     elif res.get('idle'):

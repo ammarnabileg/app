@@ -269,3 +269,52 @@ def test_enabling_from_settings_wakes_the_thread_and_shows_waiting(web):
     assert 'data-state="waiting"' in c.get('/settings').get_data(as_text=True)
     cs.mark_auto_attempt({'ok': True, 'idle': True})
     assert 'data-state="running"' in c.get('/settings').get_data(as_text=True)
+
+
+def test_upload_now_uses_what_is_typed_in_the_card_without_pressing_save(web):
+    """الشكوى: كتب الوجهةَ والمعرّفَ والمفتاح وضغط «ارفع الآن» فقيل له «أكمل
+    وجهة الرفع…» — الزرّ كان يرفع بالمحفوظ وحده. الآن يحفظ البطاقةَ ثم يرفع."""
+    c, conn, cs, db, fake = web
+    assert not db.get_setting('cloud_sync_url') and not db.get_setting('cloud_sync_api_key')
+    r = c.post('/settings/cloud-sync/run', data={
+        'cloud_sync_form_present': '1', 'cloud_sync_enabled': '1',
+        'cloud_sync_url': ' https://onz.one/api/sync ', 'cloud_sync_client_id': 'bd58efae-uid',
+        'cloud_sync_api_key': 'sk_live_typed_not_saved'})
+    assert r.status_code == 302
+    msgs = _flashes(c)
+    assert not any('ناقص' in m or 'أكمل' in m for m in msgs), msgs
+    assert fake.calls, 'لم يُرفع شيء'
+    assert fake.calls[0]['url'] == 'https://onz.one/api/sync'
+    assert 'sk_live_typed_not_saved' in str(fake.calls[0]['headers'])
+    assert db.get_setting('cloud_sync_api_key') == 'sk_live_typed_not_saved'
+    assert db.get_setting('cloud_sync_enabled') == '1'
+
+
+def test_a_missing_field_is_named(web):
+    c, conn, cs, db, fake = web
+    c.post('/settings/cloud-sync/run', data={
+        'cloud_sync_form_present': '1', 'cloud_sync_url': 'https://onz.one/api/sync',
+        'cloud_sync_client_id': 'uid-1'})
+    msgs = _flashes(c)
+    assert any('ناقص: مفتاح الرفع' in m for m in msgs), msgs
+    assert not fake.calls
+
+
+def test_the_page_sends_the_card_with_the_upload_button(web):
+    c, conn, cs, db, fake = web
+    body = c.get('/settings').get_data(as_text=True)
+    assert "getElementById('cloudSyncRunForm')" in body
+    for n in ('cloud_sync_url', 'cloud_sync_client_id', 'cloud_sync_api_key', 'cloud_sync_enabled'):
+        assert f"'{n}'" in body
+
+
+def test_saving_or_uploading_with_an_empty_key_field_keeps_the_saved_key(web):
+    """الحقلُ لا يُعاد إلى الصفحة فيصل فارغًا — والفارغُ لا يمحو المفتاح، من «حفظ» ولا من «ارفع الآن»."""
+    c, conn, cs, db, fake = web
+    _configure(db)
+    card = {'cloud_sync_form_present': '1', 'cloud_sync_url': 'https://onz.one/api/sync',
+            'cloud_sync_client_id': 'uuid-1', 'cloud_sync_api_key': ''}
+    c.post('/settings/update', data=card)
+    assert db.get_setting('cloud_sync_api_key') == 'sk_live_test'
+    c.post('/settings/cloud-sync/run', data=card)
+    assert db.get_setting('cloud_sync_api_key') == 'sk_live_test'

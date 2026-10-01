@@ -83,7 +83,7 @@ def test_saving_settings_with_an_empty_key_field_keeps_the_key():
     """القلب. الحقل يصل فارغًا في كل حفظ، فلا يجوز أن يعني «امحُه»."""
     src = open(os.path.join(ROOT, 'routes', 'main_routes.py'),
                encoding='utf-8').read()
-    i = src.index("_new_key = request.form.get('cloud_sync_api_key'")
+    i = src.index("_new_key = form.get('cloud_sync_api_key'")
     after = src[i:i + 300]
     assert 'if _new_key:' in after, (
         'المفتاح يُكتب بلا شرط — كل حفظٍ للإعدادات يمحوه')

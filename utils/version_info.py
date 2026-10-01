@@ -33,7 +33,7 @@
 
 VERSION_MAJOR = 2
 VERSION_MINOR = 25
-VERSION_PATCH = 1
+VERSION_PATCH = 2
 VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
@@ -42,7 +42,7 @@ CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUI
 BUILD_DATE = "2026-09-30"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "المشغّل لا يعلن نجاحًا على منفذ مشغول"
+RELEASE_NAME = "«ارفع الآن» يحفظ البطاقة قبل الرفع"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"

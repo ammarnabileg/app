@@ -202,7 +202,7 @@
                                 <i class="fas fa-cloud-arrow-up me-1"></i> ارفع الآن
                             </button>
                             <span class="small text-muted ms-2">
-                                احفظ أولًا ثم جرّب — يعمل ولو كان الرفع مُطفأً،
+                                يحفظ ما في هذه البطاقة ثم يرفع — ويعمل ولو كان الرفع مُطفأً،
                                 فالترتيب الطبيعيّ أن تجرّب قبل أن تُفعّل.
                             </span>
                         </div>
@@ -650,6 +650,26 @@
        # قياسيّة بلا جافاسكربت. #}
     <form id="cloudSyncRunForm" method="POST"
           action="{{ url_for('main.run_cloud_sync_now') }}" class="d-none"></form>
+    {# «ارفع الآن» كان يرفع بالمحفوظ وحده: من كتب الوجهةَ والمفتاح وضغطه
+       قبل «حفظ» رأى «أكمل وجهة الرفع…» وهي أمامه مكتوبة. فيحمل النموذجُ
+       قيمَ البطاقة كما هي في الشاشة، ويحفظها المسارُ قبل الرفع. #}
+    <script>
+    (function () {
+        var run = document.getElementById('cloudSyncRunForm');
+        if (!run) return;
+        run.addEventListener('submit', function () {
+            var names = ['cloud_sync_form_present', 'cloud_sync_enabled', 'cloud_sync_url',
+                         'cloud_sync_client_id', 'cloud_sync_api_key'];
+            names.forEach(function (n) {
+                var src = document.querySelector('[name="' + n + '"]:not([form])');
+                if (!src || (src.type === 'checkbox' && !src.checked)) return;
+                var h = document.createElement('input');
+                h.type = 'hidden'; h.name = n; h.value = src.type === 'checkbox' ? '1' : src.value;
+                run.appendChild(h);
+            });
+        });
+    })();
+    </script>
     <form id="msgGwRunForm" method="POST"
           action="{{ url_for('main.run_message_gateway_now') }}" class="d-none"></form>
 </div>
