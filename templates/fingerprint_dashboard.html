@@ -31,6 +31,38 @@
     </div>
 </div>
 
+{# المزامنةُ التلقائيّة: الزرّان أعلاه يعملان وحدهما كلَّ ساعة (utils/device_autosync.py). #}
+{% if fingerprint_available and autosync is defined %}
+<div class="card mb-3" id="deviceAutosync">
+    <div class="card-body d-flex flex-wrap align-items-center gap-3 py-2">
+        <div class="flex-grow-1">
+            <strong><i class="fas fa-clock-rotate-left me-1"></i> المزامنة التلقائيّة كلَّ ساعة</strong>
+            {% if autosync.enabled %}
+                <span class="badge bg-success ms-1">مفعّلة</span>
+            {% else %}
+                <span class="badge bg-secondary ms-1">متوقّفة</span>
+            {% endif %}
+            {% if autosync.busy %}<span class="badge bg-info ms-1">جارية الآن</span>{% endif %}
+            <div class="small text-muted mt-1">
+                «مزامنة الآن» و«مزامنة المستخدمين» يعملان وحدهما، ثم تُرفع البصمات إلى البوّابة.
+                {% if autosync.last %}
+                    آخر تشغيل: <bdi>{{ autosync.last }}</bdi>{% if autosync.result %} — {{ autosync.result }}{% endif %}.
+                    {% if autosync.enabled and autosync.next %} التالي نحو <bdi>{{ autosync.next }}</bdi>.{% endif %}
+                {% else %}
+                    {% if autosync.enabled %}أوّلُ تشغيلٍ خلال دقائق من فتح البرنامج.{% endif %}
+                {% endif %}
+            </div>
+        </div>
+        <form method="POST" action="{{ url_for('attendance.toggle_device_autosync') }}" class="m-0">
+            <input type="hidden" name="enabled" value="{{ '0' if autosync.enabled else '1' }}">
+            <button type="submit" class="btn btn-sm {{ 'btn-outline-secondary' if autosync.enabled else 'btn-success' }}">
+                {{ 'إيقاف' if autosync.enabled else 'تشغيل' }}
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
 <!-- إحصائيات سريعة -->
 <div class="row mb-4">
     <div class="col-md-3">

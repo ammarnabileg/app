@@ -632,14 +632,21 @@ class FingerprintSyncManager:
                     try:
                         import json
                         cmd_conn = self.get_db_connection()
-                        employees = cmd_conn.execute('SELECT employee_number FROM employees WHERE is_active = 1').fetchall()
+                        # أوامرُ معلّقةٌ من قبل لم يأخذها الجهاز بعد (مُطفأ أو منقطع)؟
+                        # لا يُضاف غيرُها: أمران لكلّ موظّفٍ في كلّ تشغيل — والتشغيلُ
+                        # صار كلَّ ساعة — تتراكم آلافًا في اليوم ويغرق بها الجهازُ حين يعود.
+                        pending = cmd_conn.execute(
+                            "SELECT COUNT(*) FROM adms_commands WHERE device_id = ? AND status = 'PENDING' "
+                            "AND command_type IN ('DATA QUERY USERINFO', 'DATA QUERY FINGERTMP')",
+                            (device_id,)).fetchone()[0]
+                        employees = [] if pending else cmd_conn.execute('SELECT employee_number FROM employees WHERE is_active = 1').fetchall()
                         if employees:
                             for emp in employees:
                                 pin = str(emp['employee_number'])
                                 payload = json.dumps({"PIN": pin})
                                 cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY USERINFO', ?, 'PENDING')", (device_id, payload))
                                 cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY FINGERTMP', ?, 'PENDING')", (device_id, payload))
-                        else:
+                        elif not pending:
                             cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY USERINFO', '{}', 'PENDING')", (device_id,))
                             cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY FINGERTMP', '{}', 'PENDING')", (device_id,))
                         

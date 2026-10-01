@@ -44,11 +44,13 @@ def fingerprint():
             print(f"خطأ في جلب سجلات المزامنة: {e}")
             sync_logs = []
         
+        from utils import device_autosync
         return render_template(
             'fingerprint_dashboard.html',
             devices=[dict(d) for d in devices], 
             sync_logs=sync_logs,
-            fingerprint_available=FINGERPRINT_AVAILABLE
+            fingerprint_available=FINGERPRINT_AVAILABLE,
+            autosync=device_autosync.status()
         )
     except Exception as e:
         print(f"خطأ في route /fingerprint: {e}")
@@ -297,7 +299,13 @@ def sync_fingerprint():
     try:
         # إذا تم تحديد جهاز نمرره للدالة (تحتاج تعديل لاستقباله)
         # حالياً الدالة sync_all_fingerprint_devices تزامن الكل
-        result = sync_all_fingerprint_devices()
+        # القفلُ نفسُه الذي تمرّ به المزامنةُ التلقائيّة (كلَّ ساعة): مزامنتان
+        # معًا تتداخل سجلّاتهما والجهازُ مُعطَّلٌ أثناء الأولى.
+        from utils import device_autosync
+        result = device_autosync.run_punches()
+        if result is None:
+            return jsonify({'success': False, 'busy': True,
+                            'message': 'مزامنةٌ جارية الآن (تلقائيّة أو من مستخدمٍ آخر) — حاول بعد دقيقة.'})
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'message': f'خطأ: {str(e)}'})
@@ -306,14 +314,31 @@ def sync_fingerprint():
 @login_required
 @require_permission('attendance.devices')
 def sync_users():
-    # تشغيل في thread منفصل لتجنب تجميد الواجهة
-    thread = threading.Thread(target=sync_users_to_employees)
+    # تشغيل في thread منفصل لتجنب تجميد الواجهة — وبالقفل المشترك مع التلقائيّة.
+    from utils import device_autosync
+    if device_autosync.busy():
+        return jsonify({'success': False, 'busy': True,
+                        'message': 'مزامنةٌ جارية الآن (تلقائيّة أو من مستخدمٍ آخر) — حاول بعد دقيقة.'})
+    thread = threading.Thread(target=device_autosync.run_users, daemon=True)
     thread.start()
     
     return jsonify({
         'success': True, 
         'message': 'بدأت عملية مزامنة المستخدمين في الخلفية'
     })
+
+
+@attendance_bp.route('/fingerprint/autosync', methods=['POST'])
+@login_required
+@require_permission('attendance.devices')
+def toggle_device_autosync():
+    """تشغيلُ المزامنة التلقائيّة (كلَّ ساعة) أو إيقافُها."""
+    from utils import device_autosync
+    from utils.db import set_setting
+    on = request.form.get('enabled') in ('1', 'on', 'true')
+    set_setting(device_autosync.SETTING_ENABLED, '1' if on else '0')
+    flash('المزامنة التلقائيّة كلَّ ساعة: ' + ('مفعّلة' if on else 'متوقّفة'), 'success')
+    return redirect(url_for('attendance.fingerprint'))
 
 @attendance_bp.route('/fingerprint/test_duplicate_prevention')
 @login_required

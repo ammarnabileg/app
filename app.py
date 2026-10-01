@@ -503,6 +503,10 @@ def main():
     cloud_thread = threading.Thread(target=background_cloud_sync_worker, daemon=True)
     cloud_thread.start()
 
+    # «مزامنة الآن» و«مزامنة المستخدمين» وحدهما كلَّ ساعة (utils/device_autosync.py).
+    from utils.device_autosync import background_worker as _device_autosync_worker
+    threading.Thread(target=_device_autosync_worker, daemon=True).start()
+
     try:
         print(f"تشغيل خادم HR System على http://{host}:{port} (debug={debug})")
     except UnicodeEncodeError:
