@@ -64,6 +64,15 @@ def background_cloud_sync_worker():
 
     while True:
         delay = 120
+        # أوامرُ بوّابة الشركة أوّلًا (تجهيزُ كشف، اعتمادُه، مزامنةُ الأجهزة) — في
+        # حراسةٍ خاصّة بها، وقبل الرفع: ما يُغيّره الاعتمادُ يخرج في الرفع الذي يليه.
+        # (كانت في `cloud_sync.run_forever` وحدها، وهذا الخيطُ لا يمرّ بها — فبقيت
+        # طلباتُ البوّابة «بانتظار البرنامج» إلى الأبد.)
+        try:
+            from utils import remote_commands
+            remote_commands.poll()
+        except Exception as e:
+            print(f'[cloud] تعذّر سؤالُ البوّابة عن الطلبات: {e}')
         try:
             from utils.cloud_sync import run_once, mark_auto_attempt
             res = run_once()

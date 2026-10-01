@@ -243,8 +243,7 @@ def test_pages_have_the_sync_now_button_history_and_the_approval_switch():
     assert "url_for('attendance.run_device_autosync_now')" in html and 'id="deviceSyncHistory"' in html
     st = open(os.path.join(ROOT, 'templates', 'settings.html'), encoding='utf-8').read()
     assert 'name="remote_payroll_approval"' in st and "'remote_payroll_approval']" in st
-    src = open(os.path.join(ROOT, 'utils', 'cloud_sync.py'), encoding='utf-8').read()
-    assert 'remote_commands.poll()' in src
+
 
 
 # ------------------------------------------------------------ تجهيزُ الكشف (العميل لا يصل الجهاز أصلًا)
@@ -325,3 +324,83 @@ def test_prepare_command_syncs_devices_first_then_reports(env, monkeypatch):
         time.sleep(0.05)
     assert order[0] == ('sync', 'portal') and order[1] == ('prepare',)
     assert r['ok'] == 1 and 'اتجهّز' in r['message']
+
+
+# ------------------------------------------------------------ مَن يسأل البوّابة (عطبُ ٢.٢٩/٢.٣٠)
+#
+# كان السؤالُ في `cloud_sync.run_forever` وحدها، وخيطُ البرنامج الحقيقيّ
+# (`app.background_cloud_sync_worker`) لا يمرّ بها — فبقيت طلباتُ البوّابة
+# «بانتظار البرنامج» إلى الأبد، والرفعُ يعمل. الاختبارُ هنا يُشغّل الخيطَ نفسَه.
+
+class _Stop(BaseException):        # يتجاوز «except Exception» في الخيط فيُنهي الحلقة
+    pass
+
+
+def test_the_real_background_thread_asks_the_portal_before_uploading(env, monkeypatch):
+    db, das, rc, conn = env
+    import app as A
+    from utils import cloud_sync, message_outbox
+    calls = []
+    monkeypatch.setattr(rc, 'poll', lambda *a, **k: calls.append('poll') or {})
+    monkeypatch.setattr(cloud_sync, 'run_once', lambda *a, **k: calls.append('upload') or {'ok': True, 'idle': True})
+    monkeypatch.setattr(message_outbox, 'run_once', lambda *a, **k: {'ok': True})
+    sleeps = []
+
+    def fake_sleep(sec):
+        sleeps.append(sec)
+        if len(sleeps) > 1:
+            raise _Stop()
+    monkeypatch.setattr(A.time, 'sleep', fake_sleep)
+    monkeypatch.setattr(cloud_sync, 'sleep_or_wake', lambda d: (_ for _ in ()).throw(_Stop()))
+    with pytest.raises(_Stop):
+        A.background_cloud_sync_worker()
+    assert calls[:2] == ['poll', 'upload'], calls
+
+
+def test_a_broken_poll_does_not_stop_the_upload(env, monkeypatch):
+    db, das, rc, conn = env
+    import app as A
+    from utils import cloud_sync, message_outbox
+    calls = []
+
+    def boom(*a, **k):
+        raise RuntimeError('network')
+    monkeypatch.setattr(rc, 'poll', boom)
+    monkeypatch.setattr(cloud_sync, 'run_once', lambda *a, **k: calls.append('upload') or {'ok': True, 'idle': True})
+    monkeypatch.setattr(message_outbox, 'run_once', lambda *a, **k: {'ok': True})
+    monkeypatch.setattr(A.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(cloud_sync, 'sleep_or_wake', lambda d: (_ for _ in ()).throw(_Stop()))
+    with pytest.raises(_Stop):
+        A.background_cloud_sync_worker()
+    assert calls == ['upload']
+
+
+def test_every_device_sync_also_asks_the_portal(env, monkeypatch):
+    db, das, rc, conn = env
+    import fingerprint_sync
+    monkeypatch.setattr(fingerprint_sync, 'sync_all_fingerprint_devices', lambda: {'success': True})
+    monkeypatch.setattr(fingerprint_sync, 'sync_users_to_employees', lambda: {'employees_added': 0})
+    asked = []
+    monkeypatch.setattr(rc, 'poll_soon', lambda: asked.append(1))
+    das.run_once(source='auto')
+    das.run_once(source='manual')
+    assert len(asked) == 2
+    das.run_once(source='portal')
+    assert len(asked) == 2, 'أمرٌ من البوّابة يُبلغ نتيجتَه بنفسه'
+    routes = open(os.path.join(ROOT, 'routes', 'attendance_routes.py'), encoding='utf-8').read()
+    assert routes.count('remote_commands.poll_soon()') == 2, 'زرّا «مزامنة الآن» و«مزامنة المستخدمين»'
+    main = open(os.path.join(ROOT, 'routes', 'main_routes.py'), encoding='utf-8').read()
+    assert 'remote_commands.poll(conn, force=True)' in main, '«ارفع الآن»'
+
+
+def test_a_prepared_sheet_is_uploaded_before_its_result_is_reported(env, monkeypatch):
+    db, das, rc, conn = env
+    _employees(conn)
+    from utils import cloud_sync
+    _configure(db)
+    order = []
+    monkeypatch.setattr(das, '_has_active_devices', lambda: False)
+    monkeypatch.setattr(cloud_sync, 'run_once', lambda *a, **k: order.append('upload') or {'ok': True, 'idle': True})
+    monkeypatch.setattr(rc, 'poll', lambda *a, **k: order.append('report') or {})
+    rc._prepare('p9', {'month': 9, 'year': 2026})
+    assert order == ['upload', 'report'], order

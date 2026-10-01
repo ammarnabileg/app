@@ -217,6 +217,14 @@ def run_once(source='auto'):
         cloud_sync.wake()
     except Exception:
         pass
+    # ومع كلّ مزامنةٍ يُسأل عن طلبات البوّابة (تجهيزُ كشف، اعتمادُه) — لا من
+    # داخل أمرٍ من البوّابة نفسها: ذاك يُبلغ نتيجتَه بنفسه.
+    if source != 'portal':
+        try:
+            from utils import remote_commands
+            remote_commands.poll_soon()
+        except Exception:
+            pass
     return punches, users
 
 

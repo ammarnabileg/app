@@ -175,11 +175,24 @@ def _prepare(command_id, payload):
     finally:
         c.close()
     _finish(command_id, ok, msg)
+    _upload_then_report()
+
+
+def _upload_then_report():
+    """بعد أمرٍ طويل (تجهيزُ كشف، مزامنةُ أجهزة): يُرفع ما تغيّر **ثم** تُبلَغ
+    النتيجة — فلا تقول البوّابةُ «اتجهّز» والمسودّةُ لم تصلها بعد."""
     try:
         from utils import cloud_sync
-        cloud_sync.wake()
-    except Exception:
-        pass
+        for _ in range(50):
+            r = cloud_sync.run_once()
+            if not r.get('ok') or r.get('idle') or not cloud_sync.has_backlog(r):
+                break
+    except Exception as e:                      # noqa: BLE001
+        logger.warning(f'upload after command failed: {e}')
+    try:
+        poll(force=True)
+    except Exception as e:                      # noqa: BLE001
+        logger.warning(f'report after command failed: {e}')
 
 
 def _finish(command_id, ok, message):
@@ -205,11 +218,7 @@ def _device_sync(command_id):
         _finish(command_id, not bad, device_autosync.summary(punches, users))
     except Exception as e:                      # noqa: BLE001
         _finish(command_id, False, f'تعذّرت المزامنة: {str(e)[:160]}')
-    try:
-        from utils import cloud_sync
-        cloud_sync.wake()
-    except Exception:
-        pass
+    _upload_then_report()
 
 
 def execute(conn, cmd, just_reported=()):
@@ -328,6 +337,26 @@ def poll(conn=None, session=None, force=False):
                 conn.close()
             except Exception:
                 pass
+
+
+_SOON = threading.Lock()
+
+
+def poll_soon():
+    """يسأل البوّابةَ الآن في الخلفيّة — مع كلّ مزامنةٍ للأجهزة وكلّ «ارفع الآن»،
+    فلا ينتظر طلبُ صاحب الشركة دورةَ الدقيقتين. سؤالٌ واحد في وقتٍ واحد."""
+    lock = _SOON                                # القفلُ نفسُه في الأخذ والإفلات
+
+    def _go():
+        if not lock.acquire(blocking=False):
+            return
+        try:
+            poll(force=True)
+        except Exception as e:                  # noqa: BLE001
+            logger.warning(f'remote commands poll failed: {e}')
+        finally:
+            lock.release()
+    threading.Thread(target=_go, daemon=True).start()
 
 
 def _agent_version():

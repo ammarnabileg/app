@@ -327,6 +327,16 @@ def run_cloud_sync_now():
               'علّم «تفعيل رفع البيانات» ثم احفظ، ليرفع البرنامج وحده كل دقيقتين.', 'warning')
     elif res.get('ok') and _cs.has_backlog(res):
         _cs.wake()
+    # وطلباتُ بوّابة الشركة الآن (تجهيزُ كشف، اعتمادُه، مزامنةُ الأجهزة) — لا بعد دورة.
+    if res.get('ok'):
+        try:
+            from utils import remote_commands
+            got = remote_commands.poll(conn, force=True)
+            if got.get('received'):
+                flash(f"واستُلم {got['received']} طلب من بوّابة الشركة — يُنفَّذ الآن، "
+                      f"ونتيجته تظهر في البوّابة خلال دقيقتين.", 'info')
+        except Exception as e:                  # noqa: BLE001
+            print(f'[cloud] تعذّر سؤالُ البوّابة عن الطلبات: {e}')
     return redirect(url_for('main.settings') + '#cloud-sync')
 
 

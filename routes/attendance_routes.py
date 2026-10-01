@@ -309,6 +309,8 @@ def sync_fingerprint():
             return jsonify({'success': False, 'busy': True,
                             'message': 'مزامنةٌ جارية الآن (تلقائيّة أو من مستخدمٍ آخر) — حاول بعد دقيقة.'})
         device_autosync.log_run('manual', started, result, device_autosync.SKIP)
+        from utils import remote_commands
+        remote_commands.poll_soon()             # وطلباتُ البوّابة مع المزامنة
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'message': f'خطأ: {str(e)}'})
@@ -327,6 +329,8 @@ def sync_users():
         res = device_autosync.run_users()
         if res is not None:
             device_autosync.log_run('manual', started, device_autosync.SKIP, res)
+        from utils import remote_commands
+        remote_commands.poll_soon()
     thread = threading.Thread(target=_users_logged, daemon=True)
     thread.start()
     
