@@ -6,7 +6,8 @@
     <title>رحلة اليوم | بوابة الموظف</title>
 
     <link rel="manifest" href="/static/portal/manifest.json">
-    <meta name="theme-color" content="#0d6efd">
+    <meta name="theme-color" content="#F3F1EA">
+    <link rel="apple-touch-icon" href="/static/portal/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="رحلة اليوم">
 
@@ -15,6 +16,7 @@
         padding-top:env(safe-area-inset-top,0px)}
     </style>
 {% include '_partials/assets.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='portal/glass.css') }}?v=2.26">
 </head>
 <body>
 <style>
@@ -51,6 +53,9 @@
 </style>
 
 <div class="trip-wrap">
+  {# رجوعٌ إلى البوابة: مثبَّتةً على الشاشة الرئيسيّة لا زرَّ رجوعٍ للمتصفّح،
+     فكان المندوبُ يعلق في هذه الصفحة حتى يُغلق التطبيق. #}
+  <a href="/portal/dashboard" class="trip-back"><i class="fas fa-chevron-right"></i> البوابة</a>
   <div class="trip-hero">
     <h2>رحلة اليوم — {{ today }}</h2>
     <div id="tripState">لم تبدأ بعد</div>

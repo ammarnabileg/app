@@ -7,10 +7,11 @@
     
     <!-- PWA Settings -->
     <link rel="manifest" href="/static/portal/manifest.json">
-    <meta name="theme-color" content="#F2F2F7">
+    <meta name="theme-color" content="#F3F1EA">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="بوابة الموظف">
+    <link rel="apple-touch-icon" href="/static/portal/apple-touch-icon.png">
     
     <!-- Fonts & Icons -->
     
@@ -1120,6 +1121,7 @@
         }
     </style>
 {% include '_partials/assets.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='portal/glass.css') }}?v=2.26">
 </head>
 <body>
 
@@ -1183,107 +1185,107 @@
         <!-- ============================================================== -->
         <section id="view-today" class="portal-view active">
             
-            <!-- Hero Attendance Card -->
-            <div class="hero-card">
-                <div class="hero-header">
+            <!-- بطاقة الحضور: زجاجٌ أخضرُ داكن، ساعةٌ حيّة، وزرُّ البصمة إن كانت مفعّلة -->
+            <div class="hero-card hero-today">
+                <div class="hero-header" style="margin-bottom: 14px;">
                     <div>
-                        <div class="hero-label">حالة الدوام الحالية</div>
-                        <h3 style="font-weight: 800; font-size: 1.35rem; margin-top: 2px;" id="heroEmpName">
+                        <div class="hero-label">حالة الدوام الآن</div>
+                        <h3 style="font-weight: 800; font-size: 1.15rem; margin-top: 2px;" id="heroEmpName">
                             {{ employee.name or 'الموظف' }}
                         </h3>
                     </div>
                     <span class="pill-status present" id="todayStatusBadge">
-                        <i class="fas fa-circle" style="font-size: 0.55rem;"></i>
+                        <i class="fas fa-circle" style="font-size: 0.5rem;"></i>
                         <span id="todayStatusText">جاري التحميل...</span>
                     </span>
+                </div>
+
+                <div class="hero-clock" id="heroClock">--:--</div>
+                <div class="hero-foot" style="margin: 6px 0 16px;">
+                    <span>{{ employee.position_name or employee.position or 'موظف' }}</span>
+                    <span>الوقت الآن</span>
                 </div>
 
                 <div class="hero-time-row">
                     <div class="hero-time-item">
                         <h3 id="heroCheckIn">--:--</h3>
-                        <p>بصمة الحضور</p>
+                        <p>الحضور</p>
                     </div>
                     <div class="time-divider"></div>
                     <div class="hero-time-item">
-                        <h3 id="heroPresence" style="color: var(--ios-blue);">--:--</h3>
-                        <p>بصمة التواجد</p>
+                        <h3 id="heroPresence">--:--</h3>
+                        <p>التواجد</p>
                     </div>
                     <div class="time-divider"></div>
                     <div class="hero-time-item">
                         <h3 id="heroCheckOut">--:--</h3>
-                        <p>بصمة الانصراف</p>
+                        <p>الانصراف</p>
                     </div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <small style="color: var(--ios-subtext); font-weight: 600;">
-                        <i class="fas fa-fingerprint me-1 text-primary"></i> <span id="heroPunchesCount">0</span> حركات مسجلة اليوم
-                    </small>
-                    <small style="color: var(--ios-subtext); font-weight: 600;">
-                        {{ employee.position_name or employee.position or 'موظف' }}
-                    </small>
+                <div class="hero-foot" style="margin-top: 12px;">
+                    <span><i class="fas fa-fingerprint me-1"></i> <span id="heroPunchesCount">0</span> حركات مسجّلة اليوم</span>
                 </div>
+
+                {% if portal_att and portal_att.enabled and office_punch %}
+                <button type="button" class="hero-cta" onclick="switchTab('tab-punch')">
+                    <i class="fas fa-fingerprint"></i> سجّل البصمة الآن
+                </button>
+                {% endif %}
             </div>
 
-            {% if portal_att and portal_att.enabled and office_punch %}
-            <!-- Quick Punch Banner on Today Screen -->
-            <div class="quick-punch-banner" onclick="switchTab('tab-punch')">
-                <div style="display: flex; align-items: center; gap: 14px;">
-                    <div class="quick-punch-icon"><i class="fas fa-fingerprint"></i></div>
-                    <div style="text-align: right;">
-                        <h4 style="font-weight: 800; margin-bottom: 2px; font-size: 0.95rem; color: var(--ios-text);">تسجيل البصمة الذاتية (GPS)</h4>
-                        <p style="font-size: 0.78rem; color: var(--ios-subtext); font-weight: 600; margin: 0;">اضغط هنا لتسجيل الحضور أو الانصراف الآن</p>
-                    </div>
-                </div>
-                <i class="fas fa-chevron-left" style="color: var(--ios-subtext); font-size: 0.9rem;"></i>
+            <!-- الإجراءات السريعة: شبكةُ أيقونات -->
+            <div class="section-header" style="margin-top: 4px;">
+                <h3 class="section-title">خدماتي</h3>
             </div>
-            {% endif %}
-
-            {# رحلة اليوم: تظهر للمندوبين وحدهم — من أُسنِدت له منطقة.
-               وبغير هذا الشرط يرى كل موظف زرًّا لا يعنيه. #}
-            {% if is_field_rep %}
-            <div class="quick-punch-banner" onclick="location.href='/portal/trip'">
-                <div style="display: flex; align-items: center; gap: 14px;">
-                    <div class="quick-punch-icon"><i class="fas fa-route"></i></div>
-                    <div style="text-align: right;">
-                        <h4 style="font-weight: 800; margin-bottom: 2px; font-size: 0.95rem; color: var(--ios-text);">رحلة اليوم</h4>
-                        <p style="font-size: 0.78rem; color: var(--ios-subtext); font-weight: 600; margin: 0;">محطاتك، وتسجيل الدخول والخروج بالصورة</p>
-                    </div>
+            <div class="quick-grid">
+                <div class="quick-tile" onclick="openLeaveModal()">
+                    <div class="qi g1"><i class="fas fa-calendar-plus"></i></div><span>طلب إجازة</span>
                 </div>
-                <i class="fas fa-chevron-left" style="color: var(--ios-subtext); font-size: 0.9rem;"></i>
-            </div>
-            {% endif %}
-
-            <!-- Quick Action Cards Grid -->
-            <div class="action-grid">
-                <div class="action-card" onclick="openLeaveModal()">
-                    <div class="action-icon icon-leave">
-                        <i class="fas fa-calendar-plus"></i>
-                    </div>
-                    <h4>طلب إجازة</h4>
-                    <p>سنوية / طارئة / مرضية</p>
+                <div class="quick-tile" onclick="openExcuseModal()">
+                    <div class="qi g2"><i class="fas fa-stopwatch"></i></div><span>استئذان</span>
                 </div>
-
-                <div class="action-card" onclick="openExcuseModal()">
-                    <div class="action-icon icon-excuse">
-                        <i class="fas fa-stopwatch"></i>
-                    </div>
-                    <h4>طلب استئذان</h4>
-                    <p>ساعي أو مهمة خارجية</p>
+                {% if portal_att and portal_att.enabled and office_punch %}
+                <div class="quick-tile" onclick="switchTab('tab-punch')">
+                    <div class="qi g3"><i class="fas fa-fingerprint"></i></div><span>البصمة</span>
                 </div>
+                {% endif %}
+                {# رحلة اليوم: للمندوبين وحدهم — من أُسنِدت له منطقة. #}
+                {% if is_field_rep %}
+                <div class="quick-tile" onclick="location.href='/portal/trip'">
+                    <div class="qi g3"><i class="fas fa-route"></i></div><span>رحلة اليوم</span>
+                </div>
+                {% endif %}
+                <div class="quick-tile" onclick="switchTab('tab-attendance')">
+                    <div class="qi g5"><i class="fas fa-clock-rotate-left"></i></div><span>سجل الحضور</span>
+                </div>
+                <div class="quick-tile" onclick="switchTab('tab-leaves')">
+                    <div class="qi g1"><i class="fas fa-umbrella-beach"></i></div><span>إجازاتي</span>
+                </div>
+                <div class="quick-tile" onclick="switchTab('tab-profile')">
+                    <div class="qi g2"><i class="fas fa-file-invoice-dollar"></i></div><span>قسيمة الراتب</span>
+                </div>
+                {% if is_manager %}
+                <div class="quick-tile" onclick="switchTab('tab-team')">
+                    <div class="qi g6"><i class="fas fa-users-gear"></i></div><span>فريقي</span>
+                </div>
+                {% endif %}
             </div>
 
             <!-- Quick KPI Stats -->
             <div class="kpi-row">
                 <div class="kpi-box">
+                    <div class="kpi-ico"><i class="fas fa-umbrella-beach"></i></div>
                     <div class="kpi-val" id="kpiLeaveBal">--</div>
                     <div class="kpi-title">رصيد الإجازات</div>
                 </div>
                 <div class="kpi-box">
+                    <div class="kpi-ico"><i class="fas fa-calendar-check"></i></div>
                     <div class="kpi-val" id="kpiWorkedDays">--</div>
                     <div class="kpi-title">أيام الحضور</div>
                 </div>
                 <div class="kpi-box">
+                    <div class="kpi-ico"><i class="fas fa-hand-holding-dollar"></i></div>
                     <div class="kpi-val" id="kpiLoans">--</div>
                     <div class="kpi-title">سلف قائمة</div>
                 </div>
@@ -1691,7 +1693,7 @@
         {% if is_manager %}
         <div class="tab-item" onclick="switchTab('tab-team')" id="btn-tab-team">
             <i class="fas fa-users-gear"></i>
-            <span>فريق العمل</span>
+            <span>الفريق</span>
             <span class="tab-badge" id="teamTabBadge" style="display: none;">0</span>
         </div>
         {% endif %}
@@ -1722,6 +1724,22 @@
             'tab-leaves': 'الإجازات',
             'tab-profile': 'حسابي'
         };
+
+        // تحيّةُ الوقت في عنوان «اليوم»، والساعةُ الحيّة في بطاقة الحضور.
+        (function () {
+            const h = new Date().getHours();
+            const first = {{ ((employee.name or '').split(' ')[0]) | tojson }};
+            TITLES['tab-today'] = (h < 12 ? 'صباح الخير' : 'مساء الخير') + (first ? '، ' + first : '');
+            const t = document.getElementById('pageHeaderTitle');
+            if (t && document.getElementById('view-today').classList.contains('active')) t.textContent = TITLES['tab-today'];
+            const clock = document.getElementById('heroClock');
+            const tick = () => {
+                if (!clock) return;
+                const d = new Date();
+                clock.textContent = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+            };
+            tick(); setInterval(tick, 15000);
+        })();
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-item').forEach(b => b.classList.remove('active'));

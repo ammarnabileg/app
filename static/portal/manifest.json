@@ -1,12 +1,12 @@
 {
-  "name": "بوابة الموظف - OnPoint HR",
+  "name": "بوابة الموظف - onz.one",
   "short_name": "بوابة الموظف",
   "description": "بوابة الخدمة الذاتية للموظف والمدير المباشر",
   "start_url": "/portal/dashboard",
   "scope": "/portal/",
   "display": "standalone",
-  "background_color": "#F2F2F7",
-  "theme_color": "#FFFFFF",
+  "background_color": "#F3F1EA",
+  "theme_color": "#1F5C4A",
   "orientation": "portrait",
   "lang": "ar",
   "dir": "rtl",
@@ -15,13 +15,25 @@
       "src": "/static/portal/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/static/portal/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/static/portal/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/static/portal/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

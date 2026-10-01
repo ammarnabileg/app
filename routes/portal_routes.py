@@ -92,6 +92,17 @@ def has_own_employee_record():
         "SELECT employee_id FROM users WHERE id = ?", (user_id,)).fetchone()
     return bool(row and row['employee_id'])
 
+_AR_DAYS = ('الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد')
+_AR_MONTHS = ('يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+              'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر')
+
+
+def arabic_date(d):
+    """«الخميس، 1 أكتوبر 2026» — كان `strftime('%A…')` يكتبها بالإنجليزيّة
+    في واجهةٍ عربيّة («THURSDAY, 01 OCTOBER 2026»)."""
+    return f'{_AR_DAYS[d.weekday()]}، {d.day} {_AR_MONTHS[d.month - 1]} {d.year}'
+
+
 @portal_bp.route('/')
 @portal_bp.route('/dashboard')
 @login_required
@@ -167,7 +178,7 @@ def dashboard():
         leave_types=leave_types,
         portal_att=portal_att,
         today_date=date.today().strftime('%Y-%m-%d'),
-        today_display=date.today().strftime('%A, %d %B %Y'),
+        today_display=arabic_date(date.today()),
         preview_of=portal_preview_of()
     )
 

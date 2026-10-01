@@ -1,10 +1,15 @@
-// Service Worker for OnPoint HR Employee Portal PWA
-const CACHE_NAME = 'portal-cache-v1';
+// Service Worker — بوابة الموظف (onz.one)
+// v2: التصميم الزجاجيّ (٢.٢٦). الملفّاتُ محلّيّةٌ لا من شبكات التوزيع —
+// البرنامجُ يعمل في شبكة الشركة، وقد لا يصل الإنترنت.
+const CACHE_NAME = 'portal-cache-v2';
 const STATIC_ASSETS = [
   '/portal/dashboard',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css',
-  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
-  'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap'
+  '/static/portal/glass.css?v=2.26',
+  '/static/portal/icon-192.png',
+  '/static/portal/icon-512.png',
+  '/static/vendor/bootstrap/bootstrap.rtl.min.css',
+  '/static/vendor/fontawesome/css/all.min.css',
+  '/static/vendor/fonts/fonts.css'
 ];
 
 self.addEventListener('install', event => {
