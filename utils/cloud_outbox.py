@@ -64,6 +64,9 @@ SYNC_TABLES = {
     # تاريخُ الشفتات: به تعرف البوّابةُ أنّ بصمةَ السادسة صباحًا خروجُ
     # ليلةِ أمس لا دخولُ اليوم. `created_by` رقمُ مستخدمٍ لا يُرفع جدولُه.
     'employee_shift_history': {'created_by'},
+    # سجلُّ مزامنة أجهزة البصمة (٢.٢٩): يرى صاحبُ الشركة من البوّابة متى
+    # سُحبت البصماتُ آخرَ مرّة وكم — بلا أن يصل الجهاز.
+    'device_sync_log': set(),
 }
 
 # جداولُ أُضيفت إلى الرفع بعد أن صار للعملاء خوادمُ لا تعرفها. خادمٌ
@@ -71,25 +74,36 @@ SYNC_TABLES = {
 # حين يُعلن الخادمُ قبولها (انظر `resend_when_accepted`).
 LATE_TABLES = {
     'employee_shift_history': 'resend:employee_shift_history:1',
+    'device_sync_log': 'resend:device_sync_log:1',
 }
 
 # ------------------------------------------------------------ الترشيح
 #
 # جداولُ لا يخرج منها كلُّ صفّ.
 #
-# **والمسودّةُ لا تغادر المقرّ.** كشفٌ لم يُعتمد بعدُ شغلٌ جارٍ:
-# أرقامُه تتبدّل، وقد يُلغى. وعرضُه للعميل على أنه راتبُ شهره
-# يجعله يبني عليه ثم يجده تغيّر — وذلك أسوأ من ألّا يراه.
+# **والمسودّةُ لا تغادر المقرّ — إلّا إلى خادمٍ يعرض أنّها مسودّة.**
+# كشفٌ لم يُعتمد بعدُ شغلٌ جارٍ: أرقامُه تتبدّل، وقد يُلغى. وعرضُه
+# للعميل على أنه راتبُ شهره يجعله يبني عليه ثم يجده تغيّر — وذلك أسوأ
+# من ألّا يراه. وخادمُ v103 وما قبله يعرض كلَّ كشفٍ يصله معتمَدًا.
+#
+# ومنذ ٢.٢٩ يُعلن الخادمُ الجديد (`features` في ردّ الأوامر) أنّه يعرض
+# المسودّةَ مسودّةً ويعتمدها صاحبُ الشركة من البوّابة. حينها تُسجَّل
+# `server:payroll_drafts` في حالة الدفتر، والترشيحُ يقرؤها هو نفسُه —
+# فلا تخرج مسودّةٌ إلى خادمٍ قديم ولو لم يمرّ بها شيءٌ غيرُ هذا السطر.
 #
 # والصفُّ الذي يسقط من الترشيح **يُرسَل حذفًا**: `build_batch` تعامل
 # ما لا يعود مقروءًا معاملةَ المحذوف. فكشفٌ اعتُمد ثم فُكّ قفلُه
-# يختفي من السحابة بدل أن يبقى معتمَدًا فيها وحدها.
+# يختفي من السحابة بدل أن يبقى معتمَدًا فيها وحدها (أو يعود مسودّةً
+# عند خادمٍ يعرض المسودّات).
+DRAFTS_STATE = 'server:payroll_drafts'
+_RUN_VISIBLE = ("status = 'approved' OR (status = 'saved' AND EXISTS ("
+                "SELECT 1 FROM cloud_sync_state WHERE k = '" + DRAFTS_STATE + "' AND v = '1'))")
 SYNC_FILTERS = {
-    'payroll_runs': "status = 'approved'",
+    'payroll_runs': _RUN_VISIBLE,
     'payroll_run_lines':
-        "run_id IN (SELECT id FROM payroll_runs WHERE status = 'approved')",
+        f"run_id IN (SELECT id FROM payroll_runs WHERE {_RUN_VISIBLE})",
     'payroll_run_days':
-        "run_id IN (SELECT id FROM payroll_runs WHERE status = 'approved')",
+        f"run_id IN (SELECT id FROM payroll_runs WHERE {_RUN_VISIBLE})",
 }
 
 # ------------------------------------------------------------ التتابع
@@ -228,6 +242,24 @@ def resend_when_accepted(conn, accepts):
         conn.execute(f'''INSERT INTO {OUTBOX_TABLE} (table_name, row_id, op)
             SELECT '{table}', id, 'upsert' FROM "{table}"{extra}''')
     set_state(conn, key, 'done')
+    return True
+
+
+def enable_drafts(conn):
+    """الخادمُ أعلن أنّه يعرض المسودّات: تُفتح، وتُرسَل المسودّاتُ القائمة
+    وأبناؤها مرّةً واحدة — لم يمرّ بها مُشغِّلٌ منذ رُشّحت. تُرجع True إن فُتحت الآن."""
+    if get_state(conn, DRAFTS_STATE) == '1':
+        return False
+    set_state(conn, DRAFTS_STATE, '1')
+    if _table_exists(conn, 'payroll_runs'):
+        conn.execute(f"""INSERT INTO {OUTBOX_TABLE} (table_name, row_id, op)
+            SELECT 'payroll_runs', id, 'upsert' FROM payroll_runs WHERE status = 'saved'""")
+        for child in ('payroll_run_lines', 'payroll_run_days'):
+            if _table_exists(conn, child):
+                conn.execute(f"""INSERT INTO {OUTBOX_TABLE} (table_name, row_id, op)
+                    SELECT '{child}', id, 'upsert' FROM "{child}"
+                    WHERE run_id IN (SELECT id FROM payroll_runs WHERE status = 'saved')""")
+    conn.commit()
     return True
 
 

@@ -335,6 +335,13 @@ def run_forever(interval=DEFAULT_INTERVAL):
                         format='%(asctime)s [%(levelname)s] %(message)s')
     logger.info('cloud sync agent started')
     while True:
+        # أوامرُ البوّابة أوّلًا (اعتمادُ كشف، مزامنةُ الأجهزة): ما يُغيّره
+        # الاعتمادُ يخرج في الرفع الذي يليه مباشرةً لا بعد دورة.
+        try:
+            from utils import remote_commands
+            remote_commands.poll()
+        except Exception as e:                      # pragma: no cover - حارس
+            logger.warning(f'remote commands poll failed: {e}')
         try:
             res = run_once()
             mark_auto_attempt(res)

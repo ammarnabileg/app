@@ -95,6 +95,7 @@ def _cloud_sync_state(conn):
     """
     from utils.db import get_setting
     from utils import cloud_sync as cs
+    from utils import remote_commands as _rc
 
     try:
         from utils.cloud_outbox import pending_count
@@ -114,6 +115,8 @@ def _cloud_sync_state(conn):
             str(get_setting(cs.SETTING_ENABLED, '0') or '0') in ('1', 'true', 'True'),
             get_setting(cs.SETTING_LAST_AUTO, '') or ''),
         'pending': pending,
+        'remote_approval': _rc.remote_approval_enabled(),
+        'commands': _rc.recent(5),
     }
 
 
@@ -262,6 +265,9 @@ def _save_cloud_sync_form(form):
     _new_key = form.get('cloud_sync_api_key', '').strip()
     if _new_key:
         set_setting(_cs.SETTING_KEY, _new_key)
+    from utils import remote_commands as _rc
+    set_setting(_rc.SETTING_REMOTE_APPROVAL,
+                '1' if form.get('remote_payroll_approval') in ('1', 'on', 'true') else '0')
     if _enable:
         _cs.wake()          # يبدأ الرفعُ التلقائيّ الآن، لا بعد نومة الخيط
 

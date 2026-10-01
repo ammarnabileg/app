@@ -53,6 +53,11 @@
                 {% endif %}
             </div>
         </div>
+        <form method="POST" action="{{ url_for('attendance.run_device_autosync_now') }}" class="m-0">
+            <button type="submit" class="btn btn-sm btn-primary" {{ 'disabled' if autosync.busy }}>
+                <i class="fas fa-rotate me-1"></i> مزامنة الآن
+            </button>
+        </form>
         <form method="POST" action="{{ url_for('attendance.toggle_device_autosync') }}" class="m-0">
             <input type="hidden" name="enabled" value="{{ '0' if autosync.enabled else '1' }}">
             <button type="submit" class="btn btn-sm {{ 'btn-outline-secondary' if autosync.enabled else 'btn-success' }}">
@@ -60,6 +65,43 @@
             </button>
         </form>
     </div>
+    {% if autosync.history %}
+    <details class="border-top" id="deviceSyncHistory">
+        <summary class="px-3 py-2 small fw-bold" style="cursor:pointer">
+            سجلّ المزامنة ({{ autosync.history|length }} آخر تشغيل)
+        </summary>
+        <div class="table-responsive">
+            <table class="table table-sm table-striped mb-0 small align-middle">
+                <thead>
+                    <tr>
+                        <th>الوقت</th>
+                        <th>من</th>
+                        <th>بصمات جديدة</th>
+                        <th>الأجهزة</th>
+                        <th>موظّفون أُضيفوا</th>
+                        <th>النتيجة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for h in autosync.history %}
+                    <tr>
+                        <td><bdi>{{ (h.finished_at or h.started_at or '')[:16] }}</bdi></td>
+                        <td>{{ h.source_label }}</td>
+                        <td>{{ h.punches_new }}</td>
+                        <td>{% if h.devices_total %}<bdi>{{ h.devices_ok }}/{{ h.devices_total }}</bdi>{% else %}—{% endif %}</td>
+                        <td>{{ h.users_added }}</td>
+                        <td>
+                            {% if h.ok %}<span class="badge bg-success">تمّت</span>
+                            {% else %}<span class="badge bg-danger">فشل</span>{% endif %}
+                            <span class="text-muted">{{ h.message or '' }}</span>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+    {% endif %}
 </div>
 {% endif %}
 

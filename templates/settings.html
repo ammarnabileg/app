@@ -154,6 +154,33 @@
                             <b dir="ltr">client.onz.one</b>.
                         </div>
 
+                        <div class="form-check form-switch p-2 mt-2 bg-light rounded border">
+                            <input class="form-check-input ms-0 me-2" type="checkbox"
+                                   id="remoteApprovalSwitch" name="remote_payroll_approval" value="1"
+                                   {% if cloud.remote_approval %}checked{% endif %}>
+                            <label class="form-check-label fw-bold" for="remoteApprovalSwitch">
+                                السماح باعتماد كشف الرواتب من بوّابة الشركة
+                            </label>
+                            <div class="form-text mt-1 text-muted" style="font-size:.78rem">
+                                صاحبُ الشركة يرى مسودّةَ الكشف على <b dir="ltr">onz.one/portal</b>
+                                ويعتمدها من هاتفه، والبرنامجُ هنا يُنفّذ الاعتماد خلال دقائق —
+                                ما دام الكشفُ لم يتغيّر بعد أن رآه. ومنها أيضًا «مزامنة الأجهزة الآن».
+                            </div>
+                            {% if cloud.commands %}
+                            <ul class="small mb-0 mt-2 ps-3" id="remoteCommandsLog">
+                                {% for c in cloud.commands %}
+                                <li>
+                                    <bdi>{{ (c.received_at or '')[:16] }}</bdi> —
+                                    {{ 'اعتماد كشف' if c.type == 'approve_payroll' else ('مزامنة الأجهزة' if c.type == 'device_sync' else c.type) }}:
+                                    {% if c.done_at is none %}<span class="text-muted">جارٍ…</span>
+                                    {% elif c.ok %}<span class="text-success">{{ c.message }}</span>
+                                    {% else %}<span class="text-danger">{{ c.message }}</span>{% endif %}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                            {% endif %}
+                        </div>
+
                         <hr>
                         {# حالُ الرفع التلقائيّ: الزرُّ يعمل ولو كان مُطفأً، فنجاحُه وحده
                            لا يعني أنّ البرنامج يرفع وحده. #}
@@ -659,7 +686,7 @@
         if (!run) return;
         run.addEventListener('submit', function () {
             var names = ['cloud_sync_form_present', 'cloud_sync_enabled', 'cloud_sync_url',
-                         'cloud_sync_client_id', 'cloud_sync_api_key'];
+                         'cloud_sync_client_id', 'cloud_sync_api_key', 'remote_payroll_approval'];
             names.forEach(function (n) {
                 var src = document.querySelector('[name="' + n + '"]:not([form])');
                 if (!src || (src.type === 'checkbox' && !src.checked)) return;

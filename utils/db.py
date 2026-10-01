@@ -1838,6 +1838,40 @@ def init_db():
     except Exception as e:
         print(f"RBAC Seeding Error: {e}")
 
+    # سجلُّ مزامنة أجهزة البصمة (٢.٢٩): كلُّ تشغيلٍ — تلقائيٍّ كلَّ ساعة،
+    # أو من الزرّ، أو من بوّابة الشركة — بما جرى فيه. يُرفع إلى السحابة
+    # فيراه صاحبُ الشركة من onz.one/portal.
+    # وأوامرُ البوّابة: ما طُلب من onz.one (مزامنة الآن، اعتمادُ كشف)
+    # وما جرى فيه — يُعاد إلى البوّابة نتيجةً، ويبقى هنا أثرًا.
+    try:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS device_sync_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT,
+                finished_at TEXT,
+                source TEXT,
+                punches_new INTEGER DEFAULT 0,
+                devices_ok INTEGER DEFAULT 0,
+                devices_total INTEGER DEFAULT 0,
+                users_added INTEGER DEFAULT 0,
+                ok INTEGER DEFAULT 1,
+                message TEXT
+            )''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS remote_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                command_id TEXT UNIQUE NOT NULL,
+                type TEXT,
+                payload TEXT,
+                received_at TEXT,
+                done_at TEXT,
+                ok INTEGER,
+                message TEXT,
+                reported INTEGER DEFAULT 0
+            )''')
+    except Exception as e:
+        print(f'device sync log / remote commands tables failed: {e}')
+
     # دفتر التغييرات للرفع السحابي. يُثبَّت في كل إقلاع لأن استعادة نسخةٍ
     # احتياطية تُسقط الجدول ومُشغِّلاته معًا، فلولا إعادةُ التثبيت لصمت
     # الدفتر عن كل تغييرٍ بعدها بلا ما يُنبّه.

@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_babel import gettext
 import threading
+import time
 import json
 from utils.db import get_db_connection
 from utils.db import get_db_connection
@@ -302,10 +303,12 @@ def sync_fingerprint():
         # القفلُ نفسُه الذي تمرّ به المزامنةُ التلقائيّة (كلَّ ساعة): مزامنتان
         # معًا تتداخل سجلّاتهما والجهازُ مُعطَّلٌ أثناء الأولى.
         from utils import device_autosync
+        started = time.strftime('%Y-%m-%d %H:%M:%S')
         result = device_autosync.run_punches()
         if result is None:
             return jsonify({'success': False, 'busy': True,
                             'message': 'مزامنةٌ جارية الآن (تلقائيّة أو من مستخدمٍ آخر) — حاول بعد دقيقة.'})
+        device_autosync.log_run('manual', started, result, device_autosync.SKIP)
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'message': f'خطأ: {str(e)}'})
@@ -319,7 +322,12 @@ def sync_users():
     if device_autosync.busy():
         return jsonify({'success': False, 'busy': True,
                         'message': 'مزامنةٌ جارية الآن (تلقائيّة أو من مستخدمٍ آخر) — حاول بعد دقيقة.'})
-    thread = threading.Thread(target=device_autosync.run_users, daemon=True)
+    def _users_logged():
+        started = time.strftime('%Y-%m-%d %H:%M:%S')
+        res = device_autosync.run_users()
+        if res is not None:
+            device_autosync.log_run('manual', started, device_autosync.SKIP, res)
+    thread = threading.Thread(target=_users_logged, daemon=True)
     thread.start()
     
     return jsonify({
@@ -339,6 +347,19 @@ def toggle_device_autosync():
     set_setting(device_autosync.SETTING_ENABLED, '1' if on else '0')
     flash('المزامنة التلقائيّة كلَّ ساعة: ' + ('مفعّلة' if on else 'متوقّفة'), 'success')
     return redirect(url_for('attendance.fingerprint'))
+
+@attendance_bp.route('/fingerprint/autosync/run', methods=['POST'])
+@login_required
+@require_permission('attendance.devices')
+def run_device_autosync_now():
+    """«مزامنة الآن» من بطاقة المزامنة التلقائيّة: البصماتُ والمستخدمون معًا، في الخلفيّة."""
+    from utils import device_autosync
+    if device_autosync.start_in_background('manual'):
+        flash('بدأت المزامنة الآن (البصمات ثم المستخدمون) — حدّث الصفحة بعد دقيقة لترى نتيجتها في السجلّ.', 'success')
+    else:
+        flash('مزامنةٌ جارية الآن (تلقائيّة أو من مستخدمٍ آخر) — حدّث الصفحة بعد دقيقة.', 'warning')
+    return redirect(url_for('attendance.fingerprint'))
+
 
 @attendance_bp.route('/fingerprint/test_duplicate_prevention')
 @login_required

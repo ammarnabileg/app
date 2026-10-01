@@ -129,4 +129,4 @@ def test_the_page_shows_the_hourly_status_and_a_switch():
     src = open(os.path.join(ROOT, 'app.py'), encoding='utf-8').read()
     assert 'device_autosync import background_worker' in src
     routes = open(os.path.join(ROOT, 'routes', 'attendance_routes.py'), encoding='utf-8').read()
-    assert 'device_autosync.run_punches()' in routes and 'target=device_autosync.run_users' in routes
+    assert 'device_autosync.run_punches()' in routes and 'device_autosync.run_users()' in routes
