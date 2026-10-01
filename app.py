@@ -357,6 +357,15 @@ def inject_plan_features():
     return {'has_feature': has_feature}
 
 
+@app.after_request
+def sign_response(resp):
+    """كلُّ ردٍّ يقول إنه من هذا البرنامج — فيعرف المُشغِّلُ أنّ مَن يردّ على
+    المنفذ هو لا برنامجٌ آخر حجزه قبله (انظر utils/port_check.py)."""
+    from utils.version_info import CURRENT_VERSION
+    resp.headers['X-HR-System'] = CURRENT_VERSION
+    return resp
+
+
 @app.route('/')
 def index():
     return redirect(url_for('main.index'))

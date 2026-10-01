@@ -185,19 +185,42 @@ def get_public_ip():
         return "N/A"
 
 # ================== SERVER ==================
-def start_server(port, status_cb):
+def start_server(port, status_cb, lang="ar"):
+    """يبدأ الخادم ولا يقول «نجح» إلا حين يردّ هذا البرنامجُ على المنفذ.
+
+    كان النجاحُ يُعلن لحظةَ بدء الخيط: منفذٌ مشغولٌ ببرنامجٍ آخر يُفشل
+    الحجزَ بصمت، والمتصفّحُ يفتح على ذلك البرنامج («Not Found»).
+    انظر utils/port_check.py."""
+    from utils import port_check
     try:
+        if not port_check.port_free(port):
+            status_cb(False, port_check.busy_message(port, port_check.port_owner(port), lang))
+            return
         init_db()
         os.environ["APP_PORT"] = str(port)
         os.environ["APP_HOST"] = "0.0.0.0"
         t = threading.Thread(target=start_flask, daemon=True)
         t.start()
-        status_cb(True)
+        res = port_check.wait_until_ours(port, timeout=45, alive=t.is_alive)
+        if res["ours"]:
+            status_cb(True)
+        elif res["answering"]:
+            status_cb(False, port_check.busy_message(port, port_check.port_owner(port), lang))
+        else:
+            status_cb(False, (f"الخادم لم يردّ على المنفذ {port}. راجع error.log في مجلد البيانات."
+                              if lang == "ar" else
+                              f"The server did not answer on port {port}. See error.log in the data folder."))
     except Exception as e:
         status_cb(False, str(e))
 
-def start_adms_process(port, status_cb):
+def start_adms_process(port, status_cb, lang="ar"):
+    from utils import port_check
     try:
+        # منفذُ ADMS هو ما تدفع إليه أجهزةُ البصمة: حجزُه ببرنامجٍ آخر يعني
+        # أن البصمات لا تصل — فيُقال ذلك بدل «بنجاح».
+        if not port_check.port_free(port):
+            status_cb(False, port_check.busy_message(port, port_check.port_owner(port), lang))
+            return
         # Load Oracle config to Env so ADMS reads it properly
         cfg = load_config()
         os.environ["ORACLE_HOST"] = str(cfg.get("oracle_host", "localhost"))
@@ -210,16 +233,24 @@ def start_adms_process(port, status_cb):
         # Import dynamically to avoid early init issues
         from adms_server import app as adms_app
         os.environ["ADMS_PORT"] = str(port)
+        failed = []
         
         def run_adms():
             try:
                 adms_app.run(host='0.0.0.0', port=port, use_reloader=False)
-            except Exception as e:
-                status_cb(False, str(e))
+            except BaseException as e:
+                failed.append(e)
         
         t = threading.Thread(target=run_adms, daemon=True)
         t.start()
-        status_cb(True)
+        # يُنتظر حتى يقبل المنفذُ اتصالًا — أو يموت الخيط.
+        deadline = time.time() + 15
+        while time.time() < deadline and t.is_alive() and port_check.port_free(port):
+            time.sleep(0.3)
+        if failed or not t.is_alive():
+            status_cb(False, str(failed[0]) if failed else "ADMS stopped")
+        else:
+            status_cb(True)
     except Exception as e:
         status_cb(False, str(e))
 
@@ -557,7 +588,7 @@ class HRLauncher:
                 self.server_running = False
                 if self.current_view == "home": self.root.after(0, lambda: self.update_status_ui(False, err))
                 self.log(self.t("log_fail").format(err), "ERROR")
-        threading.Timer(0.5, lambda: start_server(self.port, cb)).start()
+        threading.Timer(0.5, lambda: start_server(self.port, cb, self.lang)).start()
         threading.Thread(target=self.run_update_check, daemon=True).start()
 
     def startup_adms(self):
@@ -571,7 +602,7 @@ class HRLauncher:
                 self.adms_running = False
                 if self.current_view == "adms": self.root.after(0, lambda: self.update_adms_status_ui(False, err))
                 self.log(self.t("log_fail").format(err), "ERROR")
-        threading.Timer(0.8, lambda: start_adms_process(self.adms_port, cb)).start()
+        threading.Timer(0.8, lambda: start_adms_process(self.adms_port, cb, self.lang)).start()
 
     def run_update_check(self):
         self.log(self.t("status_starting").replace("...", "") + " (Update Check)...", "INFO")
@@ -628,6 +659,14 @@ class HRLauncher:
 
     def open_site(self):
         url = f"http://{DEFAULT_HOST}:{self.port}"
+        # لا يُفتح المتصفّحُ على برنامجٍ آخر يحجز المنفذ.
+        from utils import port_check
+        if not port_check.probe(self.port)["ours"]:
+            msg = port_check.busy_message(self.port, port_check.port_owner(self.port), self.lang) \
+                if not port_check.port_free(self.port) else \
+                ("الخادم لم يبدأ بعد." if self.lang == "ar" else "The server has not started yet.")
+            self.log(msg, "ERROR")
+            return
         self.log(self.t("log_browser").format(url))
         webbrowser.open(url)
 
