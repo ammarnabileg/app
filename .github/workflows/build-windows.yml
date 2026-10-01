@@ -1,6 +1,7 @@
 # بناءُ برنامج الويندوز وحزمةِ التحديث على جهاز ويندوز حقيقيّ.
 #
-# يُشغَّل يدويًّا (Actions ← Build Windows ← Run workflow). المخرجات:
+# يُشغَّل وحده عند دفع فرع إصدار (v2.25.0.0 مثلًا)، أو يدويًّا
+# (Actions ← Build Windows ← Run workflow). المخرجات:
 #   HRSystem-<الإصدار>.zip         حزمةُ التحديث كما يطلبها publish_version.py
 #   HRSystem-<الإصدار>.sha256.txt  بصمتُها — تُقارَن بعد رفعها إلى رابط التنزيل
 #
@@ -10,6 +11,8 @@ name: Build Windows
 
 on:
   workflow_dispatch:
+  push:
+    branches: ['v*.*.*.*']
 
 jobs:
   build:
