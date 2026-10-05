@@ -379,6 +379,9 @@
     if (rep.jumps) { rows.push(['قفزات غير ممكنة', rep.jumps]); }
     if (s.missed && s.missed.length) { rows.push(['لم تُزَر', s.missed.join('، ')]); }
 
+    // قائمةُ الزيارات والصور التي فتحها المدير تبقى مع التحديث التلقائيّ (كلَّ
+    // ٢٠ ثانية) — كانت تُمحى فيعيد تحميلها كلَّ مرّة.
+    var keptVisits = quiet && $('dVisits') ? $('dVisits') : null;
     $('dBody').innerHTML = rows.map(function (kv) {
       return '<div class="kv"><span>' + esc(kv[0]) + '</span><b>' + esc(kv[1]) + '</b></div>';
     }).join('') +
@@ -387,6 +390,7 @@
       '<div id="dVisits" class="mt-2"></div>';
 
     $('dRoute').addEventListener('click', function () { loadRoute(id); });
+    if (keptVisits) { $('dVisits').replaceWith(keptVisits); }
     if (!quiet) { routeLayer.clearLayers(); }
   }
 

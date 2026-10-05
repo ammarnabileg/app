@@ -771,6 +771,17 @@
       .then(function (j) {
         scWeekdays = j.weekdays || [];
         scGrid = j.grid || {};
+        // محطةٌ موقوفة أو خارج مناطقه لا تظهر في الشبكة — فلا تُرسَل مع الحفظ أيضًا.
+        // كانت تبقى مخفيّةً وتُرسَل، فيُرفض الحفظُ «خارج مناطقه» ولا شيءَ يُزال.
+        var okIds = {};
+        scStations.forEach(function (s) { okIds[s.id] = true; });
+        var dropped = 0;
+        Object.keys(scGrid).forEach(function (wd) {
+          var before = (scGrid[wd] || []).length;
+          scGrid[wd] = (scGrid[wd] || []).filter(function (x) { return okIds[x.station_id]; });
+          dropped += before - scGrid[wd].length;
+        });
+        if (dropped) { note('شِلنا ' + dropped + ' محطة موقوفة أو خارج مناطقه من الجدول — احفظ لتثبيت ده', false); }
         paintSched();
         paintHistory(j.history || []);
       });
@@ -864,7 +875,14 @@
   $('scPreview').addEventListener('click', function () {
     var emp = $('scEmp').value;
     if (!emp) { return note('اختر مندوبًا', false); }
-    fetch('/api/field/schedule/preview?employee_id=' + emp)
+    // المعاينةُ لما في الشاشة الآن (قبل الحفظ)، لا للمحفوظ.
+    var draft = {};
+    Object.keys(scGrid).forEach(function (wd) {
+      draft[wd] = (scGrid[wd] || []).map(function (x) { return x.station_id; });
+    });
+    fetch('/api/field/schedule/preview?employee_id=' + emp +
+          '&starts_on=' + encodeURIComponent($('scStart').value || '') +
+          '&days=' + encodeURIComponent(JSON.stringify(draft)))
       .then(function (r) { return r.json(); })
       .then(function (j) {
         var host = $('scPrev');
@@ -874,8 +892,9 @@
           el.className = 'st-row';
           el.innerHTML = '<div class="grow"><b>' + esc(d.weekday) + ' — ' +
             esc(d.date) + '</b><small>' +
-            (d.stations.length ? esc(d.stations.join('، '))
-                               : '<span class="text-muted">لا محطات</span>') +
+            (d.off ? '<span class="text-muted">إجازة / عطلة — لا خطة</span>'
+             : d.stations.length ? esc(d.stations.join('، '))
+                                 : '<span class="text-muted">لا محطات</span>') +
             '</small></div>';
           host.appendChild(el);
         });

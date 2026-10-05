@@ -71,6 +71,11 @@
     تُقفل الشاشة، وما ينقطع يظهر لمديرك <b>فجوةً معلَّمة</b> في خط السير.
   </div>
 
+  <div class="warn" id="gpsWarn" style="display:none">
+    <b>الموقع مقفول.</b> الرحلة مش بتتسجّل من غير إذن الموقع — افتح إعدادات المتصفّح
+    واسمح لهذا الموقع بالوصول لموقعك، وبعدين ارجع للصفحة.
+  </div>
+
   <button id="btnStart" class="btn btn-primary w-100 mb-2 py-3">ابدأ الرحلة</button>
   <button id="btnStop" class="btn btn-outline-danger w-100 mb-3" style="display:none">
     أنهِ الرحلة
@@ -97,7 +102,8 @@
   'use strict';
 
   var tripId = null, plan = [], watchId = null, wakeLock = null;
-  var buffer = [], lastFix = null, flushTimer = null;
+  var buffer = [], lastFix = null, flushTimer = null, sending = false;
+  var BATCH = 500, BUF_KEY = 'onz_trip_buffer';
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -110,30 +116,52 @@
     b._t = setTimeout(function () { b.style.display = 'none'; }, 5000);
   }
 
+  // النقاطُ غير المُرسلة تُحفظ في الهاتف: إعادةُ تحميل الصفحة أو إغلاقُ النظام
+  // للتطبيق كانا يمحوانها من الذاكرة.
+  function saveBuffer() {
+    try { localStorage.setItem(BUF_KEY, JSON.stringify({ trip: tripId, points: buffer.slice(-5000) })); }
+    catch (e) { /* ممتلئ أو ممنوع — تبقى في الذاكرة */ }
+  }
+  function loadBuffer(forTrip) {
+    try {
+      var o = JSON.parse(localStorage.getItem(BUF_KEY) || 'null');
+      if (o && o.trip === forTrip && Array.isArray(o.points)) { buffer = o.points.concat(buffer); }
+    } catch (e) { /* تالف — يُتجاهل */ }
+  }
+
   // ---------------------------------------------------------- الموقع
 
   function onFix(pos) {
     var c = pos.coords;
+    // الزمن رقمًا (ميلّي ثانية) لا نصًّا بتوقيت غرينتش: الخادمُ يحوّله لتوقيت
+    // الجهاز. كان `toISOString()` يجعل كلَّ نقطةٍ متأخّرةً ثلاث ساعات.
     lastFix = {
       lat: c.latitude, lon: c.longitude, accuracy: c.accuracy,
-      speed: c.speed, heading: c.heading,
-      at: new Date(pos.timestamp).toISOString().slice(0, 19).replace('T', ' ')
+      speed: c.speed, heading: c.heading, t: pos.timestamp
     };
+    $('gpsWarn').style.display = 'none';
     buffer.push(lastFix);
+    if (buffer.length % 10 === 0) { saveBuffer(); }
     $('sPoints').textContent = (parseInt($('sPoints').textContent, 10) || 0) + 1;
   }
 
   function onFixError(err) {
+    if (err && err.code === 1) {
+      // الإذنُ مرفوض: تنبيهٌ ثابت لا رسالةٌ تختفي — والرحلةُ لا تُسجّل شيئًا.
+      $('gpsWarn').style.display = 'block';
+      $('tripState').textContent = 'الرحلة متوقّفة — الموقع مقفول';
+      return;
+    }
     toast('تعذّرت قراءة الموقع: ' + (err.message || err.code), false);
   }
 
   function startWatch() {
     if (!navigator.geolocation) { toast('هذا الجهاز لا يدعم تحديد الموقع', false); return; }
+    if (watchId !== null) { return; }
     watchId = navigator.geolocation.watchPosition(onFix, onFixError, {
       enableHighAccuracy: true, maximumAge: 0, timeout: 20000
     });
-    // الدفع على دفعات لا نقطةً نقطة: شبكة المندوب متقطّعة، والدفعة
-    // تصل كاملةً أو تُعاد كاملةً.
+    // الدفع على دفعات لا نقطةً نقطة: شبكة المندوب متقطّعة.
     flushTimer = setInterval(flush, 20000);
   }
 
@@ -142,19 +170,38 @@
     if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
   }
 
-  function flush() {
-    if (!tripId || !buffer.length) { return Promise.resolve(); }
-    var batch = buffer.slice();
-    return fetch('/portal/api/field/track', {
+  function postJSON(url, body, ms) {
+    var ctl = window.AbortController ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, ms || 30000) : null;
+    return fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trip_id: tripId, points: batch })
-    }).then(function (r) { return r.json(); })
+      body: JSON.stringify(body), signal: ctl ? ctl.signal : undefined
+    }).then(function (r) { if (timer) { clearTimeout(timer); } return r.json(); },
+            function (e) { if (timer) { clearTimeout(timer); } throw e; });
+  }
+
+  // دفعةٌ واحدة في وقتٍ واحد، وبحدّ الخادم (٥٠٠)، ولا يُمحى إلا ما قال الخادمُ
+  // إنه نظر فيه (`processed`). كانت دفعتان متزامنتان تكرّران نقاطًا وتمحوان
+  // غيرها، ودفعةُ ألف نقطة بعد انقطاع يُقبل نصفُها ويُمحى كلُّها.
+  function flush() {
+    if (!tripId || !buffer.length || sending) { return Promise.resolve(); }
+    sending = true;
+    var batch = buffer.slice(0, BATCH);
+    return postJSON('/portal/api/field/track', { trip_id: tripId, points: batch })
       .then(function (j) {
-        // لا تُحذف النقاط إلا بعد أن يؤكّد الخادم استلامها: الحذف عند
-        // الإرسال يفقد دفعةً كاملة كلّما انقطعت الشبكة لحظة.
-        if (j && j.success) { buffer.splice(0, batch.length); }
+        if (j && j.success) {
+          buffer.splice(0, Math.min(batch.length, j.processed || batch.length));
+        } else if (j && (j.code === 'stale' || j.code === 'ended')) {
+          // رحلةُ يومٍ سابق أو منتهية: تبدأ رحلةُ اليوم والنقاطُ تبقى لها.
+          return startTrip(true);
+        }
       })
-      .catch(function () { /* تبقى في الذاكرة للدفعة التالية */ });
+      .catch(function () { /* تبقى في الهاتف للدفعة التالية */ })
+      .then(function () {
+        sending = false;
+        saveBuffer();
+        if (buffer.length >= BATCH) { return flush(); }
+      });
   }
 
   // ------------------------------------------------- إبقاء الشاشة حيّة
@@ -225,19 +272,41 @@
 
   // ---------------------------------------------------------- الزيارة
 
+  // موقعٌ للدخول والخروج. داخل المحلّات تفشل القراءةُ الدقيقة كثيرًا خلال ٢٠
+  // ثانية — فيُستعمل آخرُ موقعٍ قرأه التتبّعُ إن كان عمرُه دقيقةً أو أقلّ، ثم
+  // قراءةٌ أقلُّ دقّة. والخادمُ يفحص المسافةَ بالدقّة المُعلنة في الحالين.
   function freshFix() {
-    return new Promise(function (resolve, reject) {
-      if (!navigator.geolocation) { return reject(new Error('لا خدمة موقع')); }
-      navigator.geolocation.getCurrentPosition(function (p) {
-        resolve({ lat: p.coords.latitude, lon: p.coords.longitude,
-                  accuracy: p.coords.accuracy });
-      }, function (e) { reject(new Error('تعذّر تحديد موقعك: ' + e.message)); },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    function read(high, ms) {
+      return new Promise(function (resolve, reject) {
+        navigator.geolocation.getCurrentPosition(function (p) {
+          resolve({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy });
+        }, reject, { enableHighAccuracy: high, maximumAge: high ? 0 : 30000, timeout: ms });
+      });
+    }
+    if (!navigator.geolocation) { return Promise.reject(new Error('لا خدمة موقع')); }
+    return read(true, 15000).catch(function (e) {
+      if (e && e.code === 1) { $('gpsWarn').style.display = 'block'; throw new Error('الموقع مقفول — اسمح للموقع من إعدادات المتصفّح'); }
+      if (lastFix && Date.now() - lastFix.t < 60000) {
+        return { lat: lastFix.lat, lon: lastFix.lon, accuracy: lastFix.accuracy };
+      }
+      return read(false, 10000).catch(function () {
+        throw new Error('تعذّر تحديد موقعك — اقترب من باب المحل أو شبّاك وجرّب تاني');
+      });
     });
   }
 
   function visitStep(station, kind) {
     var fix, token;
+    // أقلُّ مدّة وقوف تُفحص قبل الكاميرا لا بعد الصورة.
+    if (kind === 'out' && station.min_minutes && station.check_in_at) {
+      var inAt = new Date(String(station.check_in_at).replace(' ', 'T'));
+      var mins = (Date.now() - inAt.getTime()) / 60000;
+      if (!isNaN(mins) && mins < station.min_minutes) {
+        toast('أقلّ مدة للوقوف ' + station.min_minutes + ' دقيقة — بقي ' +
+              (Math.floor(station.min_minutes - mins) + 1), false);
+        return Promise.resolve();
+      }
+    }
     return freshFix().then(function (f) {
       fix = f;
       // الرمز يُطلب الآن لا عند فتح الصفحة: عمره قصير عمدًا.
@@ -266,10 +335,13 @@
                    { method: 'POST', body: fd }).then(function (r) { return r.json(); });
     }).then(function (j) {
       toast(j.message, j.success);
-      if (j.success) { return refreshPlan(); }
     }).catch(function (e) {
       closeCamera();
       toast(e.message || 'تعذّر إتمام الخطوة', false);
+    }).then(function () {
+      // الخطّةُ تُحدَّث بعد كلّ محاولة: لو نجح الدخولُ وضاع ردُّه كان الزرُّ
+      // يبقى «دخول» والإعادةُ تُرفض «سُجّلت زيارة» — ولا «خروج» إلّا بإعادة تحميل.
+      return refreshPlan();
     });
   }
 
@@ -292,6 +364,8 @@
         btn = '<button class="btn btn-sm btn-primary" data-k="in">دخول</button>';
       } else if (s.state === 'inside') {
         btn = '<button class="btn btn-sm btn-warning" data-k="out">خروج</button>';
+      } else if (s.state === 'unclosed') {
+        btn = '<span class="small text-danger">بلا خروج</span>';
       }
       el.innerHTML = '<div class="st-dot">' + label + '</div>' +
         '<div class="st-body"><h4></h4><small></small></div><div>' + btn + '</div>';
@@ -319,49 +393,72 @@
   function refreshPlan() {
     return fetch('/portal/api/field/plan').then(function (r) { return r.json(); })
       .then(function (j) {
-        if (j.success) { plan = j.plan || []; applySummary(j.summary); paint(); }
-      });
+        if (!j.success) { return; }
+        plan = j.plan || []; applySummary(j.summary); paint();
+        // رحلةُ اليوم مفتوحةٌ على الخادم والصفحةُ لا تعرفها (أُعيد تحميلُها، أو
+        // أغلق النظامُ التطبيق): تُستأنف وحدها بدل «لم تبدأ بعد» وتتبّعٍ متوقّف.
+        if (j.trip && !tripId) { resumeTrip(j.trip.id); }
+      }).catch(function () { /* بلا شبكة — تبقى الشاشة كما هي */ });
   }
 
-  // ----------------------------------------------------------- البدء
+  function showRunning(resumed) {
+    $('btnStart').style.display = 'none';
+    $('btnStop').style.display = 'block';
+    $('tripState').textContent = resumed ? 'الرحلة مستأنَفة' : 'الرحلة جارية';
+  }
 
-  $('btnStart').addEventListener('click', function () {
-    fetch('/portal/api/field/start', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_uuid: deviceId() })
-    }).then(function (r) { return r.json(); }).then(function (j) {
+  function resumeTrip(id) {
+    tripId = id;
+    loadBuffer(id);
+    showRunning(true);
+    startWatch();
+    keepAwake();
+    flush();
+  }
+
+  function startTrip(silent) {
+    return postJSON('/portal/api/field/start', { device_uuid: deviceId() }).then(function (j) {
       if (!j.success) { return toast(j.message, false); }
       tripId = j.trip_id;
+      loadBuffer(tripId);
       plan = j.plan || [];
       applySummary(j.summary);
       paint();
-      $('btnStart').style.display = 'none';
-      $('btnStop').style.display = 'block';
-      $('tripState').textContent = j.resumed ? 'الرحلة مستأنَفة' : 'الرحلة جارية';
+      showRunning(j.resumed);
       startWatch();
       keepAwake();
-      toast('الرحلة بدأت — أبقِ الشاشة مفتوحة');
-    });
-  });
+      if (!silent) { toast('الرحلة بدأت — أبقِ الشاشة مفتوحة'); }
+    }).catch(function () { toast('مفيش اتصال — حاول تاني', false); });
+  }
+
+  $('btnStart').addEventListener('click', function () { startTrip(false); });
+
+  function endTrip(force) {
+    return postJSON('/portal/api/field/stop', { trip_id: tripId, reason: 'manual', force: !!force });
+  }
 
   $('btnStop').addEventListener('click', function () {
-    flush().then(function () {
-      return fetch('/portal/api/field/stop', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trip_id: tripId, reason: 'manual' })
-      }).then(function (r) { return r.json(); });
+    flush().then(function () { return endTrip(false); }).then(function (j) {
+      if (j && j.code === 'open_visit') {
+        if (!window.confirm(j.message + '\n\nتنهي الرحلة برضه؟')) { return null; }
+        return endTrip(true);
+      }
+      return j;
     }).then(function (j) {
+      if (!j) { return; }
+      if (!j.success) { return toast(j.message || 'تعذّر إنهاء الرحلة', false); }
       stopWatch();
       if (wakeLock) { wakeLock.release(); wakeLock = null; }
       tripId = null;
+      buffer = []; saveBuffer();
       $('btnStart').style.display = 'block';
       $('btnStop').style.display = 'none';
       $('tripState').textContent = 'انتهت الرحلة';
-      applySummary(j && j.summary);
-      if (j && j.summary && j.summary.missed && j.summary.missed.length) {
+      applySummary(j.summary);
+      if (j.summary && j.summary.missed && j.summary.missed.length) {
         toast('لم تُزَر: ' + j.summary.missed.join('، '), false);
       }
-    });
+    }).catch(function () { toast('مفيش اتصال — الرحلة لسه شغّالة، جرّب تاني', false); });
   });
 
   function deviceId() {
@@ -377,10 +474,13 @@
   }
 
   // آخر فرصة لدفع ما في الذاكرة قبل أن تُغلق الصفحة.
+  // والنقاطُ تبقى محفوظةً في الهاتف: الخادمُ لا يكتب المكرّر، فما وصل هنا
+  // ثم أُعيد بعد الفتح التالي لا يتكرّر.
   window.addEventListener('pagehide', function () {
+    saveBuffer();
     if (tripId && buffer.length && navigator.sendBeacon) {
       navigator.sendBeacon('/portal/api/field/track', new Blob(
-        [JSON.stringify({ trip_id: tripId, points: buffer })],
+        [JSON.stringify({ trip_id: tripId, points: buffer.slice(0, BATCH) })],
         { type: 'application/json' }));
     }
   });

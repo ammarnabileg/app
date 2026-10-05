@@ -84,6 +84,17 @@ def _f(v):
         return None
 
 
+def _next_day(day):
+    """اليومُ الذي بعده — حدُّ نطاقٍ يستعمل فهرس (employee_id, recorded_at).
+
+    `DATE(recorded_at) = ?` لا يستعمل فهرسًا: كلُّ سؤالٍ كان يمسح جدولَ النقاط كلَّه."""
+    from datetime import timedelta
+    try:
+        return (datetime.strptime(str(day)[:10], '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+    except ValueError:
+        return '9999-12-31'
+
+
 # ====================================================== شاشة المندوب
 
 @field_bp.route('/portal/trip')
@@ -142,15 +153,23 @@ def api_track():
     trip_id = data.get('trip_id')
 
     # الرحلة لصاحب الجلسة: رقم رحلةٍ من طلبٍ يعني الكتابة في خط غيرك.
-    trip = conn.execute('SELECT id, employee_id, ended_at FROM field_trips WHERE id = ?',
+    trip = conn.execute('SELECT id, employee_id, ended_at, trip_date FROM field_trips WHERE id = ?',
                         (trip_id,)).fetchone()
     if not trip or trip['employee_id'] != emp_id:
         return jsonify({'success': False, 'message': 'رحلة غير معروفة'}), 404
     if trip['ended_at']:
-        return jsonify({'success': False, 'message': 'الرحلة منتهية'}), 400
+        return jsonify({'success': False, 'code': 'ended', 'message': 'الرحلة منتهية'}), 400
+    if trip['trip_date'] != datetime.now().strftime('%Y-%m-%d'):
+        # رحلةُ أمس المفتوحة لا تأخذ نقاط اليوم: الشاشةُ تبدأ رحلةَ اليوم.
+        field.close_stale(conn, emp_id)
+        return jsonify({'success': False, 'code': 'stale', 'message': 'رحلة يوم سابق — ابدأ رحلة اليوم'}), 400
 
-    n = field.add_points(conn, trip_id, emp_id, data.get('points'))
-    return jsonify({'success': True, 'accepted': n})
+    points = data.get('points') if isinstance(data.get('points'), list) else []
+    n = field.add_points(conn, trip_id, emp_id, points)
+    # `processed`: كم نقطةً نُظر فيها (مقبولةً أو مرفوضة) — يمحوها الهاتفُ من
+    # ذاكرته ويُبقي الباقي. كان يمحو الدفعةَ كلّها والخادمُ لا يقرأ إلّا أوّل ٥٠٠.
+    return jsonify({'success': True, 'accepted': n,
+                    'processed': min(len(points), field.MAX_POINTS_PER_BATCH)})
 
 
 @field_bp.route('/portal/api/field/stop', methods=['POST'])
@@ -166,6 +185,13 @@ def api_stop():
     if not trip or trip['employee_id'] != emp_id:
         return jsonify({'success': False, 'message': 'رحلة غير معروفة'}), 404
 
+    # إنهاءُ الرحلة وهو داخل محطة: تبقى الزيارةُ بلا خروج — يُنبَّه أوّلًا.
+    ov = field.open_visit(conn, emp_id)
+    if ov and not data.get('force'):
+        return jsonify({'success': False, 'code': 'open_visit', 'station': ov['station_name'],
+                        'message': f"لسه ما سجّلتش خروج من «{ov['station_name']}» — "
+                                   'لو أنهيت الرحلة دلوقتي الزيارة هتتحسب بلا خروج.'}), 409
+
     field.close_trip(conn, trip['id'], (data.get('reason') or 'manual')[:32])
     return jsonify({'success': True, 'summary': field.day_summary(conn, emp_id)})
 
@@ -179,10 +205,16 @@ def api_plan():
         return jsonify({'success': False, 'message': 'حسابك غير مرتبط بموظف'}), 400
     conn = get_db_connection()
     field.init_schema(conn)
+    field.close_stale(conn, emp_id)
+    trip = field.today_trip(conn, emp_id)
     return jsonify({'success': True,
                     'plan': field.day_plan(conn, emp_id),
                     'summary': field.day_summary(conn, emp_id),
-                    'open_visit': dict(field.open_visit(conn, emp_id) or {}) or None})
+                    'open_visit': dict(field.open_visit(conn, emp_id) or {}) or None,
+                    # رحلةُ اليوم المفتوحة: الشاشةُ تستأنفها بعد إعادة التحميل أو
+                    # بعد أن يُغلق الهاتفُ التطبيق — كانت تقول «لم تبدأ بعد» وتتوقّف.
+                    'trip': dict(trip) if trip else None,
+                    'gap_seconds': field.GAP_SECONDS})
 
 
 @field_bp.route('/portal/api/field/token', methods=['POST'])
@@ -275,6 +307,20 @@ def api_check_in():
                     (emp_id, station_id, today)).fetchone():
         return jsonify({'success': False, 'message': 'سُجّلت زيارة لهذه المحطة اليوم'}), 400
 
+    # زيارةٌ واحدة مفتوحة في وقتٍ واحد: لا يكون المندوبُ «داخل» محطتين.
+    ov = field.open_visit(conn, emp_id)
+    if ov:
+        return jsonify({'success': False, 'code': 'open_visit',
+                        'message': f"سجّل خروجك من «{ov['station_name']}» الأوّل"}), 400
+
+    # رقمُ الرحلة من الطلب يُقبل إن كان رحلةَ هذا المندوب اليوم، وإلّا رحلتُه
+    # المفتوحة — كان يُخزَّن كما وصل، فتُنسب الزيارةُ لرحلة غيره.
+    trip_row = conn.execute('SELECT id FROM field_trips WHERE id = ? AND employee_id = ? '
+                            'AND trip_date = ?', (trip_id, emp_id, today)).fetchone() if trip_id else None
+    if not trip_row:
+        trip_row = field.today_trip(conn, emp_id)
+    trip_id = trip_row['id'] if trip_row else None
+
     if lat is None or lon is None:
         return jsonify({'success': False, 'message': 'الموقع مطلوب — فعّل GPS'}), 400
 
@@ -316,6 +362,7 @@ def api_check_in():
         conn.commit()
         return jsonify({'success': False, 'message': f'تعذّر حفظ الصورة: {e}'}), 500
 
+    field.mark_visit_presence(conn, emp_id, field._parse(now), station['name'])
     conn.commit()
     return jsonify({'success': True, 'visit_id': visit_id,
                     'message': f"سُجّل الدخول إلى {station['name']} الساعة {now[11:16]}",
@@ -358,6 +405,12 @@ def api_check_out():
                         'message': f'أقلّ مدة للوقوف {visit["min_minutes"]} دقيقة — بقي {left}'}), 400
 
     distance = field.haversine(lat, lon, visit['latitude'], visit['longitude'])
+    # الخروجُ من المحطة نفسها كالدخول: كان يُقبل من أيّ مكان (٤٧ كم في التجربة)
+    # فيُسجّل المندوبُ «خروجه» من البيت ويطول وقتُ الزيارة.
+    allowed = (visit['radius_meters'] or 100) + max(0, min(accuracy, 30))
+    if distance > allowed:
+        return jsonify({'success': False,
+                        'message': f'سجّل الخروج وأنت في المحطة — أنت تبعد {int(distance)} متراً'}), 400
 
     ok, why = field.consume_token(conn, request.form.get('token'),
                                   emp_id, visit['station_id'], 'out')
@@ -443,6 +496,11 @@ def api_territories():
     field.init_schema(conn)
 
     if request.method == 'GET':
+        # حدودُ المناطق ومن يغطّيها — لشاشة الإعداد (للمسؤول). كانت تُعطى لأيّ
+        # مستخدمٍ داخلٍ للنظام، مندوبًا كان أو غيره.
+        denied = _admin_only()
+        if denied:
+            return denied
         rows = conn.execute(
             'SELECT * FROM field_territories ORDER BY is_active DESC, name').fetchall()
         out = []
@@ -517,6 +575,9 @@ def api_schedule():
 
         history = field.schedule_history(conn, emp)
         sid = request.args.get('schedule_id', type=int)
+        if sid and sid not in {h['id'] for h in history}:
+            # جدولُ موظّفٍ آخر برقمه — المتابعةُ لهذا الموظّف لا لغيره.
+            return jsonify({'success': False, 'message': 'جدول غير معروف'}), 404
         if not sid:
             day = request.args.get('date') or datetime.now().strftime('%Y-%m-%d')
             cur = field.active_schedule(conn, emp, day)
@@ -543,6 +604,10 @@ def api_schedule():
     days = d.get('days') or {}
     if not isinstance(days, dict):
         return jsonify({'success': False, 'message': 'صيغة الأيام غير صحيحة'}), 400
+    if str(starts_on)[:10] < datetime.now().strftime('%Y-%m-%d'):
+        # جدولٌ يبدأ في الماضي يُعيد كتابة خطط أيّامٍ نُفّذت وحُسب التزامُها.
+        return jsonify({'success': False,
+                        'message': 'تاريخ بداية الجدول لازم يكون النهارده أو بعده — الأيام اللي فاتت ما بتتغيّرش'}), 400
 
     # محطات خارج مناطقه لا تدخل جدوله — كالخطة اليومية تمامًا.
     terrs = {t['id'] for t in field.territories_of(conn, emp)}
@@ -583,18 +648,36 @@ def api_schedule_preview():
         return jsonify({'success': False, 'message': 'الموظف مطلوب'}), 400
 
     from datetime import timedelta
+    import json as _json
+
+    # المسودّة (ما في الشاشة ولم يُحفظ) إن أُرسلت — وإلّا الجدولُ المحفوظ. كان الزرُّ
+    # يعرض المحفوظ دائمًا، فـ«المعاينة قبل الحفظ» لا تعاين شيئًا.
+    draft, draft_from = None, None
+    if request.args.get('days'):
+        try:
+            draft = {int(k): [int(x) for x in v] for k, v in _json.loads(request.args['days']).items()}
+            draft_from = (request.args.get('starts_on') or '')[:10] or datetime.now().strftime('%Y-%m-%d')
+        except (ValueError, TypeError, AttributeError):
+            return jsonify({'success': False, 'message': 'صيغة الأيام غير صحيحة'}), 400
+    names_by_id = {r['id']: r['name'] for r in conn.execute('SELECT id, name FROM field_stations')}
+
     start = datetime.now()
     out = []
     for i in range(14):
         d = start + timedelta(days=i)
         day = d.strftime('%Y-%m-%d')
-        sched = field.active_schedule(conn, emp, day)
-        names = ([s['name'] for s in
-                  field.schedule_stations(conn, sched['id'], field.weekday_index(d))]
-                 if sched else [])
-        out.append({'date': day, 'weekday': field.WEEKDAYS[field.weekday_index(d)],
-                    'schedule_id': sched['id'] if sched else None,
-                    'stations': names})
+        wd = field.weekday_index(d)
+        if draft is not None and day >= draft_from:
+            names = [names_by_id.get(x, '?') for x in draft.get(wd, [])]
+            sid = 'draft'
+        else:
+            sched = field.active_schedule(conn, emp, day)
+            names = ([s['name'] for s in field.schedule_stations(conn, sched['id'], wd)]
+                     if sched else [])
+            sid = sched['id'] if sched else None
+        out.append({'date': day, 'weekday': field.WEEKDAYS[wd],
+                    'schedule_id': sid, 'stations': names,
+                    'off': bool(field.day_off_reason(conn, emp, day))})
     return jsonify({'success': True, 'days': out})
 
 
@@ -637,11 +720,19 @@ def api_reps():
     field.init_schema(conn)
     day = request.args.get('date') or datetime.now().strftime('%Y-%m-%d')
 
+    field.close_stale(conn)
+    day_end = _next_day(day)
+
     allowed = _visible_employee_ids(conn)
     if allowed is None:
+        # المسؤول: المناديبُ ومن له رحلةٌ أو خطّةٌ ذلك اليوم — لا كلُّ موظّفي
+        # الشركة. كان يمرّ على كلّ موظّف نشط كلَّ ٢٠ ثانية، ويولّد لكلٍّ خطّته.
         rows = conn.execute(
-            'SELECT id, name, employee_number FROM employees WHERE is_active = 1 '
-            'ORDER BY name').fetchall()
+            '''SELECT id, name, employee_number FROM employees
+               WHERE is_active = 1 AND (work_mode IN ('field', 'both')
+                  OR id IN (SELECT employee_id FROM field_trips WHERE trip_date = ?)
+                  OR id IN (SELECT employee_id FROM field_assignments WHERE visit_date = ?))
+               ORDER BY name''', (day, day)).fetchall()
     elif allowed:
         marks = ','.join('?' * len(allowed))
         rows = conn.execute(
@@ -666,9 +757,9 @@ def api_reps():
         last = conn.execute('''
             SELECT latitude, longitude, recorded_at, accuracy, speed, heading
             FROM field_track_points
-            WHERE employee_id = ? AND DATE(recorded_at) = ?
+            WHERE employee_id = ? AND recorded_at >= ? AND recorded_at < ?
             ORDER BY recorded_at DESC LIMIT 1
-        ''', (r['id'], day)).fetchone()
+        ''', (r['id'], day, day_end)).fetchone()
 
         # منذ متى لم نسمع منه؟ هذا ما يفرّق «متحرّك الآن» عن «علامة
         # على الخريطة منذ ساعتين» — ونقطةٌ قديمة تبدو كموقع حاليّ هي
@@ -693,16 +784,16 @@ def api_reps():
         # مسافة اليوم من المسار نفسه: الفجوات لا تُحسب سيرًا.
         pts = conn.execute('''
             SELECT latitude, longitude, accuracy, recorded_at FROM field_track_points
-            WHERE employee_id = ? AND DATE(recorded_at) = ? ORDER BY recorded_at
-        ''', (r['id'], day)).fetchall()
+            WHERE employee_id = ? AND recorded_at >= ? AND recorded_at < ? ORDER BY recorded_at
+        ''', (r['id'], day, day_end)).fetchall()
         _segs, stats = field.build_path([dict(p) for p in pts])
 
         open_v = conn.execute('''
             SELECT v.id, v.check_in_at, s.name FROM field_visits v
             JOIN field_stations s ON s.id = v.station_id
-            WHERE v.employee_id = ? AND v.status = 'open'
+            WHERE v.employee_id = ? AND v.status = 'open' AND DATE(v.check_in_at) = ?
             ORDER BY v.id DESC LIMIT 1
-        ''', (r['id'],)).fetchone()
+        ''', (r['id'], day)).fetchone()
 
         out.append({
             'employee_id': r['id'], 'name': r['name'],
@@ -743,8 +834,8 @@ def api_rep_day(employee_id):
 
     pts = conn.execute('''
         SELECT latitude, longitude, accuracy, recorded_at FROM field_track_points
-        WHERE employee_id = ? AND DATE(recorded_at) = ? ORDER BY recorded_at ASC
-    ''', (employee_id, day)).fetchall()
+        WHERE employee_id = ? AND recorded_at >= ? AND recorded_at < ? ORDER BY recorded_at ASC
+    ''', (employee_id, day, _next_day(day))).fetchall()
     segments, stats = field.build_path([dict(p) for p in pts])
 
     visits = conn.execute('''
@@ -836,6 +927,11 @@ def api_stations():
     field.init_schema(conn)
 
     if request.method == 'GET':
+        # محطاتُ العملاء وعناوينُهم — لشاشة الإعداد (للمسؤول). كانت تُعطى لأيّ
+        # مستخدمٍ داخلٍ للنظام. والمندوبُ يأخذ محطاتِ يومه من خطّته وحدها.
+        denied = _admin_only()
+        if denied:
+            return denied
         # ?employee_id= يعطي محطات مناطقه وحدها: الخطة تُبنى مما يخصّه،
         # لا من كل محطة في الشركة.
         emp = request.args.get('employee_id', type=int)
@@ -924,6 +1020,10 @@ def api_assignments():
         if emp:
             return jsonify({'success': True, 'date': day,
                             'plan': field.day_plan(conn, emp, day)})
+        # خططُ كلّ المناديب معًا — للمسؤول وحده (كانت لأيّ مستخدم).
+        denied = _admin_only()
+        if denied:
+            return denied
         rows = conn.execute('''
             SELECT a.*, s.name AS station_name, e.name AS employee_name
             FROM field_assignments a
@@ -945,6 +1045,9 @@ def api_assignments():
 
     if not emp or not isinstance(stations, list):
         return jsonify({'success': False, 'message': 'الموظف والمحطات مطلوبة'}), 400
+    if visit_date < datetime.now().strftime('%Y-%m-%d'):
+        # خطةُ يومٍ مضى سجلٌّ لما طُلب منه — تغييرُها يُغيّر التزامًا حُسب.
+        return jsonify({'success': False, 'message': 'خطة يوم فات ما بتتغيّرش'}), 400
 
     # محطة خارج مناطق المندوب لا تُسنَد إليه: الخطة التي لا يستطيع
     # تنفيذها تظهر في آخر اليوم «تخلّفًا» وهي ليست منه.
@@ -964,6 +1067,9 @@ def api_assignments():
     # الخطة تُستبدل لا تُضاف إليها: الإضافة تترك محطات يومٍ ملغًى قائمة.
     conn.execute('DELETE FROM field_assignments WHERE employee_id = ? AND visit_date = ?',
                  (emp, visit_date))
+    # خطةٌ فارغة قرارٌ («لا محطات اليوم») لا فراغ: بلا علامةٍ كان التوليدُ من
+    # الجدول يُعيدها كاملةً عند أوّل قراءة، فلا يقدر المسؤولُ على إلغاء يوم.
+    field.set_day_cleared(conn, emp, visit_date, not stations)
     for i, sid in enumerate(stations[:100]):
         conn.execute('''
             INSERT OR IGNORE INTO field_assignments

@@ -124,7 +124,9 @@ def test_a_batch_is_bounded(tmp_path):
     """دفعة ضخمة من جهاز واحد لا تملأ القاعدة."""
     con = _conn(tmp_path)
     trip_id, _ = field.open_trip(con, 7)
-    huge = [{'lat': 29.33, 'lon': 48.0, 'at': _t(1)}] * (field.MAX_POINTS_PER_BATCH + 200)
+    # نقاطٌ مختلفة: المتطابقةُ تُكتب مرّةً واحدة الآن (دفعةٌ أُعيد إرسالُها).
+    huge = [{'lat': 29.33 + i * 1e-5, 'lon': 48.0, 'at': _t(1)}
+            for i in range(field.MAX_POINTS_PER_BATCH + 200)]
 
     assert field.add_points(con, trip_id, 7, huge) == field.MAX_POINTS_PER_BATCH
 

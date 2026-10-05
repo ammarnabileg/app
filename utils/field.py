@@ -55,6 +55,19 @@ PHOTO_FRESH_SECONDS = 600
 MAX_PHOTO_BYTES = 6 * 1024 * 1024
 MAX_POINTS_PER_BATCH = 500
 
+# نقطةٌ دقّتُها أسوأ من هذا لا تُقبل: إشارةٌ من برج اتصالات لا من GPS،
+# وموضعُها قد يبعد كيلومترًا عن المندوب.
+MAX_POINT_ACCURACY = 500
+# وفي الخط والمسافة: ما دقّتُه أسوأ من هذا يُحفظ ولا يُرسم ولا يُعدّ.
+PATH_MAX_ACCURACY = 100
+# أقلُّ خطوةٍ تُعدّ مشيًا. ما دونها ارتجافُ إشارةٍ لمندوبٍ واقف — كان
+# مندوبٌ واقفٌ ساعةً يُحسب له ١٣ كم.
+MIN_STEP_METERS = 15
+# نقطةٌ أقدم من هذا لا تُقبل في رحلة اليوم.
+MAX_POINT_AGE_HOURS = 12
+# الحضورُ من الرحلة: الانصرافُ يتقدّم مع آخر نقطة، ولا يُكتب كلَّ ٢٠ ثانية.
+ATTENDANCE_OUT_STEP_SECONDS = 300
+
 _ARABIC_FONTS = (
     '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
     '/usr/share/fonts/truetype/freefont/FreeSerif.ttf',
@@ -196,9 +209,19 @@ SCHEMA = [
         used_at TEXT
     )''',
     'CREATE INDEX IF NOT EXISTS idx_ftp_trip ON field_track_points (trip_id, recorded_at)',
+    # يومٌ ألغى المسؤولُ خطّته عمدًا — لا يُولَّد من الجدول ثانيةً.
+    '''CREATE TABLE IF NOT EXISTS field_cleared_days (
+        employee_id INTEGER NOT NULL,
+        day TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (employee_id, day)
+    )''',
     'CREATE INDEX IF NOT EXISTS idx_fv_emp ON field_visits (employee_id, check_in_at)',
     'CREATE INDEX IF NOT EXISTS idx_fa_day ON field_assignments (visit_date, employee_id)',
     'CREATE INDEX IF NOT EXISTS idx_ft_day ON field_trips (trip_date, employee_id)',
+    # شاشة المتابعة تسأل «آخر نقطة لهذا المندوب اليوم» كلَّ ٢٠ ثانية لكلّ مندوب.
+    # بلا هذا الفهرس كان كلُّ سؤالٍ يمسح جدولَ النقاط كلَّه — والجدولُ يكبر كلَّ يوم.
+    'CREATE INDEX IF NOT EXISTS idx_ftp_emp ON field_track_points (employee_id, recorded_at)',
 ]
 
 
@@ -448,6 +471,42 @@ def _parse(ts):
     return None
 
 
+def to_local(value):
+    """زمنُ نقطةٍ كما يصل ← وقتٌ محلّيّ بلا منطقة (كما يُخزَّن كلُّ وقتٍ في البرنامج).
+
+    - رقم: ميلّي ثانية منذ ١٩٧٠ (ما يُرسله المتصفّح الآن) أو ثوانٍ.
+    - نصّ بمنطقة (`Z` أو `+03:00`): يُحوَّل إلى توقيت الجهاز.
+    - نصّ بلا منطقة: محلّيٌّ أصلًا (التطبيق الأصليّ).
+
+    كانت شاشةُ الويب تُرسل `toISOString()` — توقيت غرينتش — فيُخزَّن كأنه
+    محلّيّ: كلُّ نقطةٍ متأخّرةٌ ثلاث ساعات، وكلُّ مندوبٍ يظهر «مفقودًا».
+    """
+    if value is None or value == '':
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        v = float(value)
+        if v > 1e11:
+            v /= 1000.0
+        try:
+            return datetime.fromtimestamp(v)
+        except (OverflowError, OSError, ValueError):
+            return None
+    sv = str(value).strip()
+    if sv.replace('.', '', 1).isdigit():
+        return to_local(float(sv))
+    if sv.endswith('Z') or sv.endswith('z') or (len(sv) > 19 and sv[19:20] in ('+', '-')) \
+            or (len(sv) > 23 and ('+' in sv[19:] or '-' in sv[19:])):
+        try:
+            d = datetime.fromisoformat(sv[:-1] + '+00:00' if sv[-1] in 'Zz' else sv)
+            if d.tzinfo is not None:
+                return d.astimezone().replace(tzinfo=None)
+        except ValueError:
+            pass
+    return _parse(sv)
+
+
 def build_path(points):
     """يحوّل نقاطًا خامًا إلى مقاطع: سيرٌ متّصل، أو فجوة، أو قفزة.
 
@@ -458,13 +517,23 @@ def build_path(points):
     يعيد (المقاطع، الملخّص).
     """
     pts = []
+    poor = 0
     for p in points:
         t = _parse(p['recorded_at'])
         if t is None:
             continue
+        acc = p.get('accuracy') if hasattr(p, 'get') else p['accuracy']
+        try:
+            acc = float(acc) if acc is not None else None
+        except (TypeError, ValueError):
+            acc = None
+        # دقّةٌ رديئة: تُحفظ في القاعدة، ولا تُرسم خطًّا ولا تُعدّ مسافة.
+        if acc is not None and acc > PATH_MAX_ACCURACY:
+            poor += 1
+            continue
         pts.append({
             'lat': float(p['latitude']), 'lon': float(p['longitude']),
-            'accuracy': p['accuracy'], 'at': t,
+            'accuracy': acc, 'at': t,
             'recorded_at': str(p['recorded_at']),
         })
     pts.sort(key=lambda x: x['at'])
@@ -474,10 +543,12 @@ def build_path(points):
     total_m = 0.0
     gaps = 0
     jumps = 0
+    anchor = None        # آخرُ نقطةٍ عُدّت منها مسافة
 
     for i, p in enumerate(pts):
         if i == 0:
             cur = [p]
+            anchor = dict(p, n=1)
             continue
 
         prev = pts[i - 1]
@@ -492,6 +563,7 @@ def build_path(points):
                              'seconds': int(secs), 'meters': round(dist)})
             gaps += 1
             cur = [p]
+            anchor = dict(p, n=1)
             continue
 
         if kmh > IMPOSSIBLE_KMH:
@@ -502,9 +574,23 @@ def build_path(points):
                              'kmh': round(kmh), 'meters': round(dist)})
             jumps += 1
             cur = [p]
+            anchor = dict(p, n=1)
             continue
 
-        total_m += dist
+        # المسافةُ من **مركز** النقاط منذ آخر حركة، لا من النقطة السابقة:
+        # المندوبُ الواقف تتناثر نقاطُه حول موضعه بقدر دقّتها، فقياسُ كلّ قفزةٍ
+        # بين نقطتين كان يجمع ارتجافًا كيلومترات. والحركةُ تُعدّ حين تبتعد
+        # النقطةُ عن المركز أكثر من مرّةٍ ونصف دقّتها.
+        step = haversine(anchor['lat'], anchor['lon'], p['lat'], p['lon'])
+        threshold = max(MIN_STEP_METERS, 1.5 * (p['accuracy'] or 0), 1.5 * (anchor['accuracy'] or 0))
+        if step >= threshold:
+            total_m += step
+            anchor = dict(p, n=1)
+        else:
+            n = anchor.get('n', 1)
+            anchor = dict(anchor,
+                          lat=(anchor['lat'] * n + p['lat']) / (n + 1),
+                          lon=(anchor['lon'] * n + p['lon']) / (n + 1), n=n + 1)
         cur.append(p)
 
     if len(cur) > 1:
@@ -519,6 +605,7 @@ def build_path(points):
         'jumps': jumps,
         'first_at': pts[0]['recorded_at'] if pts else None,
         'last_at': pts[-1]['recorded_at'] if pts else None,
+        'poor_points': poor,
     }
 
 
@@ -791,42 +878,163 @@ def purge_tokens(conn, older_than_hours=24):
 
 # ------------------------------------------------------------ الرحلة
 
-def open_trip(conn, employee_id, device_uuid=None):
-    """رحلة اليوم — تُفتح مرةً وتُستأنف إن كانت مفتوحة."""
+# ------------------------------------------------- الحضور من الرحلة
+#
+# المندوبُ لا يبصم في المكتب، والرواتبُ تقرأ الحضورَ من البصمات وحدها —
+# فكان مندوبٌ عمل الشهرَ كلَّه برحلاتٍ وزيارات يُحسب غائبًا ويُخصم راتبُه
+# كاملًا. والآن الرحلةُ نفسُها بصمة: «ابدأ الرحلة» حضور، و«إنهاء الرحلة»
+# انصراف — ومن نسي الإنهاء فآخرُ نقطةٍ منه انصرافُه. وتُكتب في سجلّ الحضور
+# العاديّ (`source='field_trip'`) فتراها التقاريرُ والبوّابةُ والكشف كما
+# ترى أيَّ بصمة. وكلُّ دخولٍ لمحطّة بصمةُ تواجد (`field_visit`).
+
+ATT_IN, ATT_OUT, ATT_PRESENCE = 1, 0, 2     # كما في بصمة البوّابة (portal_routes)
+
+
+def _period_locked(conn, day):
+    try:
+        from utils.payroll_engine import date_period_locked
+        return bool(date_period_locked(conn, day))
+    except Exception:
+        return False
+
+
+def _attendance_mark(conn, employee_id, kind, at, note):
+    """بصمةُ الرحلة في سجلّ الحضور: حضورٌ واحد (الأبكر) وانصرافٌ واحد (الأحدث) لكلّ يوم.
+
+    فترةٌ اعتُمد كشفُها لا تُمسّ: بصمةٌ بعد الاعتماد تُغيّر راتبًا صُرف."""
+    if at is None:
+        return
+    day = at.strftime('%Y-%m-%d')
+    stamp = at.strftime('%Y-%m-%d %H:%M:%S')
+    if _period_locked(conn, day):
+        return
+    code = ATT_IN if kind == 'in' else ATT_OUT
+    row = conn.execute(
+        "SELECT id, check_time FROM attendance_records "
+        "WHERE employee_id = ? AND source = 'field_trip' AND check_type = ? "
+        "AND DATE(check_time) = ? ORDER BY id LIMIT 1",
+        (employee_id, code, day)).fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO attendance_records "
+            "(employee_id, device_id, check_time, check_type, verify_code, source, note) "
+            "VALUES (?, 0, ?, ?, 15, 'field_trip', ?)",
+            (employee_id, stamp, code, note))
+        return
+    old = _parse(row['check_time'])
+    if old is None or (kind == 'in' and at < old) or (kind == 'out' and at > old):
+        conn.execute('UPDATE attendance_records SET check_time = ?, note = ? WHERE id = ?',
+                     (stamp, note, row['id']))
+
+
+def mark_visit_presence(conn, employee_id, at, station_name):
+    """دخولُ محطّةٍ دليلُ تواجدٍ في العمل — بصمةُ تواجدٍ في سجلّ الحضور."""
+    if at is None or _period_locked(conn, at.strftime('%Y-%m-%d')):
+        return
+    conn.execute(
+        "INSERT INTO attendance_records "
+        "(employee_id, device_id, check_time, check_type, verify_code, source, note) "
+        "VALUES (?, 0, ?, ?, 15, 'field_visit', ?)",
+        (employee_id, at.strftime('%Y-%m-%d %H:%M:%S'), ATT_PRESENCE,
+         f'دخول محطة: {station_name}'[:200]))
+
+
+def _last_activity(conn, trip_id):
+    row = conn.execute('SELECT MAX(recorded_at) FROM field_track_points WHERE trip_id = ?',
+                       (trip_id,)).fetchone()
+    return _parse(row[0]) if row and row[0] else None
+
+
+# ------------------------------------------------------------ الرحلة
+
+def close_stale(conn, employee_id=None):
+    """رحلاتٌ وزياراتٌ من أيّامٍ مضت لم تُقفل — تُقفل الآن وتُعلَّم.
+
+    المندوبُ الذي أغلق المتصفّح لا يُبلغ أنه أغلقه. فكانت رحلةُ أمس «جارية»
+    إلى الأبد وتقبل نقاط اليوم، وزيارةُ الأسبوع الماضي تُظهره «داخل المحطة»
+    اليوم وتُحسّن التزامَه (لا تُعدّ فائتة). الرحلةُ تنتهي عند آخر نقطةٍ منها،
+    والزيارةُ المفتوحة تصير «بلا خروج» (`unclosed`) — لا تُعدّ منجزة."""
     today = datetime.now().strftime('%Y-%m-%d')
-    row = conn.execute('''
-        SELECT * FROM field_trips
-        WHERE employee_id = ? AND trip_date = ? AND ended_at IS NULL
-        ORDER BY id DESC LIMIT 1
-    ''', (employee_id, today)).fetchone()
+    where, args = '', [today]
+    if employee_id is not None:
+        where, args = ' AND employee_id = ?', [today, employee_id]
+    trips = conn.execute(
+        'SELECT id, employee_id, started_at FROM field_trips '
+        f'WHERE ended_at IS NULL AND trip_date < ?{where}', args).fetchall()
+    for t in trips:
+        end = _last_activity(conn, t['id']) or _parse(t['started_at'])
+        conn.execute("UPDATE field_trips SET ended_at = ?, end_reason = 'auto' "
+                     "WHERE id = ? AND ended_at IS NULL",
+                     (end.strftime('%Y-%m-%d %H:%M:%S') if end else t['started_at'], t['id']))
+        _attendance_mark(conn, t['employee_id'], 'out', end,
+                         'نهاية رحلة المندوب (آخر نقطة — لم تُنهَ يدويًّا)')
+    conn.execute("UPDATE field_visits SET status = 'unclosed' "
+                 f"WHERE status = 'open' AND DATE(check_in_at) < ?{where}", args)
+    conn.commit()
+    return len(trips)
+
+
+def open_trip(conn, employee_id, device_uuid=None):
+    """رحلة اليوم — تُفتح مرةً وتُستأنف إن كانت مفتوحة. وبدايتُها حضور."""
+    close_stale(conn, employee_id)
+    row = today_trip(conn, employee_id)
     if row:
         return row['id'], False
 
+    now = datetime.now()
     cur = conn.cursor()
-    cur.execute('''
-        INSERT INTO field_trips (employee_id, trip_date, started_at, device_uuid)
-        VALUES (?, ?, ?, ?)
-    ''', (employee_id, today, datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-          (device_uuid or '')[:64]))
+    cur.execute('INSERT INTO field_trips (employee_id, trip_date, started_at, device_uuid) '
+                'VALUES (?, ?, ?, ?)',
+                (employee_id, now.strftime('%Y-%m-%d'), now.strftime('%Y-%m-%d %H:%M:%S'),
+                 (device_uuid or '')[:64]))
+    _attendance_mark(conn, employee_id, 'in', now, 'بداية رحلة المندوب')
     conn.commit()
     return cur.lastrowid, True
 
 
+def today_trip(conn, employee_id):
+    """رحلةُ اليوم المفتوحة — لتُستأنف بعد إعادة تحميل الصفحة."""
+    return conn.execute('SELECT id, started_at FROM field_trips '
+                        'WHERE employee_id = ? AND trip_date = ? AND ended_at IS NULL '
+                        'ORDER BY id DESC LIMIT 1',
+                        (employee_id, datetime.now().strftime('%Y-%m-%d'))).fetchone()
+
+
 def close_trip(conn, trip_id, reason='manual'):
-    conn.execute('''
-        UPDATE field_trips SET ended_at = ?, end_reason = ?
-        WHERE id = ? AND ended_at IS NULL
-    ''', (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), reason, trip_id))
+    row = conn.execute('SELECT employee_id, ended_at FROM field_trips WHERE id = ?',
+                       (trip_id,)).fetchone()
+    now = datetime.now()
+    conn.execute('UPDATE field_trips SET ended_at = ?, end_reason = ? '
+                 'WHERE id = ? AND ended_at IS NULL',
+                 (now.strftime('%Y-%m-%d %H:%M:%S'), reason, trip_id))
+    if row and not row['ended_at']:
+        _attendance_mark(conn, row['employee_id'], 'out', now, 'نهاية رحلة المندوب')
     conn.commit()
 
 
 def add_points(conn, trip_id, employee_id, points):
     """يضيف دفعة نقاط ويعيد عدد المقبول.
 
-    النقطة بلا زمن أو بإحداثيات خارج المدى تُهمَل بدل أن تُفسد الخط.
+    النقطةُ تُرفض إن كانت بلا زمن، أو بإحداثيات خارج المدى، أو دقّتُها أسوأ
+    من MAX_POINT_ACCURACY، أو زمنُها خارج يوم الرحلة (من المستقبل، أو من يومٍ
+    آخر، أو أقدم من MAX_POINT_AGE_HOURS). والمكرّرةُ — دفعةٌ أُعيد إرسالُها
+    لأنّ ردَّها ضاع — لا تُكتب مرّتين.
     """
+    trip = conn.execute('SELECT trip_date FROM field_trips WHERE id = ?', (trip_id,)).fetchone()
+    trip_day = trip['trip_date'] if trip else datetime.now().strftime('%Y-%m-%d')
+    now = datetime.now()
+    oldest = now - timedelta(hours=MAX_POINT_AGE_HOURS)
+
+    def _f(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
     rows = []
     for p in (points or [])[:MAX_POINTS_PER_BATCH]:
+        if not isinstance(p, dict):
+            continue
         try:
             lat = float(p.get('lat', p.get('latitude')))
             lon = float(p.get('lon', p.get('longitude')))
@@ -834,36 +1042,47 @@ def add_points(conn, trip_id, employee_id, points):
             continue
         if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
             continue
+        acc = _f(p.get('accuracy'))
+        if acc is not None and acc > MAX_POINT_ACCURACY:
+            continue
 
-        at = _parse(p.get('at') or p.get('recorded_at'))
+        raw_t = p.get('t')
+        at = to_local(raw_t if raw_t is not None else (p.get('at') or p.get('recorded_at')))
         if at is None:
             continue
         # زمن من المستقبل: ساعة الجهاز مضبوطة خطأً أو مُتلاعب بها.
-        if at > datetime.now() + timedelta(minutes=5):
+        if at > now + timedelta(minutes=5) or at < oldest:
+            continue
+        if at.strftime('%Y-%m-%d') != trip_day:
             continue
 
-        def _f(v):
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                return None
-
-        rows.append((trip_id, employee_id, lat, lon, _f(p.get('accuracy')),
+        rows.append((trip_id, employee_id, lat, lon, acc,
                      _f(p.get('speed')), _f(p.get('heading')),
                      at.strftime('%Y-%m-%d %H:%M:%S')))
 
-    if not rows:
-        return 0
-
-    conn.executemany('''
-        INSERT INTO field_track_points
-            (trip_id, employee_id, latitude, longitude, accuracy, speed, heading, recorded_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', rows)
-    conn.execute('UPDATE field_trips SET point_count = point_count + ? WHERE id = ?',
-                 (len(rows), trip_id))
+    added = 0
+    for r in rows:
+        cur = conn.execute(
+            'INSERT INTO field_track_points '
+            '(trip_id, employee_id, latitude, longitude, accuracy, speed, heading, recorded_at) '
+            'SELECT ?, ?, ?, ?, ?, ?, ?, ? '
+            'WHERE NOT EXISTS (SELECT 1 FROM field_track_points '
+            '  WHERE trip_id = ? AND recorded_at = ? AND latitude = ? AND longitude = ?)',
+            r + (r[0], r[7], r[2], r[3]))
+        added += cur.rowcount
+    if added:
+        conn.execute('UPDATE field_trips SET point_count = point_count + ? WHERE id = ?',
+                     (added, trip_id))
+        last = max(_parse(r[7]) for r in rows)
+        out = conn.execute(
+            "SELECT check_time FROM attendance_records "
+            "WHERE employee_id = ? AND source = 'field_trip' AND check_type = ? "
+            "AND DATE(check_time) = ?", (employee_id, ATT_OUT, trip_day)).fetchone()
+        prev = _parse(out['check_time']) if out else None
+        if prev is None or (last - prev).total_seconds() >= ATTENDANCE_OUT_STEP_SECONDS:
+            _attendance_mark(conn, employee_id, 'out', last, 'آخر نقطة من رحلة المندوب')
     conn.commit()
-    return len(rows)
+    return added
 
 
 def trip_path(conn, trip_id):
@@ -922,6 +1141,47 @@ def schedule_stations(conn, schedule_id, weekday):
     return [dict(r) for r in rows]
 
 
+def set_day_cleared(conn, employee_id, day, cleared):
+    if cleared:
+        conn.execute('INSERT OR IGNORE INTO field_cleared_days (employee_id, day) VALUES (?, ?)',
+                     (employee_id, day))
+    else:
+        conn.execute('DELETE FROM field_cleared_days WHERE employee_id = ? AND day = ?',
+                     (employee_id, day))
+
+
+def day_off_reason(conn, employee_id, day):
+    """لماذا لا تُولَّد خطةُ هذا اليوم: إجازةٌ معتمدة، أو عطلةٌ رسميّة، أو ألغاها
+    المسؤول. None إن كان يومَ عمل. كان الجدولُ يُولَّد في الإجازة والعيد، فيظهر
+    المندوبُ «فاتته» كلُّ محطاته وهو في إجازةٍ معتمدة."""
+    try:
+        if conn.execute('SELECT 1 FROM field_cleared_days WHERE employee_id = ? AND day = ?',
+                        (employee_id, day)).fetchone():
+            return 'cleared'
+    except Exception:
+        pass
+    try:
+        if conn.execute('SELECT 1 FROM official_holidays WHERE DATE(date) = DATE(?)', (day,)).fetchone():
+            return 'holiday'
+    except Exception:
+        pass
+    try:
+        if conn.execute("""SELECT 1 FROM leave_requests WHERE employee_id = ? AND status = 'approved'
+                          AND DATE(start_date) <= DATE(?) AND DATE(end_date) >= DATE(?)
+                          AND COALESCE(leave_duration_type, 'full_day') != 'hourly'""",
+                        (employee_id, day, day)).fetchone():
+            return 'leave'
+    except Exception:
+        try:
+            if conn.execute("""SELECT 1 FROM leave_requests WHERE employee_id = ? AND status = 'approved'
+                              AND DATE(start_date) <= DATE(?) AND DATE(end_date) >= DATE(?)""",
+                            (employee_id, day, day)).fetchone():
+                return 'leave'
+        except Exception:
+            pass
+    return None
+
+
 def generate_day(conn, employee_id, day, force=False):
     """يُنزل خطة يومٍ من الجدول السارية فترتُه. يعيد عدد ما وُلِّد.
 
@@ -939,9 +1199,18 @@ def generate_day(conn, employee_id, day, force=False):
     if existing and not force:
         return 0
     if force:
+        # يومٌ وضع المسؤولُ خطّته بيده لا يُخلط بالجدول: كان حفظُ جدولٍ يُضيف
+        # محطاتِه بجانب الخطّة اليدويّة لليوم — ولو بدأ الجدولُ الأسبوعَ القادم.
+        if conn.execute("SELECT 1 FROM field_assignments WHERE employee_id = ? AND visit_date = ? "
+                        "AND source = 'manual'", (employee_id, day)).fetchone():
+            return 0
         conn.execute('''DELETE FROM field_assignments
                         WHERE employee_id = ? AND visit_date = ? AND source = 'schedule' ''',
                      (employee_id, day))
+
+    if day_off_reason(conn, employee_id, day):
+        conn.commit()
+        return 0
 
     sched = active_schedule(conn, employee_id, day)
     if not sched:
@@ -1012,9 +1281,12 @@ def save_schedule(conn, employee_id, starts_on, days, name=None):
 
     # أيام المستقبل المولَّدة من الجدول القديم تُمحى لتُولَّد من الجديد.
     # الماضي لا يُمسّ: تغيير جدولٍ اليوم لا يعيد كتابة ما نُفّذ أمس.
+    # ومن اليوم لا قبله ولو بدأ الجدولُ في الماضي: كان الحفظُ بتاريخٍ قديم
+    # يمحو خططَ أيّامٍ نُفّذت ويُغيّر التزامَها.
     conn.execute('''DELETE FROM field_assignments
                     WHERE employee_id = ? AND source = 'schedule'
-                      AND DATE(visit_date) >= DATE(?)''', (employee_id, starts_on))
+                      AND DATE(visit_date) >= DATE(?)''',
+                 (employee_id, max(starts_on, datetime.now().strftime('%Y-%m-%d'))))
     conn.commit()
     return sid
 
@@ -1065,15 +1337,20 @@ def day_plan(conn, employee_id, day=None, autogenerate=True):
                ON v.station_id = a.station_id
               AND v.employee_id = a.employee_id
               AND DATE(v.check_in_at) = a.visit_date
-        WHERE a.employee_id = ? AND a.visit_date = ? AND s.is_active = 1
+        WHERE a.employee_id = ? AND a.visit_date = ?
+          AND (s.is_active = 1 OR a.visit_date < ?)
         ORDER BY a.sort_order ASC, s.name ASC
-    ''', (employee_id, day)).fetchall()
+    ''', (employee_id, day, datetime.now().strftime('%Y-%m-%d'))).fetchall()
+    # المحطةُ الموقوفة تختفي من الأيّام القادمة وحدها: كان إيقافُها يمحوها من
+    # خطط الأيّام الماضية فيتغيّر التزامُ شهرٍ مضى (فائتةٌ تختفي من «فاتته»).
 
     out = []
     for r in rows:
         d = dict(r)
         if d['check_out_at']:
             d['state'] = 'done'
+        elif d['status'] == 'unclosed':
+            d['state'] = 'unclosed'          # دخل ولم يخرج حتى انتهى اليوم
         elif d['check_in_at']:
             d['state'] = 'inside'
         else:
@@ -1082,13 +1359,16 @@ def day_plan(conn, employee_id, day=None, autogenerate=True):
     return out
 
 
-def open_visit(conn, employee_id):
+def open_visit(conn, employee_id, day=None):
+    """الزيارةُ المفتوحة لهذا اليوم وحده — زيارةُ أمس المنسيّة لا تجعله «داخل محطة» اليوم."""
+    day = day or datetime.now().strftime('%Y-%m-%d')
     return conn.execute('''
-        SELECT v.*, s.name AS station_name, s.latitude, s.longitude, s.radius_meters
+        SELECT v.*, s.name AS station_name, s.latitude, s.longitude, s.radius_meters,
+               s.min_minutes
         FROM field_visits v JOIN field_stations s ON s.id = v.station_id
-        WHERE v.employee_id = ? AND v.status = 'open'
+        WHERE v.employee_id = ? AND v.status = 'open' AND DATE(v.check_in_at) = ?
         ORDER BY v.id DESC LIMIT 1
-    ''', (employee_id,)).fetchone()
+    ''', (employee_id, day)).fetchone()
 
 
 def day_summary(conn, employee_id, day=None):
@@ -1101,6 +1381,8 @@ def day_summary(conn, employee_id, day=None):
         'date': day,
         'stations_total': len(required),
         'stations_done': len(done),
-        'missed': [p['name'] for p in required if p['state'] == 'pending'],
+        # «بلا خروج» فائتة: دخولٌ بلا خروج لا يُثبت زيارة، وكان يُحسّن الالتزام.
+        'missed': [p['name'] for p in required if p['state'] == 'pending']
+                  + [p['name'] + ' (بلا خروج)' for p in required if p['state'] == 'unclosed'],
         'open': [p['name'] for p in plan if p['state'] == 'inside'],
     }

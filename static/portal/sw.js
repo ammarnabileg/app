@@ -1,7 +1,10 @@
 // Service Worker — بوابة الموظف (onz.one)
 // v2: التصميم الزجاجيّ (٢.٢٦). v3: يُخدَم من /portal/sw.js فيتحكّم في البوّابة كلِّها. الملفّاتُ محلّيّةٌ لا من شبكات التوزيع —
 // البرنامجُ يعمل في شبكة الشركة، وقد لا يصل الإنترنت.
-const CACHE_NAME = 'portal-cache-v3';
+// v4: صفحةُ «رحلة اليوم» تُحفظ عند كلّ فتحٍ بشبكة — المندوبُ يفتحها بلا شبكة في الطريق.
+const CACHE_NAME = 'portal-cache-v4';
+// صفحاتٌ تُحدَّث نسختُها المحفوظة كلّما فُتحت بشبكة.
+const KEEP_FRESH = ['/portal/dashboard', '/portal/trip'];
 const STATIC_ASSETS = [
   '/portal/dashboard',
   '/static/portal/glass.css?v=2.26',
@@ -38,9 +41,18 @@ self.addEventListener('fetch', event => {
     return;
   }
   
+  const path = new URL(event.request.url).pathname;
   event.respondWith(
-    fetch(event.request).catch(() =>
-      caches.match(event.request).then(hit =>
+    fetch(event.request).then(resp => {
+      // كانت صفحةُ الرحلة لا تُحفظ أبدًا، فبلا شبكةٍ تفتح البوّابةَ بدلها
+      // ولا يستطيع المندوبُ متابعة رحلته.
+      if (event.request.mode === 'navigate' && resp.ok && KEEP_FRESH.includes(path)) {
+        const copy = resp.clone();
+        caches.open(CACHE_NAME).then(c => c.put(path, copy));
+      }
+      return resp;
+    }).catch(() =>
+      caches.match(KEEP_FRESH.includes(path) ? path : event.request).then(hit =>
         // صفحةٌ بلا نسخة: البوّابةُ المحفوظة خيرٌ من خطأ المتصفّح بلا شبكة.
         hit || (event.request.mode === 'navigate' ? caches.match('/portal/dashboard') : undefined)))
   );

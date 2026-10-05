@@ -161,9 +161,11 @@ def dashboard():
     try:
         from utils import field as _field
         if emp_id:
-            office_punch = _field.punches_at_office(conn, emp_id)
             if _field.module_enabled(conn):
+                office_punch = _field.punches_at_office(conn, emp_id)
                 is_field_rep = _field.is_field_rep(conn, emp_id)
+            # والوحدةُ مُطفأة: لا رحلة، فالبصمةُ ظاهرةٌ له ولو كان «مندوبًا» —
+            # كان لا يجد بصمةً ولا رحلة، فلا طريقَ له لتسجيل حضوره.
     except Exception:
         is_field_rep = False
         office_punch = True
@@ -262,9 +264,11 @@ def api_bootstrap():
     try:
         from utils import field as _field
         if emp_id:
-            office_punch = _field.punches_at_office(conn, emp_id)
             if _field.module_enabled(conn):
+                office_punch = _field.punches_at_office(conn, emp_id)
                 is_field_rep = _field.is_field_rep(conn, emp_id)
+            # والوحدةُ مُطفأة: لا رحلة، فالبصمةُ ظاهرةٌ له ولو كان «مندوبًا» —
+            # كان لا يجد بصمةً ولا رحلة، فلا طريقَ له لتسجيل حضوره.
     except Exception:
         is_field_rep, office_punch = False, True
 
