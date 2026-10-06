@@ -5,9 +5,16 @@
 #   HRSystem-<الإصدار>.zip         حزمةُ التحديث كما يطلبها publish_version.py
 #   HRSystem-<الإصدار>.sha256.txt  بصمتُها — تُقارَن بعد رفعها إلى رابط التنزيل
 #
-# لا يَنشر شيئًا ولا يحمل أسرارًا: النشرُ (publish_version.py بلا --dry-run)
-# يبقى خطوةً يدويّة بمفتاح اللوحة، كما في docs/RELEASE.md.
+# وبعد أن ينجح اختبارُ التشغيل يُنشئ **إصدارًا على GitHub** (Releases) باسم
+# v<الإصدار> ويُرفق به الحزمةَ وبصمتها، وملاحظاتُه قسمُ الإصدار من CHANGELOG.md.
+# الـartifact وحده كان يُمحى بعد ٣٠ يومًا ويحتاج تسجيلَ دخولٍ لتنزيله؛ والإصدارُ
+# رابطٌ ثابت لا ينتهي. لا أسرار: `GITHUB_TOKEN` الذي يُعطيه GitHub للتشغيل نفسه.
+# ونشرُ التحديث للعملاء (publish_version.py بلا --dry-run) يبقى خطوةً يدويّة
+# بمفتاح اللوحة، كما في docs/RELEASE.md.
 name: Build Windows
+
+permissions:
+  contents: write      # لإنشاء الإصدار ورفع ملفّاته فقط
 
 on:
   workflow_dispatch:
@@ -82,3 +89,35 @@ jobs:
           if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
           if (-not $ok) { throw 'HRSystem.exe did not serve / on port 5000 with its X-HR-System header' }
           Write-Host 'HRSystem.exe started and served / (signed ${{ steps.ver.outputs.v }})'
+
+      # بعد اختبار التشغيل لا قبله: لا يُنشر بناءٌ لا يقوم.
+      - name: Release notes
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          v = "${{ steps.ver.outputs.v }}"
+          text = open('CHANGELOG.md', encoding='utf-8').read()
+          m = re.search(r'^## ' + re.escape(v) + r'\b.*?(?=^## |\Z)', text, re.S | re.M)
+          body = (m.group(0).strip() if m else f'## {v}').rstrip('-').rstrip()
+          open('release-notes.md', 'w', encoding='utf-8').write(body + '\n')
+          PY
+
+      - name: GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ steps.ver.outputs.v }}"
+          tag="v$v"
+          files=("dist/HRSystem-$v.zip" "dist/HRSystem-$v.sha256.txt")
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # إعادةُ تشغيلٍ للإصدار نفسه: تُستبدل الملفّات والملاحظات.
+            gh release upload "$tag" "${files[@]}" --clobber
+            gh release edit "$tag" --notes-file release-notes.md
+          else
+            gh release create "$tag" "${files[@]}" --target "${{ github.sha }}" \
+              --title "HRSystem $v" --notes-file release-notes.md
+          fi
+          echo "https://github.com/${{ github.repository }}/releases/tag/$tag"
+
