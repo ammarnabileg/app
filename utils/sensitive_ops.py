@@ -289,7 +289,7 @@ def reupload_employee(emp_id, device_ids):
                                    'Grp': str(emp['group_id'] or '1'), 'Enabled': 1}
                         conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
                                      "VALUES (?, 'DATA UPDATE USERINFO', ?, 'PENDING')", (d['id'], json.dumps(payload)))
-                        for ctype, cp in adms_template_commands(conn, emp['employee_number']):
+                        for ctype, cp in adms_template_commands(conn, emp['employee_number'], d):
                             conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
                                          "VALUES (?, ?, ?, 'PENDING')", (d['id'], ctype, cp))
                         conn.commit()

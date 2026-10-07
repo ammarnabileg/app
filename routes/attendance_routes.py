@@ -387,8 +387,16 @@ def upload_users_page():
         ORDER BY e.name
     ''').fetchall()
     devices = conn.execute('SELECT * FROM fingerprint_devices WHERE is_active = 1 ORDER BY device_name').fetchall()
-    pass # conn.close() removed to prevent leak in Flask g
-    return render_template('fingerprint_device_users.html', employees=employees, devices=devices, active_tab='upload')
+    return render_template('fingerprint_device_users.html', employees=employees, devices=devices,
+                           active_tab='upload', **_bio_context(conn, devices))
+
+
+def _bio_context(conn, devices):
+    """البصماتُ المحفوظة بإصداراتها لكلّ موظّف، وإصدارُ البصمة لكلّ جهاز ADMS معروف."""
+    from utils import biometric_templates as bio
+    return {'bio_summary': bio.summary(conn),
+            'device_versions': {d['id']: bio.device_versions(d).get(1) for d in devices
+                                if bio.device_versions(d).get(1)}}
 
 @attendance_bp.route('/fingerprint/api/upload_users', methods=['POST'])
 @login_required
@@ -410,6 +418,7 @@ def upload_users_api():
     pass # conn.close() removed to prevent leak in Flask g
     
     from utils import device_access
+    from utils import biometric_templates as bio
     from utils.fingerprint_utils import adms_template_commands
     for device_id in device_ids:
         device_results = {'device_id': device_id, 'success_count': 0, 'fail_count': 0, 'details': []}
@@ -441,16 +450,24 @@ def upload_users_api():
                                     VALUES (?, 'DATA UPDATE USERINFO', ?, 'PENDING')''',
                                  (device_id, json.dumps(payload)))
                     # البصماتُ بنوعها وإصدارها كما حُفظت (من ADMS أو من جهازٍ مباشر).
-                    cmds = adms_template_commands(conn, emp['employee_number'])
+                    st = {}
+                    cmds = adms_template_commands(conn, emp['employee_number'], device, st)
                     for ctype, cpayload in cmds:
                         conn.execute('''INSERT INTO adms_commands (device_id, command_type, payload, status)
                                         VALUES (?, ?, ?, 'PENDING')''', (device_id, ctype, cpayload))
                     conn.commit()
                     device_results['success_count'] += 1
-                    device_results['details'].append({
-                        'user': emp['name'], 'status': 'success' if cmds else 'warning',
-                        'message': (f'في الطابور ومعه {len(cmds)} بصمة/وجه' if cmds
-                                    else 'في الطابور بدون بصمات — لا بصمات محفوظة له')})
+                    if cmds:
+                        msg, status = f'في الطابور ومعه {len(cmds)} بصمة/وجه', 'success'
+                    elif st.get('skipped'):
+                        msg, status = 'في الطابور بدون بصمات', 'warning'
+                    else:
+                        msg, status = 'في الطابور بدون بصمات — لا بصمات محفوظة له', 'warning'
+                    if st.get('skipped'):
+                        status = 'warning'
+                        msg += (f" — {st['skipped']} بصمة محفوظة بإصدار غير إصدار الجهاز"
+                                f" ({bio.device_versions(device).get(1, '؟')}): يبصم عليه مرة واحدة")
+                    device_results['details'].append({'user': emp['name'], 'status': status, 'message': msg})
                 except Exception as e:
                     device_results['fail_count'] += 1
                     device_results['details'].append({'user': emp['name'], 'status': 'error',
@@ -492,8 +509,8 @@ def sync_from_device():
         ORDER BY employee_number
     ''').fetchall()
     
-    pass # conn.close() removed to prevent leak in Flask g
-    return render_template('fingerprint_device_users.html', devices=devices, employees=[dict(e) for e in employees], active_tab='pull')
+    return render_template('fingerprint_device_users.html', devices=devices, employees=[dict(e) for e in employees],
+                           active_tab='pull', **_bio_context(conn, devices))
 
 @attendance_bp.route('/fingerprint/api/sync_from_device', methods=['POST'])
 @login_required

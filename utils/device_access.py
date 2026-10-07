@@ -287,12 +287,10 @@ def backup_templates(conn, dev, device, user, fp_ver=None):
     for f in temps or []:
         if getattr(f, 'uid', None) != user.uid or not getattr(f, 'template', None):
             continue
-        cur = conn.execute('''INSERT OR IGNORE INTO fingerprint_templates
-            (device_sn, pin, finger_id, valid, template_type, major_ver, format, template_data)
-            VALUES (?, ?, ?, ?, 1, ?, 'pyzk', ?)''',
-                           (sn or device['device_ip'], str(user.user_id), int(f.fid), int(f.valid or 1),
-                            fp_ver, base64.b64encode(bytes(f.template)).decode('ascii')))
-        saved += cur.rowcount
+        from utils import biometric_templates as bio
+        saved += bio.save(conn, user.user_id, int(f.fid), base64.b64encode(bytes(f.template)).decode('ascii'),
+                          template_type=1, major_ver=fp_ver, fmt='pyzk', valid=int(f.valid or 1),
+                          device_sn=sn or device['device_ip'], replace=False)
     return saved
 
 
@@ -351,6 +349,7 @@ def restore_device(conn, device):
     try:
         dev.disable_device()
         try:
+            fp_ver = _fp_version(dev)
             users = dev.get_users() or []
             used = {u.uid for u in users}
             by_id = {str(u.user_id): u for u in users}
@@ -379,8 +378,8 @@ def restore_device(conn, device):
                                  user_id=uid_s, card=card)
                     user = next((u for u in (dev.get_users() or []) if str(u.user_id) == uid_s), None)
                 if user is not None:
-                    temps = conn.execute("SELECT finger_id, valid, template_data FROM fingerprint_templates "
-                                         "WHERE pin = ? AND COALESCE(template_type, 1) = 1", (uid_s,)).fetchall()
+                    from utils import biometric_templates as bio
+                    temps, _skipped = bio.pick(conn, uid_s, {1: fp_ver} if fp_ver else {}, types={1})
                     fingers = []
                     for t in temps:
                         try:
@@ -589,11 +588,10 @@ def pull_direct(conn, device, pins=None):
         if pin not in known:
             unknown.add(pin)
             continue
-        conn.execute('''INSERT OR REPLACE INTO fingerprint_templates
-            (device_sn, pin, finger_id, valid, template_type, major_ver, minor_ver, format, template_data)
-            VALUES (?, ?, ?, ?, 1, ?, NULL, 'pyzk', ?)''',
-                     (sn or device['device_ip'], pin, int(f.fid), int(f.valid or 1), fp_ver,
-                      base64.b64encode(bytes(tpl)).decode('ascii')))
+        # نسختُه بإصداره: لا تمحو نسخةَ الإصبع نفسِه من جهازٍ بإصدارٍ آخر (SpeedFace).
+        from utils import biometric_templates as bio
+        bio.save(conn, pin, int(f.fid), base64.b64encode(bytes(tpl)).decode('ascii'), template_type=1,
+                 major_ver=fp_ver, fmt='pyzk', valid=int(f.valid or 1), device_sn=sn or device['device_ip'])
         saved += 1
         people.add(pin)
     conn.commit()
@@ -652,10 +650,12 @@ def push_direct(conn, device, employees):
                                  group_id='', user_id=pin, card=card)
                     used.add(uid)
                     user = User(uid, name, priv, password, '', pin, card)
-                    rows = conn.execute("SELECT * FROM fingerprint_templates WHERE pin = ? "
-                                        "AND COALESCE(template_type, 1) = 1 ORDER BY finger_id",
-                                        (pin,)).fetchall()
-                    fingers, skipped = [], 0
+                    # لكلّ إصبع نسختُه بإصدار هذا الجهاز (utils/biometric_templates).
+                    from utils import biometric_templates as bio
+                    rows, skipped = bio.pick(conn, pin, {1: bio.norm_ver(fp_ver)} if fp_ver else {}, types={1})
+                    any_saved = conn.execute("SELECT 1 FROM fingerprint_templates WHERE pin = ? "
+                                             "AND COALESCE(template_type, 1) = 1", (pin,)).fetchone()
+                    fingers = []
                     for t in rows:
                         if not _template_compatible(t, fp_ver) or not (0 <= int(t['finger_id']) <= 9):
                             skipped += 1
@@ -674,13 +674,13 @@ def push_direct(conn, device, employees):
                         except Exception as e:      # noqa: BLE001
                             status = 'warning'
                             msg += f' بدون بصمات — الجهاز رفضها ({str(e)[:60]})'
-                    elif not rows:
+                    elif not any_saved:
                         status = 'warning'
                         msg += ' بدون بصمات — لا بصمات محفوظة له (اسحبها من جهازه أولًا)'
                     if skipped:
                         status = 'warning'
-                        msg += (f' — {skipped} بصمة لم تُرسل: إصدارها غير إصدار الجهاز'
-                                f' ({fp_ver or "؟"})، يبصم عليه من جديد')
+                        msg += (f' — {skipped} صباع محفوظ بإصدار غير إصدار الجهاز ({fp_ver or "؟"})'
+                                f'، يبصم عليه مرة واحدة وتسحبها منه')
                     details.append({'user': emp['name'], 'status': status, 'message': msg})
                 except Exception as e:              # noqa: BLE001
                     details.append({'user': emp['name'], 'status': 'error',

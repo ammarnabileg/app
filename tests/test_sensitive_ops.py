@@ -248,7 +248,7 @@ def test_fingers_of_another_algorithm_version_are_not_sent(web, monkeypatch):
     monkeypatch.setattr(da, '_connect', lambda d: dst)
     emp = con.execute("SELECT * FROM employees WHERE id = 1").fetchone()
     details, ver = da.push_direct(con, {'id': 1, 'device_ip': 'x'}, [emp])
-    assert details[0]['status'] == 'warning' and 'إصدارها' in details[0]['message']
+    assert details[0]['status'] == 'warning' and 'بإصدار غير إصدار الجهاز' in details[0]['message']
     assert _user(dst, '101') is not None and not dst.templates
 
 
@@ -257,3 +257,16 @@ def test_the_pull_page_lists_direct_devices_too(web):
     html = c.get('/fingerprint/sync_from_device').get_data(as_text=True)
     assert 'K40-A' in html and 'SNADMS1' in html
     assert 'cb.disabled = true' not in html
+
+
+def test_the_page_shows_each_fingerprint_version(web):
+    c, con, da, so, calls = web
+    from utils import biometric_templates as bio
+    bio.save(con, '101', 0, 'QQ==', major_ver='10')
+    bio.save(con, '101', 0, 'Qg==', major_ver='12')
+    bio.save(con, '101', 1, 'Qw==', major_ver='12')
+    con.execute("UPDATE fingerprint_devices SET bio_versions = '{\"1\": \"12\"}' WHERE id = 2")
+    con.commit()
+    html = c.get('/fingerprint/upload_users').get_data(as_text=True)
+    assert 'v10: 1' in html and 'v12: 2' in html
+    assert 'بصمة v12' in html, 'إصدارُ جهاز ADMS ظاهرٌ جنب اسمه'

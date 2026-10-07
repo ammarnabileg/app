@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 67
+SCHEMA_VERSION = 68
 
 
 def get_schema_version(conn):
@@ -941,13 +941,12 @@ def init_db():
             finger_id INTEGER NOT NULL,
             valid INTEGER DEFAULT 1,
             duress INTEGER DEFAULT 0,
-            template_type INTEGER DEFAULT 9,
+            template_type INTEGER DEFAULT 1,
             major_ver TEXT,
             minor_ver TEXT,
             format TEXT,
             template_data TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(pin, finger_id)
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
@@ -1219,6 +1218,8 @@ def init_db():
         ('attendance_records', 'created_by', 'INTEGER'),
         ('fingerprint_devices', 'branch_name', 'TEXT'),
         ('fingerprint_devices', 'branch_id', 'INTEGER'),
+        # إصداراتُ البصمة/الوجه على جهاز ADMS كما أبلغ بها (utils/biometric_templates) — v68.
+        ('fingerprint_devices', 'bio_versions', 'TEXT'),
     ]
     
     for table, column, col_type in migrations:
@@ -1881,6 +1882,14 @@ def init_db():
         _install_outbox(conn)
     except Exception as e:
         print(f'cloud outbox install failed: {e}')
+
+    # البصماتُ بكلّ إصداراتها: نسخةٌ لكلّ (إصبع، نوع، إصدار) لا لكلّ إصبع (v68).
+    try:
+        from utils.biometric_templates import migrate as _bio_migrate
+        _bio_migrate(conn)
+        conn.commit()
+    except Exception as e:
+        print(f'biometric templates migration failed: {e}')
 
     # قانون العمل الكويتيّ: أنواعُ الإجازات الخاصّة، والاستراحة، والتجربة،
     # والأعياد الثابتة، وإعداداتُ الجزاءات والتأمينات (v64، ورمضانُ والرضاعةُ ونوعُ الأجر v65).

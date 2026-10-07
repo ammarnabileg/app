@@ -252,21 +252,30 @@ def upload_user_to_device(device_id, user_data):
     except Exception as e:
         return {'success': False, 'message': f'خطأ في الاتصال بالجهاز: {str(e)}'}
 
-def adms_template_commands(conn, pin):
+def adms_template_commands(conn, pin, device=None, stats=None):
     """أوامرُ ADMS لبصمات موظّفٍ ووجهه المحفوظة عندنا: [(نوع الأمر، الحمولة)].
 
     من الجداول التي يملؤها ADMS فعلًا (`fingerprint_templates` من BIODATA،
-    و`fingerprint_faces` من FACE) — كانت تُقرأ من `user_fingerprints`/`user_faces`
-    وهما **غير موجودين**، فيُسكت الخطأ ويُرسَل الموظّفُ بلا بصماته. وبصيغة صفحة
-    «رفع المستخدمين» (`DATA UPDATE BIODATA`) التي تعمل عند العملاء.
+    و`fingerprint_faces` من FACE). و`device` (رقمُه أو صفُّه): لكلّ إصبعٍ النسخةُ
+    التي بإصدار هذا الجهاز وحدها (utils/biometric_templates) — نسخةُ K40 لا تُرسل
+    لـSpeedFace بإصدارٍ آخر. `stats` (قاموس) يُملأ بـ sent/skipped.
     """
     import json
+    from utils import biometric_templates as bio
+    if device is not None and not hasattr(device, 'keys'):
+        device = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (device,)).fetchone()
+    versions = bio.device_versions(device) if device is not None else {}
+    sn = None
+    if device is not None:
+        try:
+            sn = device['serial_number']
+        except (IndexError, KeyError):
+            sn = None
     out = []
     try:
-        temps = conn.execute('SELECT * FROM fingerprint_templates WHERE pin = ? ORDER BY finger_id',
-                             (str(pin),)).fetchall()
+        temps, skipped = bio.pick(conn, pin, versions, sn)
     except Exception:
-        temps = []
+        temps, skipped = [], 0
     for t in temps:
         keys = t.keys()
         tmp = t['template_data']
@@ -286,6 +295,9 @@ def adms_template_commands(conn, pin):
         tmp = f['template_data']
         out.append(('DATA UPDATE FACE', json.dumps({
             'PIN': str(pin), 'Format': 0, 'Size': len(tmp or ''), 'TMP': tmp})))
+    if stats is not None:
+        stats['sent'] = len(out)
+        stats['skipped'] = skipped
     return out
 
 
@@ -308,7 +320,7 @@ def queue_adms_user_update(employee_data):
                 return 0
             employee_data = dict(row)
 
-        devices = cursor.execute('SELECT id FROM fingerprint_devices WHERE is_active = 1 AND is_adms = 1').fetchall()
+        devices = cursor.execute('SELECT * FROM fingerprint_devices WHERE is_active = 1 AND is_adms = 1').fetchall()
         
         if not devices:
             return 0
@@ -329,12 +341,11 @@ def queue_adms_user_update(employee_data):
         }
         user_json = json.dumps(user_payload)
         
-        # 2. Biometric templates — من جداول ADMS الحقيقيّة.
-        templates = adms_template_commands(conn, pin)
-        
         count = 0
         for device in devices:
             device_id = device['id']
+            # 2. البصماتُ بإصدار هذا الجهاز (لكلّ جهازٍ ما يقرؤه).
+            templates = adms_template_commands(conn, pin, device)
             # Queue User Info — بلا تكرار.
             # كان كل حفظٍ للموظف يضيف أمرًا جديدًا ولو كان أمرٌ بالمحتوى
             # نفسه ما زال معلّقًا، فيتراكم الطابور ويُرسَل الأمر مرارًا.

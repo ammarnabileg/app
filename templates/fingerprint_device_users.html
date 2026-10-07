@@ -79,23 +79,31 @@
                                 <td><span class="badge bg-secondary">{{ emp.employee_number }}</span></td>
                                 <td class="fw-bold">{{ emp.name }}</td>
                                 <td class="small">{{ emp.department }}</td>
+                                {# لكلّ إصدار بصمةٍ عددُه: «v10: 3 · v12: 2» — نسخةُ كلّ جهازٍ محفوظةٌ جنب الأخرى. #}
+                                {% set bio_rows = (bio_summary or {}).get(emp.employee_number|string, []) %}
                                 <td class="text-center">
-                                    {% if emp.fp_count and emp.fp_count > 0 %}
-                                    <span class="badge bg-success">
-                                        <i class="fas fa-fingerprint me-1"></i> {{ emp.fp_count }}
+                                    {% set fps = bio_rows|selectattr(0, 'equalto', 1)|list %}
+                                    {% for t, v, n in fps %}
+                                    <span class="badge bg-success" title="إصدار البصمة {{ v or 'غير معروف' }}">
+                                        <i class="fas fa-fingerprint me-1"></i>{% if v %}v{{ v }}: {% endif %}{{ n }}
                                     </span>
                                     {% else %}
                                     <span class="badge bg-light text-muted">0</span>
-                                    {% endif %}
+                                    {% endfor %}
                                 </td>
                                 <td class="text-center">
-                                    {% if emp.face_count and emp.face_count > 0 %}
-                                    <span class="badge bg-info text-dark">
-                                        <i class="fas fa-user-circle me-1"></i> {{ emp.face_count }}
+                                    {% set faces = bio_rows|rejectattr(0, 'equalto', 1)|list %}
+                                    {% for t, v, n in faces %}
+                                    <span class="badge bg-info text-dark" title="إصدار الوجه {{ v or 'غير معروف' }}">
+                                        <i class="fas fa-user-circle me-1"></i>{% if v %}v{{ v }}: {% endif %}{{ n }}
                                     </span>
+                                    {% else %}
+                                    {% if emp.face_count and emp.face_count > 0 %}
+                                    <span class="badge bg-info text-dark"><i class="fas fa-user-circle me-1"></i>{{ emp.face_count }}</span>
                                     {% else %}
                                     <span class="badge bg-light text-muted">0</span>
                                     {% endif %}
+                                    {% endfor %}
                                 </td>
                             </tr>
                             {% else %}
@@ -128,6 +136,8 @@
                         <span class="pt-1 form-checked-content">
                             <strong>{{ device.device_name }}</strong>
                             {% if device.is_adms %}<span class="badge bg-success ms-1">ADMS</span>{% endif %}
+                            {% set dv = (device_versions or {}).get(device.id) %}
+                            {% if dv %}<span class="badge bg-light text-dark border ms-1" title="إصدار البصمة على الجهاز">بصمة v{{ dv }}</span>{% endif %}
                             <small class="d-block text-muted">
                                 <i class="fas fa-network-wired me-1"></i>{{ device.device_ip }}
                             </small>

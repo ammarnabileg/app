@@ -454,6 +454,17 @@ def cdata():
                         matches = re.findall(r'(\w+)=((?:(?!\s+\w+=).)*)', clean_line)
                         info = {k: v.strip() for k, v in matches}
                         
+                        if 'PIN' in info and line.lstrip().startswith('FP ') and info.get('TMP'):
+                            # بصمةٌ بالصيغة القديمة (ردُّ DATA QUERY FINGERTMP): بلا إصدارٍ في
+                            # السطر — فبإصدار الجهاز إن عُرف.
+                            try:
+                                from utils import biometric_templates as bio
+                                bio.save(conn, info['PIN'], int(info.get('FID') or 0), info['TMP'],
+                                         template_type=1, major_ver=bio.device_versions(device).get(1),
+                                         valid=int(info.get('Valid') or 1), device_sn=sn)
+                            except Exception as e:
+                                logger.error(f"OPERLOG FP Save Error: {e}", exc_info=True)
+                            continue
                         if 'PIN' in info:
                             # Check if it contains Name (User Info)
                             if 'Name' in info or 'Pri' in info:
@@ -514,38 +525,40 @@ def cdata():
 
         elif table == 'BIODATA' or table == 'biodata':
             data = request.get_data(as_text=True)
-            # Use regex for robust key=value parsing
-            matches = re.findall(r'(\w+)=((?:(?!\s+\w+=).)*)', data)
-            info = {k: v.strip() for k, v in matches}
-            
-            pin = info.get('Pin') or info.get('PIN')
-            tmp = info.get('Tmp') or info.get('TMP') or info.get('Template')
-            
-            if pin and tmp:
-                conn = get_db_connection()
-                try:
-                    conn.execute('''
-                        INSERT OR REPLACE INTO fingerprint_templates 
-                        (device_sn, pin, finger_id, valid, duress, template_type, major_ver, minor_ver, format, template_data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        sn,
-                        pin,
-                        info.get('No', info.get('Index', 0)),
-                        info.get('Valid', 1),
-                        info.get('Duress', 0),
-                        info.get('Type', 1), # Default to finger if missing
-                        info.get('MajorVer'),
-                        info.get('MinorVer'),
-                        info.get('Format'),
-                        tmp
-                    ))
-                    conn.commit()
-                    print(f" [ADMS] Saved BIODATA for PIN: {pin} (Type: {info.get('Type', 1)})")
-                except Exception as e:
-                    logger.error(f"Template Save Error: {e}", exc_info=True)
-                finally:
-                    pass # conn.close() removed to prevent leak in Flask g
+            # سطرٌ لكلّ بصمة — والجهازُ يرسل عدّةَ أسطر في الطلب الواحد (كانت تُقرأ كلُّها
+            # قاموسًا واحدًا فلا يُحفظ إلّا آخرُها).
+            conn = get_db_connection()
+            saved = 0
+            try:
+                from utils import biometric_templates as bio
+                _dev = resolve_device(conn, sn)
+                for line in data.splitlines():
+                    matches = re.findall(r'(\w+)=((?:(?!\s+\w+=).)*)', line.replace('BIODATA ', ''))
+                    info = {k: v.strip() for k, v in matches}
+                    pin = info.get('Pin') or info.get('PIN')
+                    tmp = info.get('Tmp') or info.get('TMP') or info.get('Template')
+                    if not (pin and tmp):
+                        continue
+                    try:
+                        # نسخةٌ لكلّ (إصبع، نوع، إصدار): بصمةُ هذا الجهاز لا تمحو نسخةَ
+                        # جهازٍ بإصدارٍ آخر، ووجهُه (Type=9) لا يمحو الإصبعَ 0.
+                        btype = int(info.get('Type') or 1)
+                        bio.save(conn, pin, int(info.get('No') or info.get('Index') or 0), tmp,
+                                 template_type=btype, major_ver=info.get('MajorVer'),
+                                 minor_ver=info.get('MinorVer'), fmt=info.get('Format'),
+                                 valid=int(info.get('Valid') or 1), duress=int(info.get('Duress') or 0),
+                                 device_sn=sn)
+                        # والجهازُ أبلغ بإصداره: يُرفع إليه بعد ذلك ما يقرؤه وحده.
+                        if _dev:
+                            bio.remember_version(conn, _dev['id'], btype, info.get('MajorVer'))
+                        saved += 1
+                    except Exception as e:
+                        logger.error(f"Template Save Error ({pin}): {e}", exc_info=True)
+                conn.commit()
+                if saved:
+                    print(f" [ADMS] Saved {saved} BIODATA record(s)")
+            finally:
+                pass # conn.close() removed to prevent leak in Flask g
             return "OK"
 
         elif table == 'USERINFO':
@@ -696,6 +709,16 @@ def get_request():
     # سؤال يغرق السجلّ فيخفي ما نبحث عنه — وهو الداء نفسه الذي نعالجه.
     if not device:
         _note_unknown_device(sn, conn)
+
+    # INFO: الجهازُ يذكر إصدارَ خوارزميّة البصمة والوجه عنده — لنرفع إليه ما يقرؤه.
+    if device and request.args.get('INFO'):
+        try:
+            from utils import biometric_templates as bio
+            for _t, _v in bio.parse_info(request.args.get('INFO')).items():
+                bio.remember_version(conn, device['id'], _t, _v)
+            conn.commit()
+        except Exception as e:
+            logger.warning(f'INFO parse: {e}')
 
     commands = []
     if device:
@@ -1004,7 +1027,7 @@ def sync_all_to_adms_device(device_id):
             # 2. البصمات والوجه — من جداول ADMS الحقيقيّة (كانت من جداول غير موجودة
             # فيُرسَل الموظّفُ بلا بصماته). انظر adms_template_commands.
             from utils.fingerprint_utils import adms_template_commands
-            for cmd_type, payload in adms_template_commands(conn, pin):
+            for cmd_type, payload in adms_template_commands(conn, pin, device_id):
                 cursor.execute('''
                     INSERT INTO adms_commands (device_id, command_type, payload, status)
                     VALUES (?, ?, ?, 'PENDING')
