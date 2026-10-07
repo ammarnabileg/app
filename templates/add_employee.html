@@ -851,8 +851,12 @@
         form.addEventListener('submit', function (e) {
             form.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
             document.querySelectorAll('#employeeTabs .emp-tab-error').forEach(b => b.remove());
-            const invalid = Array.from(form.querySelectorAll('input, select, textarea'))
-                .filter(el => !el.disabled && !el.checkValidity());
+            // حقولُ النموذج نفسه وحدها (form.elements) — لا كلُّ حقلٍ داخله: خانتا «إضافة
+            // راتب/شفت» في التاريخ تتبعان نموذجًا آخر (form="histSalaryForm") وهما required،
+            // فكان «حفظ» يقف عليهما فارغتين: «في تاريخ الراتب بيانات ناقصة».
+            const invalid = Array.from(form.elements)
+                .filter(el => ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName)
+                              && !el.disabled && !el.checkValidity());
             if (invalid.length === 0) return;
             e.preventDefault();
             const panes = new Set();
