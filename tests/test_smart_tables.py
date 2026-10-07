@@ -80,3 +80,18 @@ def test_sorting_and_filtering_logic(tmp_path):
     assert r['eq'] == [True, False]
     assert r['ne'] == [False, True]
     assert r['contains'] == [True, False]
+
+
+def test_export_asks_all_or_filtered_only_when_a_table_is_filtered():
+    """زرُّ Excel وفي الصفحة جدولٌ عليه فلتر/تعليم: نافذةٌ (الكلّ / المعروض / المعلَّم عليهم).
+
+    جُرّب بـPlaywright: كشف الرواتب (تصديرٌ من الخادم → «المعروض» يُبنى من الجدول كما يُرى)،
+    وتقارير الحضور (تصديرٌ من الجدول → ورقةُ الملخّص وورقةُ التفاصيل للظاهرين وحدهم).
+    """
+    src = open(JS, encoding='utf-8').read()
+    for needle in ("function exportCandidate()", "if (!cand) return;", "table_to_sheet", "aoa_to_sheet",
+                   "'المعروض بعد الفلتر'", "'المتعلَّم عليهم بس'", "'الكل'", "e.stopImmediatePropagation()",
+                   "/static/vendor/libs/xlsx.full.min.js", "استيراد|import"):
+        assert needle in src, needle
+    # اسمُ الملف لاتينيّ: بعضُ المتصفّحات تُسقط الاسمَ العربيّ فيصير «download».
+    assert "replace(/[^A-Za-z0-9_-]+/g, '-')" in src

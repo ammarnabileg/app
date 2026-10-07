@@ -767,7 +767,278 @@
         mo.observe(main, { childList: true, subtree: true });
     }
 
-    window.SmartTables = { scan: scan, instances: instances, _compare: compareValues, _match: matchFilter };
+    // ------------------------------------------------------------ التصدير: الكلّ أم المعروض؟
+    //
+    // زرُّ تصدير Excel وفي الصفحة جدولٌ عليه فلتر (أو صفوفٌ معلَّمٌ عليها): نافذةٌ تسأل —
+    // الكلّ، أو المعروض بعد الفلتر، أو المعلَّم عليهم. ولا فلتر: يُصدَّر كما كان بلا سؤال.
+    //   - صفحةٌ تصدّر من الجدول نفسه (XLSX.utils.table_to_sheet): يُعطى المصدِّرُ نسخةً من
+    //     الجدول بالصفوف المختارة وحدها — فيبقى تنسيقُ الصفحة وأوراقُها كما هي.
+    //   - تصديرٌ من الخادم (رابطٌ أو window.location): الخادمُ لا يعرف الفلتر، فـ«المعروض»
+    //     يُبنى هنا من الجدول كما يُرى (الأعمدةُ بترتيبها والصفوفُ بفرزها)، و«الكلّ» كما كان.
+
+    var EXPORT_RE = /excel|xlsx|csv|إكسل|اكسل|إكسيل|تصدير|export/i;
+    var NOT_EXPORT_RE = /استيراد|import|رفع|upload|طباعة|print|pdf/i;
+    var exportMode = null, exportModeTimer = null;
+
+    function isExportTrigger(el) {
+        if (!el || el.hasAttribute('data-no-export-choice') || el.closest('.st-menu, .swal2-container, .st-toolbar')) return false;
+        var label = (el.textContent || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (el.id || '');
+        if (NOT_EXPORT_RE.test(label)) return false;
+        return !!el.querySelector('.fa-file-excel, .fa-file-csv') || EXPORT_RE.test(label);
+    }
+
+    // تعليمُ اختيار: جدولٌ في عنوانه مربّعُ «تحديد الكل» — لا مفاتيحُ تفعيلٍ داخل الصفوف.
+    function rowsChecked(st) {
+        if (!st.headRow.querySelector('input[type=checkbox]')) return [];
+        return st.bodies().filter(function (tr) {
+            return !tr.dataset.stSkip && !tr.classList.contains('st-hide') &&
+                tr.querySelector('td input[type=checkbox]:checked');
+        });
+    }
+
+    // الجدولُ الذي يُسأل عنه: أوّلُ جدولٍ ذكيٍّ ظاهرٍ عليه فلتر أو تعليم.
+    function exportCandidate() {
+        for (var i = 0; i < instances.length; i++) {
+            var st = instances[i];
+            if (st.dead || !st.table.offsetParent) continue;
+            var filtered = st.query || Object.keys(st.filters).some(function (k) { return st.filters[k]; });
+            var checked = rowsChecked(st).length;
+            if (filtered || checked) return { st: st, filtered: !!filtered, checked: checked };
+        }
+        return null;
+    }
+
+    function countRows(st, mode) {
+        var n = 0;
+        Array.prototype.forEach.call(st.table.tBodies, function (tb) {
+            groupsOf(tb).groups.forEach(function (g) {
+                var tr = g[0];
+                if (mode === 'all') n++;
+                else if (mode === 'filtered' && !tr.classList.contains('st-hide')) n++;
+                else if (mode === 'checked' && !tr.classList.contains('st-hide') &&
+                         tr.querySelector('td input[type=checkbox]:checked')) n++;
+            });
+        });
+        return n;
+    }
+
+    // نسخةٌ من الجدول بالصفوف المختارة وحدها (وتفاصيلُ كلِّ صفٍّ معه).
+    function tableFor(table, mode) {
+        var st = instances.filter(function (x) { return x.table === table && !x.dead; })[0];
+        if (!st || !mode || mode === 'all') return table;
+        // القرارُ من الجدول الأصليّ (النسخةُ لا تحمل حالةَ مربّعات الاختيار الحيّة)، ثمّ يُطبَّق
+        // على النسخة بالترتيب نفسِه.
+        var keeps = Array.prototype.map.call(table.tBodies, function (tb) {
+            return groupsOf(tb).groups.map(function (g) {
+                var tr = g[0];
+                return !tr.classList.contains('st-hide') &&
+                    (mode !== 'checked' || !!tr.querySelector('td input[type=checkbox]:checked'));
+            });
+        });
+        var clone = table.cloneNode(true);
+        Array.prototype.forEach.call(clone.tBodies, function (tb, bi) {
+            groupsOf(tb).groups.forEach(function (g, gi) {
+                if (!(keeps[bi] || [])[gi]) g.forEach(function (r) { r.remove(); });
+            });
+            Array.prototype.forEach.call(tb.querySelectorAll('tr.st-hide'), function (r) { r.remove(); });
+        });
+        return clone;
+    }
+
+    // أوراقٌ تبنيها الصفحةُ من بياناتها لا من الجدول («تفاصيل» تقارير الحضور): صفُّها يُبقى
+    // إن حمل ما يخصّ صفًّا ظاهرًا وحده (اسمُه، رقمُه)، ويُحذف إن حمل ما يخصّ صفًّا مخفيًّا وحده.
+    // وورقةٌ لا تذكر أحدًا من المخفيّين (دليلُ رموز…) تبقى كما هي.
+    var exportTokens = null;
+    function tokensFor(mode) {
+        var vis = {}, hid = {};
+        instances.forEach(function (st) {
+            if (st.dead || !st.table.offsetParent) return;
+            Array.prototype.forEach.call(st.table.tBodies, function (tb) {
+                groupsOf(tb).groups.forEach(function (g) {
+                    var tr = g[0];
+                    var shown = !tr.classList.contains('st-hide') &&
+                        (mode !== 'checked' || !!tr.querySelector('td input[type=checkbox]:checked'));
+                    Array.prototype.forEach.call(tr.cells, function (td) {
+                        cellTokens(td).forEach(function (t) { (shown ? vis : hid)[t] = 1; });
+                    });
+                });
+            });
+        });
+        var onlyVis = {}, onlyHid = {};
+        Object.keys(vis).forEach(function (t) { if (!hid[t]) onlyVis[t] = 1; });
+        Object.keys(hid).forEach(function (t) { if (!vis[t]) onlyHid[t] = 1; });
+        return { vis: onlyVis, hid: onlyHid };
+    }
+    // بالأغلبيّة: صفُّ موظّفٍ مخفيّ يحمل اسمَه ورقمَه (مخفيّان) وقد يحمل كلمةً لا ترد إلّا عند
+    // الظاهرين («حاضر») — فالأكثرُ يحكم.
+    // نصُّ الخليّة كلُّه، ونصُّ كلِّ جزءٍ منها وحده: خليّةُ «الموظف» فيها الاسمُ بالعربيّ والإنجليزيّ
+    // والوظيفةُ معًا — والورقةُ الأخرى تذكر الاسمَ وحده.
+    function cellTokens(td) {
+        var out = [];
+        var add = function (t) {
+            t = normDigits(String(t || '')).replace(/\s+/g, ' ').trim().replace(/^#/, '');
+            if (t.length >= 2 && /[0-9A-Za-z\u0600-\u06FF]/.test(t)) out.push(t);
+        };
+        add(cellText(td));
+        var walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT, null);
+        for (var n = walker.nextNode(); n; n = walker.nextNode()) add(n.nodeValue);
+        return out;
+    }
+
+    function rowVerdict(values) {
+        var v = 0, h = 0;
+        values.forEach(function (x) {
+            var t = normDigits(String(x == null ? '' : x)).replace(/\s+/g, ' ').trim().replace(/^#/, '');
+            if (exportTokens.vis[t]) v++;
+            if (exportTokens.hid[t]) h++;
+        });
+        if (!v && !h) return 'neutral';
+        return v >= h ? 'keep' : 'drop';
+    }
+    function filterRows(rows, isAoa) {
+        if (!exportTokens || !Array.isArray(rows) || rows.length < 2) return rows;
+        var vals = function (r) { return Array.isArray(r) ? r : (r && typeof r === 'object' ? Object.keys(r).map(function (k) { return r[k]; }) : [r]); };
+        var verdicts = rows.map(function (r, i) { return isAoa && i === 0 ? 'keep' : rowVerdict(vals(r)); });
+        if (verdicts.indexOf('drop') === -1) return rows;           // لا تذكر أحدًا من المخفيّين
+        return rows.filter(function (r, i) { return verdicts[i] !== 'drop'; });
+    }
+
+    function patchXLSX() {
+        var X = window.XLSX;
+        if (!X || !X.utils || X.utils.__stPatched) return;
+        [['aoa_to_sheet', true], ['json_to_sheet', false]].forEach(function (pair) {
+            var orig = X.utils[pair[0]];
+            if (typeof orig !== 'function') return;
+            X.utils[pair[0]] = function (rows) {
+                var args = Array.prototype.slice.call(arguments);
+                if (exportMode && exportTokens) args[0] = filterRows(rows, pair[1]);
+                return orig.apply(this, args);
+            };
+        });
+        ['table_to_sheet', 'table_to_book'].forEach(function (fn) {
+            var orig = X.utils[fn];
+            if (typeof orig !== 'function') return;
+            X.utils[fn] = function (table) {
+                var args = Array.prototype.slice.call(arguments);
+                if (exportMode && table && table.tagName === 'TABLE') args[0] = tableFor(table, exportMode);
+                return orig.apply(this, args);
+            };
+        });
+        X.utils.__stPatched = true;
+    }
+
+    function pageExportsFromTables() {
+        for (var i = 0; i < document.scripts.length; i++) {
+            var t = document.scripts[i].textContent || '';
+            if (t.indexOf('table_to_sheet') !== -1 || t.indexOf('table_to_book') !== -1) return true;
+        }
+        return false;
+    }
+
+    function loadXLSX(cb) {
+        if (window.XLSX) return cb();
+        var sc = document.createElement('script');
+        sc.src = '/static/vendor/libs/xlsx.full.min.js';
+        sc.onload = function () { patchXLSX(); cb(); };
+        sc.onerror = function () { alert(AR ? 'تعذّر تحميل مكتبة Excel' : 'Could not load the Excel library'); };
+        document.head.appendChild(sc);
+    }
+
+    // «المعروض» من الجدول كما يُرى — لتصديرٍ من الخادم لا يعرف الفلتر.
+    function buildWorkbook(st, mode) {
+        var ths = Array.prototype.slice.call(st.headRow.cells);
+        var keep = ths.map(function (th) {
+            var txt = th.textContent.trim();
+            return txt !== '' && th.dataset.stSortable !== '0';
+        });
+        var aoa = [ths.filter(function (th, i) { return keep[i]; }).map(function (th) { return th.textContent.trim(); })];
+        Array.prototype.forEach.call(st.table.tBodies, function (tb) {
+            groupsOf(tb).groups.forEach(function (g) {
+                var tr = g[0];
+                if (tr.classList.contains('st-hide')) return;
+                if (mode === 'checked' && !tr.querySelector('td input[type=checkbox]:checked')) return;
+                var row = [];
+                Array.prototype.forEach.call(tr.cells, function (td, i) {
+                    if (!keep[i]) return;
+                    var txt = cellText(td);
+                    // رقمٌ (ومعه عملةٌ أو % قصيرة): رقمًا في Excel ليُجمع ويُرتَّب. الأوقاتُ والتواريخ
+                    // والهواتفُ نصٌّ كما هي (asNumber لا يقبلها).
+                    var n = asNumber(txt);
+                    row.push(n !== null ? n : txt);
+                });
+                aoa.push(row);
+            });
+        });
+        var ws = window.XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = aoa[0].map(function (h, i) {
+            var w = Math.max.apply(null, aoa.map(function (r) { return String(r[i] == null ? '' : r[i]).length; }));
+            return { wch: Math.min(Math.max(w + 2, 8), 60) };
+        });
+        var wb = window.XLSX.utils.book_new();
+        window.XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+        if (RTL) wb.Workbook = { Views: [{ RTL: true }] };
+        // اسمُ الملف من مسار الصفحة (حروفٌ لاتينيّة): بعضُ المتصفّحات تُسقط الاسمَ العربيّ فيصير «download».
+        var base = location.pathname.replace(/^\/+|\/+$/g, '').replace(/[^A-Za-z0-9_-]+/g, '-') || 'export';
+        window.XLSX.writeFile(wb, base + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    }
+
+    function rerun(el) {
+        el.dataset.stConfirmed = '1';
+        el.click();
+        setTimeout(function () { delete el.dataset.stConfirmed; }, 0);
+    }
+
+    function askExport(el, cand) {
+        var st = cand.st;
+        var opts = {};
+        if (cand.filtered) opts.filtered = (AR ? 'المعروض بعد الفلتر' : 'Filtered rows') + ' (' + countRows(st, 'filtered') + ')';
+        if (cand.checked) opts.checked = (AR ? 'المتعلَّم عليهم بس' : 'Checked rows only') + ' (' + cand.checked + ')';
+        opts.all = (AR ? 'الكل' : 'All rows') + ' (' + countRows(st, 'all') + ')';
+        var first = Object.keys(opts)[0];
+        var go = function (mode) {
+            if (mode === 'all') { exportMode = null; exportTokens = null; rerun(el); return; }
+            if (pageExportsFromTables()) {
+                // المصدِّرُ من الجدول: يأخذ الصفوفَ المختارة (وقد يُحضر بياناته أوّلًا — فمهلة).
+                exportMode = mode;
+                exportTokens = tokensFor(mode);
+                clearTimeout(exportModeTimer);
+                exportModeTimer = setTimeout(function () { exportMode = null; exportTokens = null; }, 4000);
+                patchXLSX();
+                rerun(el);
+            } else {
+                exportMode = null; exportTokens = null;
+                loadXLSX(function () { buildWorkbook(st, mode); });
+            }
+        };
+        if (typeof Swal === 'undefined') {
+            go(confirm(AR ? 'تصدير المعروض بعد الفلتر بس؟ (إلغاء = الكل)' : 'Export only the filtered rows? (Cancel = all)') ? first : 'all');
+            return;
+        }
+        Swal.fire({
+            title: AR ? 'تصدير إيه؟' : 'Export what?',
+            input: 'radio', inputOptions: opts, inputValue: first,
+            showCancelButton: true, confirmButtonColor: '#1f5c4a',
+            confirmButtonText: AR ? 'تصدير' : 'Export', cancelButtonText: AR ? 'إلغاء' : 'Cancel',
+            customClass: { input: 'st-export-choice' }
+        }).then(function (r) { if (r.isConfirmed && r.value) go(r.value); });
+    }
+
+    document.addEventListener('click', function (e) {
+        var el = e.target.closest && e.target.closest('a, button, input[type=submit], input[type=button]');
+        if (!el || el.dataset.stConfirmed || !isExportTrigger(el)) return;
+        var cand = exportCandidate();
+        if (!cand) return;                                     // لا فلتر ولا تعليم: كما كان
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        askExport(el, cand);
+    }, true);
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', patchXLSX);
+    else patchXLSX();
+    window.addEventListener('load', patchXLSX);
+
+    window.SmartTables = { scan: scan, instances: instances, _compare: compareValues, _match: matchFilter,
+                           _isExport: isExportTrigger, _tableFor: tableFor };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
 })();
