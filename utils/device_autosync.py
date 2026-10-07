@@ -23,6 +23,9 @@ from datetime import datetime
 SETTING_ENABLED = 'device_autosync_enabled'     # '1' افتراضًا
 SETTING_LAST = 'device_autosync_last'           # آخرُ تشغيلٍ تلقائيّ
 SETTING_LAST_RESULT = 'device_autosync_result'  # ملخّصُه للشاشة
+# البصماتُ نفسُها (صوابع ووجه) من كلّ جهاز مرّةً في اليوم — '1' افتراضًا.
+SETTING_TEMPLATES = 'device_autosync_templates'
+TEMPLATES_EVERY = 24 * 3600
 INTERVAL_SECONDS = 3600
 CHECK_EVERY = 300                               # يُسأل كلَّ خمس دقائق: التفعيلُ يسري بلا انتظار ساعة
 START_DELAY = 120                               # لا يُزاحم الإقلاع
@@ -62,6 +65,12 @@ def run_punches():
     try:
         from fingerprint_sync import sync_all_fingerprint_devices
         result = sync_all_fingerprint_devices()
+        # من أُضيف يدويًّا منذ المزامنة السابقة: بصماتُه المنتظرة تدخل الآن.
+        try:
+            from utils import pending_punches
+            pending_punches.adopt()
+        except Exception:
+            pass
         _fix_hire_dates()
         _enforce_blocked()
         return result
@@ -109,9 +118,73 @@ def run_users():
         return None
     try:
         from fingerprint_sync import sync_users_to_employees
-        return sync_users_to_employees()
+        res = sync_users_to_employees()
+        # موظّفون أُضيفوا الآن من الأجهزة: بصماتُهم قبل إضافتهم تدخل الحضور.
+        try:
+            from utils import pending_punches
+            n = pending_punches.adopt()
+            if n and isinstance(res, dict):
+                res['adopted_punches'] = n
+        except Exception:
+            pass
+        return res
     finally:
         LOCK.release()
+
+
+def templates_enabled():
+    return str(_get(SETTING_TEMPLATES, '1')) not in ('0', 'false', 'False', '')
+
+
+def run_templates(force=False):
+    """البصماتُ نفسُها من كلّ جهازٍ نشط — مرّةً في اليوم لكلّ جهاز.
+
+    - المباشر (K40): تُسحب الآن وتُحفظ بإصدارها (device_access.pull_direct) — كانت
+      لا تُسحب إلّا من «إدارة مستخدمي الأجهزة» يدويًّا.
+    - ADMS: أمرا «DATA QUERY BIODATA» (صوابع Type=1 ووجه Type=9) للجهاز كلِّه، فيردّ
+      حين يتّصل (على /cdata أو /querydata).
+    يُرجع ملخّصًا، ولا يرمي.
+    """
+    out = {'templates': 0, 'devices': 0, 'queued': 0, 'errors': []}
+    if not force and not templates_enabled():
+        return out
+    import json
+    from utils.db import get_db_connection
+    conn = get_db_connection()
+    try:
+        conn.execute('''CREATE TABLE IF NOT EXISTS device_template_pulls (
+            device_id INTEGER PRIMARY KEY, last_at REAL)''')
+        now = time.time()
+        for d in conn.execute("SELECT * FROM fingerprint_devices WHERE is_active = 1").fetchall():
+            last = conn.execute('SELECT last_at FROM device_template_pulls WHERE device_id = ?', (d['id'],)).fetchone()
+            if not force and last and now - (last[0] or 0) < TEMPLATES_EVERY:
+                continue
+            try:
+                if d['is_adms']:
+                    for bt in (1, 9):
+                        payload = json.dumps({'Type': bt})
+                        if not conn.execute("SELECT 1 FROM adms_commands WHERE device_id = ? AND status = 'PENDING' "
+                                            "AND command_type = 'DATA QUERY BIODATA' AND payload = ?",
+                                            (d['id'], payload)).fetchone():
+                            conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
+                                         "VALUES (?, 'DATA QUERY BIODATA', ?, 'PENDING')", (d['id'], payload))
+                            out['queued'] += 1
+                elif (d['device_ip'] or '').strip():
+                    from utils import device_access
+                    r = device_access.pull_direct(conn, d)
+                    out['templates'] += r.get('templates', 0)
+                out['devices'] += 1
+                conn.execute('INSERT OR REPLACE INTO device_template_pulls (device_id, last_at) VALUES (?, ?)',
+                             (d['id'], now))
+                conn.commit()
+            except Exception as e:              # noqa: BLE001 — جهازٌ مقفول لا يوقف البقيّة
+                out['errors'].append(f"{d['device_name']}: {str(e)[:100]}")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return out
 
 
 def _has_active_devices():
@@ -153,7 +226,15 @@ def _users_text(users):
     if users is None:
         return 'المستخدمون: تخطّي'
     if isinstance(users, dict):
-        return f"المستخدمون: أُضيف {int(users.get('employees_added') or 0)} موظّف"
+        txt = f"المستخدمون: أُضيف {int(users.get('employees_added') or 0)} موظّف"
+        if users.get('adopted_punches'):
+            txt += f"، ودخلت {int(users['adopted_punches'])} بصمة حضور كانت بانتظارهم"
+        t = users.get('templates')
+        if isinstance(t, dict) and (t.get('templates') or t.get('queued')):
+            txt += f" — البصمات نفسها: {int(t.get('templates') or 0)} من أجهزة IP"
+            if t.get('queued'):
+                txt += f"، وطُلبت من {int(t['queued']) // 2 or 1} جهاز ADMS"
+        return txt
     return ''
 
 
@@ -245,6 +326,16 @@ def run_once(source='auto'):
         users = run_users()
     except Exception as e:                       # noqa: BLE001
         users = {'success': False, 'error': str(e)[:200]}
+    # والبصماتُ نفسُها مرّةً في اليوم (لا كلَّ ساعة: سحبُها يوقف الجهازَ ثوانيَ).
+    if LOCK.acquire(blocking=False):
+        try:
+            t = run_templates()
+            if isinstance(users, dict) and (t['templates'] or t['queued'] or t['errors']):
+                users['templates'] = t
+        except Exception:
+            pass
+        finally:
+            LOCK.release()
     _set(SETTING_LAST, time.strftime('%Y-%m-%d %H:%M:%S'))
     _set(SETTING_LAST_RESULT, summary(punches, users))
     if punches is not None or users is not None:
@@ -296,5 +387,6 @@ def status():
             nxt = time.strftime('%H:%M', time.localtime(t))
         except ValueError:
             nxt = ''
-    return {'enabled': enabled(), 'last': str(last)[:16], 'result': _get(SETTING_LAST_RESULT, '') or '',
+    return {'enabled': enabled(), 'templates': templates_enabled(),
+            'last': str(last)[:16], 'result': _get(SETTING_LAST_RESULT, '') or '',
             'next': nxt, 'busy': busy(), 'history': history()}

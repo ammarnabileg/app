@@ -291,6 +291,12 @@ def add_employee():
                         conn.execute("INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)", (new_uid, emp_role[0]))
 
             conn.commit()
+            # بصمَ على الجهاز قبل أن يُضاف هنا: بصماتُه المنتظرة تدخل حضورَه.
+            try:
+                from utils import pending_punches
+                pending_punches.adopt(conn, [employee_number])
+            except Exception as _e:
+                print(f'pending punches: {_e}')
             _min_wage_warning(salary)
             flash(gettext('x.f_employee_added'), 'success')
             return redirect(url_for('employee.employees'))
@@ -514,6 +520,12 @@ def edit_employee(id):
             except Exception as _e:
                 print(f'audit log failed for employee {id}: {_e}')
             conn.commit()
+            # موظّفٌ جديدٌ من جهاز البصمة كُمّلت بياناته: يخرج من قائمة «موظفين جداد».
+            try:
+                from utils import device_new_employees
+                device_new_employees.mark_done(conn, id, session.get('username'))
+            except Exception as _e:
+                print(f'new device employee: {_e}')
             
             # ADMS SYNC
             if is_active == 1:
@@ -594,6 +606,26 @@ def edit_employee(id):
                            has_face=has_face,
                            has_photo=has_photo,
                            photo_data=photo_data)
+
+@employee_bp.route('/api/device_new_employees')
+@login_required
+@require_permission('employee.edit')
+def api_device_new_employees():
+    """جرسُ «موظفين جداد من أجهزة البصمة» في الشريط العلويّ (utils/device_new_employees)."""
+    from utils import device_new_employees
+    conn = get_db_connection()
+    items = device_new_employees.open_items(conn)
+    return jsonify({'success': True, 'count': len(items), 'items': items})
+
+
+@employee_bp.route('/api/device_new_employees/<int:emp_id>/done', methods=['POST'])
+@login_required
+@require_permission('employee.edit')
+def api_device_new_employee_done(emp_id):
+    from utils import device_new_employees
+    device_new_employees.mark_done(get_db_connection(), emp_id, session.get('username'))
+    return jsonify({'success': True})
+
 
 @employee_bp.route('/employees/delete/<int:id>')
 @login_required
@@ -1130,6 +1162,12 @@ def import_employees():
 
                 # CRITICAL: Commit changes to database
                 conn.commit()
+                # المستوردون الجدد: بصماتُهم المنتظرة من الأجهزة تدخل حضورَهم.
+                try:
+                    from utils import pending_punches
+                    pending_punches.adopt(conn)
+                except Exception as _e:
+                    print(f'pending punches: {_e}')
                 
                 summary = {
                     'total_rows': total_rows,

@@ -109,7 +109,10 @@ def test_repeated_adms_user_sync_does_not_pile_up_commands(env):
     conn.commit()
     import fingerprint_sync
     m = fingerprint_sync.FingerprintSyncManager(db_path=path)
-    count = lambda: conn.execute("SELECT COUNT(*) FROM adms_commands WHERE status = 'PENDING'").fetchone()[0]
+    # أوامرُ مزامنة المستخدمين وحدها (وسحبُ البصمات اليوميّ — DATA QUERY BIODATA — شأنٌ آخر
+    # قد يضيفه عاملُ مزامنةٍ بقي يعمل من اختبارٍ سابق).
+    count = lambda: conn.execute("SELECT COUNT(*) FROM adms_commands WHERE status = 'PENDING' AND command_type IN "
+                                 "('DATA QUERY USERINFO', 'DATA QUERY FINGERTMP')").fetchone()[0]
     m.sync_users_to_employees()
     first = count()
     assert first == 6, first                  # أمران لكلّ موظّف

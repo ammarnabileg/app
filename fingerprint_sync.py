@@ -427,8 +427,18 @@ class FingerprintSyncManager:
                                 max_timestamp = safe_timestamp
                         else:
                             employee_not_found_count += 1
+                            # لا تضيع: تدخل الحضورَ حين يُضاف (utils/pending_punches) — المزامنةُ
+                            # التالية تبدأ من بعد آخر بصمةٍ حُفظت ولا تعود إليها.
+                            try:
+                                from utils import pending_punches as _pp
+                                _pp.record(db_conn, device_id, log.user_id,
+                                           log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                                           getattr(log, 'status', 0), getattr(log, 'punch', 0),
+                                           getattr(log, 'sensor_id', 1), getattr(log, 'workcode', 0), 'direct')
+                            except Exception as _pe:
+                                self.log_message("ERROR", device_ip, "تعذّر حفظ بصمة موظف غير مسجّل", str(_pe))
                             self.log_message("WARNING", device_ip, 
-                                           f"موظف غير موجود برقم {log.user_id}")
+                                           f"موظف غير موجود برقم {log.user_id} — حُفظت بصمته حتى يُضاف")
                     
                     except Exception as e:
                         self.log_message("ERROR", device_ip, 
@@ -805,13 +815,20 @@ class FingerprintSyncManager:
                     user_info.get('privilege', 0), # privilege
                     _new_active
                 ))
+                _new_emp_id = cursor.lastrowid
                 if not _new_active:
                     # غيرُ نشطٍ لتجاوز حدّ الاشتراك لا لإيقافه: يبصم ولا يُحذف من الأجهزة.
                     try:
                         from utils.device_access import mark_plan_cap
-                        mark_plan_cap(conn, cursor.lastrowid)
+                        mark_plan_cap(conn, _new_emp_id)
                     except Exception:
                         pass
+                # «موظف جديد على جهاز كذا في مكان كذا — كمّل بياناته».
+                try:
+                    from utils import device_new_employees
+                    device_new_employees.record(conn, _new_emp_id, device_ids[0] if device_ids else None)
+                except Exception:
+                    pass
                 
                 # إضافة السجلات في fingerprint_users لجميع الأجهزة
                 for device_id in device_ids:

@@ -615,6 +615,22 @@
                 </div>
                 {% endif %}
 
+                <!-- موظفين جداد اتضافوا لوحدهم من أجهزة البصمة — يكمّل بياناتهم (utils/device_new_employees) -->
+                {% if has_permission('employee.edit') %}
+                <div class="nav-item me-3 dropdown" id="newDevEmpContainer" style="display:none;">
+                    <a class="nav-link text-white position-relative" href="#" data-bs-toggle="dropdown"
+                        data-bs-auto-close="outside" title="موظفين جداد من أجهزة البصمة">
+                        <i class="fas fa-user-plus"></i>
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-info text-dark"
+                            id="newDevEmpBadge">0</span>
+                    </a>
+                    <div class="dropdown-menu dropdown-menu-end p-0 shadow" style="width: 360px; max-width: 92vw; background-color: var(--bs-body-bg, #fff) !important; backdrop-filter: none !important;" dir="rtl">
+                        <div class="px-3 py-2 border-bottom small fw-bold">موظفين جداد من أجهزة البصمة — كمّل بياناتهم</div>
+                        <div id="newDevEmpList" style="max-height: 360px; overflow:auto;"></div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- تنبيهات التأخير -->
                 <div class="nav-item me-3" id="lateAlertsContainer" style="display:none;">
                     <a class="nav-link text-white position-relative" href="{{ url_for('report.late_two_days') }}"
@@ -1270,6 +1286,54 @@
             // استدعاء أولي ثم كل 5 دقائق
             pollLateAlerts();
             setInterval(pollLateAlerts, 5 * 60 * 1000);
+
+            // موظفين جداد من أجهزة البصمة: جرسٌ بالعدد، وتنبيهٌ مرّةً لكلّ موظّفٍ جديد.
+            const ndBox = document.getElementById('newDevEmpContainer');
+            if (ndBox) {
+                const ndEsc = (x) => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                const ndWhere = (it) => (it.device ? `جهاز «${ndEsc(it.device)}»` : 'جهاز البصمة') +
+                                        (it.location ? ` في «${ndEsc(it.location)}»` : '');
+                async function pollNewDeviceEmployees() {
+                    try {
+                        const res = await fetch('/api/device_new_employees', { headers: { 'Accept': 'application/json' } });
+                        if (!res.ok) return;
+                        const data = await res.json();
+                        if (!data.success) return;
+                        const items = data.items || [];
+                        ndBox.style.display = items.length ? '' : 'none';
+                        document.getElementById('newDevEmpBadge').textContent = items.length;
+                        document.getElementById('newDevEmpList').innerHTML = items.map(it => `
+                            <div class="px-3 py-2 border-bottom small" data-nd="${it.id}">
+                                <div><b>${ndEsc(it.name)}</b> <span class="badge bg-secondary">${ndEsc(it.number)}</span></div>
+                                <div class="text-muted">${ndWhere(it)} · <bdi>${ndEsc(it.created)}</bdi></div>
+                                <div class="mt-1 d-flex gap-2">
+                                    <a class="btn btn-sm btn-primary py-0" href="/employees/edit/${it.id}">كمّل البيانات</a>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="ndDone(${it.id})">تم</button>
+                                </div>
+                            </div>`).join('');
+                        // تنبيهٌ للجديد فقط (ما لم يُرَ على هذا الجهاز).
+                        let seen = 0;
+                        try { seen = +(localStorage.getItem('ndSeenMax') || 0); } catch (e) {}
+                        const fresh = items.filter(it => it.id > seen);
+                        if (fresh.length && typeof Swal !== 'undefined') {
+                            const it = fresh[0];
+                            Swal.fire({
+                                toast: true, position: 'top-end', icon: 'info', timer: 12000, showConfirmButton: true,
+                                confirmButtonText: 'كمّل البيانات', confirmButtonColor: '#1f5c4a', showCloseButton: true,
+                                title: fresh.length > 1 ? `${fresh.length} موظفين جداد على أجهزة البصمة` : 'موظف جديد على جهاز البصمة',
+                                html: `<b>${ndEsc(it.name)}</b> (${ndEsc(it.number)}) — ${ndWhere(it)}<br>كمّل باقي بياناته.`
+                            }).then(r => { if (r.isConfirmed) location.href = '/employees/edit/' + it.id; });
+                        }
+                        try { localStorage.setItem('ndSeenMax', String(Math.max(seen, ...items.map(i => i.id), 0))); } catch (e) {}
+                    } catch (e) { /* ignore */ }
+                }
+                window.ndDone = async function (id) {
+                    try { await fetch(`/api/device_new_employees/${id}/done`, { method: 'POST' }); } catch (e) {}
+                    pollNewDeviceEmployees();
+                };
+                pollNewDeviceEmployees();
+                setInterval(pollNewDeviceEmployees, 5 * 60 * 1000);
+            }
         });
     </script>
 

@@ -397,6 +397,15 @@ def cdata():
                             _da.adms_block(conn, device_id, user_id)
                         continue
 
+                    if not emp_id:
+                        # رقمٌ ليس موظّفًا بعد: تُحفظ بصمتُه وتدخل الحضورَ حين يُضاف.
+                        try:
+                            from utils import pending_punches as _pp
+                            _pp.record(conn, device_id, user_id, time_str, status, verify, source='adms')
+                        except Exception as _pe:
+                            logger.warning(f'pending punch: {_pe}')
+                        continue
+
                     if emp_id:
                         # Duplicate Prevention: Check if this exact record already exists
                         exists = conn.execute('''
@@ -497,6 +506,8 @@ def cdata():
                                         _new_active = 1
                                     # مُسح «من النظام فقط»: يبقى على الجهاز ولا يُعاد إنشاؤه.
                                     from utils.sensitive_ops import deleted_pins as _deleted_pins
+                                    _existed = conn.execute('SELECT id FROM employees WHERE employee_number = ?',
+                                                            (info.get('PIN'),)).fetchone()
                                     if str(info.get('PIN') or '').strip() not in _deleted_pins(conn): conn.execute('''
                                         INSERT INTO employees (
                                             employee_number, name, department, position, 
@@ -515,6 +526,15 @@ def cdata():
                                         info.get('Card', 0),
                                         info.get('Pri', 0)
                                     ))
+                                    if not _existed:
+                                        _new = conn.execute('SELECT id FROM employees WHERE employee_number = ?',
+                                                            (info.get('PIN'),)).fetchone()
+                                        if _new:
+                                            # «موظف جديد على جهاز كذا — كمّل بياناته»، وبصماتُه قبل
+                                            # إضافته تدخل حضورَه.
+                                            from utils import device_new_employees, pending_punches
+                                            device_new_employees.record(conn, _new['id'], device_id)
+                                            pending_punches.adopt(conn, [info.get('PIN')])
                                     
                                 except Exception as e:
                                     logger.error(f"OPERLOG User Save Error: {e}", exc_info=True)
@@ -633,6 +653,9 @@ def cdata():
                             info.get('Valid', 1),
                             info.get(tmp_key)
                         ))
+                        # والوجهُ كالإصبع: نسخةٌ بإصدار وجه هذا الجهاز (INFO) جنب نسخ الأجهزة الأخرى.
+                        _save_face_template(conn, sn, info.get('PIN'), info.get('FID', info.get('FaceID', 0)),
+                                            info.get(tmp_key), info.get('Valid', 1))
                         conn.commit()
                     except Exception as e:
                         logger.error(f"Face Save Error: {e}", exc_info=True)
@@ -670,6 +693,95 @@ def cdata():
     except Exception as e:
         logger.error(f"ADMS Error: {e}", exc_info=True)
         return "ERROR"
+
+def _save_face_template(conn, sn, pin, fid, tmp, valid=1):
+    """وجهٌ بالأشعّة تحت الحمراء (FACE) → fingerprint_templates نوع 2 بإصدار وجه الجهاز."""
+    if not (pin and tmp):
+        return
+    from utils import biometric_templates as bio
+    dev = resolve_device(conn, sn)
+    ver = bio.device_versions(dev).get(2) if dev else None
+    bio.save(conn, pin, int(fid or 0), tmp, template_type=2, major_ver=ver,
+             valid=int(valid or 1), device_sn=sn)
+
+
+def _kv_line(line):
+    """«biodata pin=1\tno=0\t...» → ({مفتاح بأحرف صغيرة: قيمة}). يقبل الفاصلَ مسافةً أيضًا."""
+    line = line.strip()
+    if not line:
+        return {}
+    head = line.split(None, 1)
+    if head and '=' not in head[0] and len(head) > 1:
+        line = head[1]
+    parts = line.split('\t') if '\t' in line else re.findall(r'\w+=(?:(?!\s+\w+=).)*', line)
+    out = {}
+    for p in parts:
+        if '=' in p:
+            k, v = p.split('=', 1)
+            out[k.strip().lower()] = v.strip()
+    return out
+
+
+@adms_bp.route('/querydata', methods=['GET', 'POST'])
+def querydata():
+    """ردُّ الجهاز على «DATA QUERY …» في البروتوكول الأحدث (SpeedFace وأمثاله).
+
+    الأجهزةُ القديمة تردّ على /cdata (BIODATA أو سطور FP في OPERLOG)، والأحدثُ هنا:
+    /iclock/querydata?SN=…&type=tabledata&tablename=biodata&count=…&packcnt=…&packidx=…
+    وكان هذا العنوانُ غيرَ موجود — فتضيع بصماتُ ووجوهُ هذه الأجهزة كلُّها.
+    """
+    sn = request.args.get('SN')
+    table = (request.args.get('tablename') or request.args.get('table') or '').strip().lower()
+    raw = request.get_data(as_text=True) or ''
+    if raw:
+        adms_protocol_logger.info(f"QUERYDATA: {table} | SN: {sn} | IP: {device_addr()}\n{raw}")
+    conn = get_db_connection()
+    try:
+        ok, _reason, _dev = device_gate(conn, sn)
+    except Exception:
+        ok = False
+    if not ok:
+        return "OK"
+    from utils import biometric_templates as bio
+    device = resolve_device(conn, sn)
+    device_id = device['id'] if device else None
+    versions = bio.device_versions(device) if device else {}
+    saved = 0
+    for line in raw.splitlines():
+        info = _kv_line(line)
+        pin = info.get('pin')
+        tmp = info.get('tmp') or info.get('template')
+        try:
+            if table == 'biodata' and pin and tmp:
+                btype = int(info.get('type') or 1)
+                bio.save(conn, pin, int(info.get('no') or info.get('index') or 0), tmp, template_type=btype,
+                         major_ver=info.get('majorver'), minor_ver=info.get('minorver'), fmt=info.get('format'),
+                         valid=int(info.get('valid') or 1), duress=int(info.get('duress') or 0), device_sn=sn)
+                if device_id:
+                    bio.remember_version(conn, device_id, btype, info.get('majorver'))
+                saved += 1
+            elif table in ('fingertmp', 'templatev10') and pin and tmp:
+                bio.save(conn, pin, int(info.get('fid') or info.get('fingerid') or 0), tmp, template_type=1,
+                         major_ver=versions.get(1), valid=int(info.get('valid') or 1), device_sn=sn)
+                saved += 1
+            elif table in ('face', 'userface') and pin and tmp:
+                _save_face_template(conn, sn, pin, info.get('fid') or 0, tmp, info.get('valid') or 1)
+                saved += 1
+            elif table in ('user', 'userinfo') and pin and device_id:
+                # المستخدمون: إلى fingerprint_users — ومزامنةُ المستخدمين تُنشئ منهم الموظّفين.
+                conn.execute('''INSERT OR REPLACE INTO fingerprint_users
+                    (user_id, device_id, name, privilege, password, group_id, card_number, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)''',
+                             (pin, device_id, info.get('name', ''), info.get('pri') or info.get('privilege') or 0,
+                              info.get('passwd', ''), info.get('grp', ''), info.get('cardno') or info.get('card') or ''))
+                saved += 1
+        except Exception as e:
+            logger.error(f"querydata {table} save error ({pin}): {e}", exc_info=True)
+    conn.commit()
+    if saved:
+        print(f" [ADMS] querydata {table}: saved {saved} row(s) from {sn}")
+    return "OK"
+
 
 @adms_bp.route('/getrequest', methods=['GET'])
 def get_request():
@@ -771,7 +883,11 @@ def get_request():
                 fmt = payload.get('Format')
                 size = payload.get('Size')
                 tmp = payload.get('TMP') or payload.get('Template')
-                cmd_str = f"C:{cmd_id}:DATA UPDATE FACE\tPin={pin}\tFormat={fmt}\tSize={size}\tTemplate={tmp}\tValid=1"
+                # بمفاتيح البروتوكول ومعها رقمُ الوجه (FID): الوجهُ بالأشعّة تحت الحمراء عدّةُ قوالب
+                # (0..11)، وكانت تُرسل كلُّها بلا رقمٍ فيكتب بعضُها فوق بعض.
+                fid = payload.get('FID', payload.get('FaceID', 0)) or 0
+                cmd_str = (f"C:{cmd_id}:DATA UPDATE FACE\tPIN={pin}\tFID={fid}\tSIZE={size or len(tmp or '')}"
+                           f"\tVALID=1\tTMP={tmp}")
 
             elif cmd_type == 'DATA UPDATE BIODATA':
                 pin = payload.get('PIN')

@@ -276,9 +276,16 @@ def adms_template_commands(conn, pin, device=None, stats=None):
         temps, skipped = bio.pick(conn, pin, versions, sn)
     except Exception:
         temps, skipped = [], 0
+    has_ir_face = False
     for t in temps:
         keys = t.keys()
         tmp = t['template_data']
+        if int(t['template_type'] or 1) == 2:
+            # وجهٌ بالأشعّة تحت الحمراء: أمرُ FACE ومعه رقمُ القالب.
+            has_ir_face = True
+            out.append(('DATA UPDATE FACE', json.dumps({
+                'PIN': str(pin), 'FID': t['finger_id'], 'Size': len(tmp or ''), 'TMP': tmp})))
+            continue
         out.append(('DATA UPDATE BIODATA', json.dumps({
             'PIN': str(pin), 'FingerID': t['finger_id'], 'Size': len(tmp or ''), 'Template': tmp,
             'Type': t['template_type'] or 1,
@@ -286,15 +293,16 @@ def adms_template_commands(conn, pin, device=None, stats=None):
             'MinorVer': t['minor_ver'] if 'minor_ver' in keys else None,
             'Format': t['format'] if 'format' in keys and t['format'] not in (None, 'pyzk') else None,
         })))
+    # الجدولُ القديم للوجوه (قبل ٢.٣٥): يُرسل فقط إن لم يكن للموظّف وجهٌ بإصدارٍ محفوظ.
     try:
-        faces = conn.execute('SELECT * FROM fingerprint_faces WHERE pin = ? ORDER BY face_id',
-                             (str(pin),)).fetchall()
+        faces = [] if has_ir_face else conn.execute(
+            'SELECT * FROM fingerprint_faces WHERE pin = ? ORDER BY face_id', (str(pin),)).fetchall()
     except Exception:
         faces = []
     for f in faces:
         tmp = f['template_data']
         out.append(('DATA UPDATE FACE', json.dumps({
-            'PIN': str(pin), 'Format': 0, 'Size': len(tmp or ''), 'TMP': tmp})))
+            'PIN': str(pin), 'FID': f['face_id'] or 0, 'Size': len(tmp or ''), 'TMP': tmp})))
     if stats is not None:
         stats['sent'] = len(out)
         stats['skipped'] = skipped

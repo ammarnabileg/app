@@ -353,6 +353,18 @@ def toggle_device_autosync():
     flash('المزامنة التلقائيّة كلَّ ساعة: ' + ('مفعّلة' if on else 'متوقّفة'), 'success')
     return redirect(url_for('attendance.fingerprint'))
 
+@attendance_bp.route('/fingerprint/autosync/templates', methods=['POST'])
+@login_required
+@require_permission('attendance.devices')
+def toggle_device_autosync_templates():
+    """سحبُ البصمات نفسِها (صوابع ووجه) من الأجهزة مرّةً في اليوم — تشغيل أو إيقاف."""
+    from utils import device_autosync
+    from utils.db import set_setting
+    on = request.form.get('enabled') in ('1', 'on', 'true')
+    set_setting(device_autosync.SETTING_TEMPLATES, '1' if on else '0')
+    flash('سحب البصمات نفسها من الأجهزة مرة في اليوم: ' + ('مفعّل' if on else 'متوقّف'), 'success')
+    return redirect(url_for('attendance.fingerprint'))
+
 @attendance_bp.route('/fingerprint/autosync/run', methods=['POST'])
 @login_required
 @require_permission('attendance.devices')
@@ -567,6 +579,12 @@ def sync_from_device_api():
                         INSERT INTO adms_commands (device_id, command_type, payload, status)
                         VALUES (?, 'DATA QUERY FACE', ?, 'PENDING')
                     ''', (dev_id, json.dumps({"PIN": str(pin)})))
+                    # والأجهزةُ الأحدث (SpeedFace): الصوابعُ والوجهُ بالضوء المرئيّ من BIODATA.
+                    for _bt in (1, 9):
+                        conn.execute('''
+                            INSERT INTO adms_commands (device_id, command_type, payload, status)
+                            VALUES (?, 'DATA QUERY BIODATA', ?, 'PENDING')
+                        ''', (dev_id, json.dumps({"Type": _bt, "PIN": str(pin)})))
                 
                 msg = f'تمت جدولة سحب لـ {len(user_pins)} موظف'
             else:
@@ -583,6 +601,11 @@ def sync_from_device_api():
                     INSERT INTO adms_commands (device_id, command_type, payload, status)
                     VALUES (?, 'DATA QUERY FACE', '{"PIN": ""}', 'PENDING')
                 ''', (dev_id,))
+                for _bt in (1, 9):
+                    conn.execute('''
+                        INSERT INTO adms_commands (device_id, command_type, payload, status)
+                        VALUES (?, 'DATA QUERY BIODATA', ?, 'PENDING')
+                    ''', (dev_id, json.dumps({"Type": _bt})))
                 msg = 'تمت جدولة سحب كافة الموظفين والبصمات'
             
             results.append({

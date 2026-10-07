@@ -249,6 +249,12 @@ def restore(conn, bin_id, reupload=False, who=None):
                      (who['name'], bin_id))
         log(conn, 'employee.restore', 'employee', data.get('id'), item['label'], details, who)
         conn.commit()
+        # ما بصمه على الأجهزة وهو في السلّة يدخل حضورَه.
+        try:
+            from utils import pending_punches
+            pending_punches.adopt(conn, [data.get('employee_number')])
+        except Exception:
+            pass
         if details:
             reupload_employee(data.get('id'), [d['id'] for d in scope['devices']])
         return True, f"اتسترجع {item['label']}" + (f' — {details}' if details else '')

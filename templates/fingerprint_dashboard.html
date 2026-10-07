@@ -58,6 +58,13 @@
                 <i class="fas fa-rotate me-1"></i> مزامنة الآن
             </button>
         </form>
+        <form method="POST" action="{{ url_for('attendance.toggle_device_autosync_templates') }}" class="m-0"
+              title="الصوابع والوش من كل جهاز مرة في اليوم — عشان تقدر تنقل أي موظف ببصماته لأي جهاز">
+            <input type="hidden" name="enabled" value="{{ '0' if autosync.templates else '1' }}">
+            <button type="submit" class="btn btn-sm {{ 'btn-outline-success' if autosync.templates else 'btn-outline-secondary' }}">
+                <i class="fas fa-fingerprint me-1"></i> سحب البصمات يوميًا: {{ 'شغّال' if autosync.templates else 'متوقف' }}
+            </button>
+        </form>
         <form method="POST" action="{{ url_for('attendance.toggle_device_autosync') }}" class="m-0">
             <input type="hidden" name="enabled" value="{{ '0' if autosync.enabled else '1' }}">
             <button type="submit" class="btn btn-sm {{ 'btn-outline-secondary' if autosync.enabled else 'btn-success' }}">
