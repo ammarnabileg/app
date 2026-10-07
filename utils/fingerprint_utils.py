@@ -252,15 +252,62 @@ def upload_user_to_device(device_id, user_data):
     except Exception as e:
         return {'success': False, 'message': f'خطأ في الاتصال بالجهاز: {str(e)}'}
 
+def adms_template_commands(conn, pin):
+    """أوامرُ ADMS لبصمات موظّفٍ ووجهه المحفوظة عندنا: [(نوع الأمر، الحمولة)].
+
+    من الجداول التي يملؤها ADMS فعلًا (`fingerprint_templates` من BIODATA،
+    و`fingerprint_faces` من FACE) — كانت تُقرأ من `user_fingerprints`/`user_faces`
+    وهما **غير موجودين**، فيُسكت الخطأ ويُرسَل الموظّفُ بلا بصماته. وبصيغة صفحة
+    «رفع المستخدمين» (`DATA UPDATE BIODATA`) التي تعمل عند العملاء.
+    """
+    import json
+    out = []
+    try:
+        temps = conn.execute('SELECT * FROM fingerprint_templates WHERE pin = ? ORDER BY finger_id',
+                             (str(pin),)).fetchall()
+    except Exception:
+        temps = []
+    for t in temps:
+        keys = t.keys()
+        tmp = t['template_data']
+        out.append(('DATA UPDATE BIODATA', json.dumps({
+            'PIN': str(pin), 'FingerID': t['finger_id'], 'Size': len(tmp or ''), 'Template': tmp,
+            'Type': t['template_type'] or 1,
+            'MajorVer': t['major_ver'] if 'major_ver' in keys else None,
+            'MinorVer': t['minor_ver'] if 'minor_ver' in keys else None,
+            'Format': t['format'] if 'format' in keys and t['format'] not in (None, 'pyzk') else None,
+        })))
+    try:
+        faces = conn.execute('SELECT * FROM fingerprint_faces WHERE pin = ? ORDER BY face_id',
+                             (str(pin),)).fetchall()
+    except Exception:
+        faces = []
+    for f in faces:
+        tmp = f['template_data']
+        out.append(('DATA UPDATE FACE', json.dumps({
+            'PIN': str(pin), 'Format': 0, 'Size': len(tmp or ''), 'TMP': tmp})))
+    return out
+
+
 def queue_adms_user_update(employee_data):
     """
     Queue ADD_USER command for all active ADMS devices.
     Also syncs fingerprints and face templates if available.
+
+    `employee_data`: قاموسُ الموظّف، أو رقمُه في الجدول — استيرادُ Excel كان يمرّر
+    الرقم فيسقط `.get` بصمت ولا يصل الموظّفُ المستورد لأيّ جهاز.
     """
     import json
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+        if not isinstance(employee_data, dict):
+            row = conn.execute('SELECT employee_number, name, privilege, password, card_number, group_id '
+                               'FROM employees WHERE id = ?', (int(employee_data),)).fetchone()
+            if not row:
+                return 0
+            employee_data = dict(row)
+
         devices = cursor.execute('SELECT id FROM fingerprint_devices WHERE is_active = 1 AND is_adms = 1').fetchall()
         
         if not devices:
@@ -273,25 +320,15 @@ def queue_adms_user_update(employee_data):
         user_payload = {
             'PIN': pin,
             'Name': name,
-            'Pri': int(employee_data.get('privilege', 0)),
+            'Pri': int(employee_data.get('privilege', 0) or 0),
             'Passwd': str(employee_data.get('password', '') or ''),
             'Card': str(employee_data.get('card_number', '') or '0'),
             'Grp': str(employee_data.get('group_id', '1') or '1')
         }
         user_json = json.dumps(user_payload)
         
-        # 2. Get Biometric Templates
-        # Fingerprints
-        try:
-            fingerprints = conn.execute('SELECT finger_id, size, template FROM user_fingerprints WHERE user_id = ?', (pin,)).fetchall()
-        except:
-            fingerprints = []
-            
-        # Faces
-        try:
-            faces = conn.execute('SELECT format, size, template FROM user_faces WHERE user_id = ?', (pin,)).fetchall()
-        except:
-            faces = []
+        # 2. Biometric templates — من جداول ADMS الحقيقيّة.
+        templates = adms_template_commands(conn, pin)
         
         count = 0
         for device in devices:
@@ -300,43 +337,18 @@ def queue_adms_user_update(employee_data):
             # كان كل حفظٍ للموظف يضيف أمرًا جديدًا ولو كان أمرٌ بالمحتوى
             # نفسه ما زال معلّقًا، فيتراكم الطابور ويُرسَل الأمر مرارًا.
             # وبروتوكول ZKTeco يخصّص للأمر المكرّر رمز خطأ (-7).
-            dup = cursor.execute('''
-                SELECT id FROM adms_commands
-                WHERE device_id = ? AND command_type = ?
-                  AND payload = ? AND status = 'PENDING'
-            ''', (device_id, 'DATA UPDATE USERINFO', user_json)).fetchone()
-            if not dup:
-                cursor.execute('''
-                    INSERT INTO adms_commands (device_id, command_type, payload, status)
-                    VALUES (?, ?, ?, 'PENDING')
-                ''', (device_id, 'DATA UPDATE USERINFO', user_json))
+            for cmd_type, payload in [('DATA UPDATE USERINFO', user_json)] + templates:
+                dup = cursor.execute('''
+                    SELECT id FROM adms_commands
+                    WHERE device_id = ? AND command_type = ?
+                      AND payload = ? AND status = 'PENDING'
+                ''', (device_id, cmd_type, payload)).fetchone()
+                if not dup:
+                    cursor.execute('''
+                        INSERT INTO adms_commands (device_id, command_type, payload, status)
+                        VALUES (?, ?, ?, 'PENDING')
+                    ''', (device_id, cmd_type, payload))
             count += 1
-            
-            # Queue Fingerprints
-            for fp in fingerprints:
-                fp_payload = {
-                    'PIN': pin,
-                    'FingerID': fp['finger_id'],
-                    'Size': fp['size'],
-                    'TMP': fp['template']
-                }
-                cursor.execute('''
-                    INSERT INTO adms_commands (device_id, command_type, payload, status)
-                    VALUES (?, ?, ?, 'PENDING')
-                ''', (device_id, 'DATA UPDATE FINGERTMP', json.dumps(fp_payload)))
-            
-            # Queue Faces
-            for face in faces:
-                face_payload = {
-                    'PIN': pin,
-                    'Format': face['format'],
-                    'Size': face['size'],
-                    'TMP': face['template']
-                }
-                cursor.execute('''
-                    INSERT INTO adms_commands (device_id, command_type, payload, status)
-                    VALUES (?, ?, ?, 'PENDING')
-                ''', (device_id, 'DATA UPDATE FACE', json.dumps(face_payload)))
             
         conn.commit()
         return count

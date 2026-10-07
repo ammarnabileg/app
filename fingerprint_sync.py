@@ -343,6 +343,15 @@ class FingerprintSyncManager:
             
             # حفظ السجلات في قاعدة البيانات مع منع التكرار الكامل
             db_conn = self.get_db_connection()
+            # الموقوفون: بصماتُهم بعد إيقافهم لا تدخل الحضور (utils/device_access).
+            try:
+                from utils import device_access as _da
+                _da.ensure_schema(db_conn)
+                blocked = _da.blocked_map(db_conn)
+            except Exception as _e:
+                _da, blocked = None, {}
+                self.log_message("WARNING", device_ip, "تعذّر فحص الموظفين الموقوفين", str(_e))
+            blocked_count = 0
             saved_count = 0
             duplicate_count = 0
             employee_not_found_count = 0
@@ -358,6 +367,12 @@ class FingerprintSyncManager:
                             SELECT id FROM employees WHERE employee_number = ?
                         ''', (str(log.user_id),)).fetchone()
                         
+                        if employee_exists and blocked and _da.is_blocked_punch(blocked, log.user_id, log.timestamp):
+                            _da.record_ignored(db_conn, employee_exists['id'], device_id,
+                                               log.timestamp.strftime('%Y-%m-%d %H:%M:%S'))
+                            blocked_count += 1
+                            employee_exists = None
+                            continue
                         if employee_exists:
                             employee_id = employee_exists['id']
                             
@@ -441,6 +456,8 @@ class FingerprintSyncManager:
                 summary_msg += f"، {duplicate_count} سجل مكرر تم تجاهله"
             if employee_not_found_count > 0:
                 summary_msg += f"، {employee_not_found_count} موظف غير موجود"
+            if blocked_count > 0:
+                summary_msg += f"، {blocked_count} بصمة لموظف موقوف لم تُحسب"
             
             self.log_message("INFO", device_ip, summary_msg)
             return saved_count
@@ -779,6 +796,13 @@ class FingerprintSyncManager:
                     user_info.get('privilege', 0), # privilege
                     _new_active
                 ))
+                if not _new_active:
+                    # غيرُ نشطٍ لتجاوز حدّ الاشتراك لا لإيقافه: يبصم ولا يُحذف من الأجهزة.
+                    try:
+                        from utils.device_access import mark_plan_cap
+                        mark_plan_cap(conn, cursor.lastrowid)
+                    except Exception:
+                        pass
                 
                 # إضافة السجلات في fingerprint_users لجميع الأجهزة
                 for device_id in device_ids:

@@ -63,9 +63,22 @@ def run_punches():
         from fingerprint_sync import sync_all_fingerprint_devices
         result = sync_all_fingerprint_devices()
         _fix_hire_dates()
+        _enforce_blocked()
         return result
     finally:
         LOCK.release()
+
+
+def _enforce_blocked():
+    """الموقوفون على الأجهزة المباشرة يُحذفون، ومن فُعّل يُعاد — جهازٌ كان مقفولًا
+    لحظةَ الإيقاف يُعالَج هنا (utils.device_access)."""
+    try:
+        from utils import device_access
+        res = device_access.enforce_all()
+        if res.get('removed') or res.get('restored'):
+            print(f"[device-autosync] الموقوفون: حُذف {res['removed']}، وأُعيد {res['restored']}")
+    except Exception as e:                       # noqa: BLE001
+        print(f'[device-autosync] فرضُ الإيقاف على الأجهزة تعذّر: {e}')
 
 
 def _fix_hire_dates():

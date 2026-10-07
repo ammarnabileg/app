@@ -531,6 +531,16 @@ def edit_employee(id):
                 # If changed to inactive, delete from device
                 queue_adms_user_delete(employee['employee_number'])
 
+            # الأجهزةُ المباشرة (IP + بورت مثل K40) كانت لا تُبلَّغ بشيء: الموقوفُ يبقى
+            # عليها ويبصم. الآن يُحذف منها (بعد حفظ بصماته) ويُعاد عند التفعيل — في
+            # الخلفيّة، والجهازُ المقفول تُعالجه المزامنةُ التالية.
+            if _before is not None and bool(_before['is_active']) != bool(is_active):
+                try:
+                    from utils import device_access
+                    device_access.apply_now()
+                except Exception as _e:
+                    print(f'device access apply failed: {_e}')
+
             _min_wage_warning(salary)
             flash(gettext('x.f_employee_updated'), 'success')
             pass # conn.close() removed to prevent leak in Flask g
@@ -593,6 +603,12 @@ def delete_employee(id):
     if employee:
         # Queue deletion for ADMS
         queue_adms_user_delete(employee['employee_number'])
+        # والأجهزةُ المباشرة: يُحذف منها هو أيضًا (كان يبقى عليها يبصم بلا صاحب).
+        try:
+            from utils import device_access
+            device_access.delete_from_direct_now(employee['employee_number'])
+        except Exception as _e:
+            print(f'direct device delete failed: {_e}')
         
         conn.execute('DELETE FROM employees WHERE id = ?', (id,))
         conn.commit()

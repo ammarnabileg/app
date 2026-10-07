@@ -308,6 +308,18 @@ def terminate_employee():
         except Exception as _e:
             print(f'audit log failed on EOS: {_e}')
         conn.commit()
+        # إنهاءُ الخدمة يمنع البصمة كإيقاف الموظّف — كان لا يحذفه من أيّ جهاز
+        # فيبقى يبصم بعد انتهاء خدمته.
+        try:
+            from utils.fingerprint_utils import queue_adms_user_delete
+            from utils import device_access
+            emp_row = conn.execute('SELECT employee_number FROM employees WHERE id = ?',
+                                   (employee_id,)).fetchone()
+            if emp_row:
+                queue_adms_user_delete(emp_row['employee_number'])
+            device_access.apply_now()
+        except Exception as _e:
+            print(f'device block on EOS failed: {_e}')
         pass # conn.close() removed to prevent leak in Flask g
         
         flash(gettext('x.f_eos_saved'), "success")

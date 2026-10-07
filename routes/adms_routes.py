@@ -368,7 +368,17 @@ def cdata():
             # Find device ID
             device = resolve_device(conn, sn)
             device_id = device['id'] if device else 0
-            
+
+            # الموقوفون: بصمتُهم بعد إيقافهم لا تدخل الحضور، ويُعاد للجهاز أمرُ حذفهم
+            # (utils/device_access). كان الموقوفُ يبصم ويظهر في التقارير.
+            try:
+                from utils import device_access as _da
+                _da.ensure_schema(conn)
+                _blocked = _da.blocked_map(conn)
+            except Exception as _e:
+                logger.warning(f'blocked map failed: {_e}')
+                _da, _blocked = None, {}
+
             for line in lines:
                 if not line.strip(): continue
                 parts = line.split('\t')
@@ -380,7 +390,13 @@ def cdata():
                     
                     emp = conn.execute('SELECT id FROM employees WHERE employee_number = ?', (user_id,)).fetchone()
                     emp_id = emp['id'] if emp else 0
-                    
+
+                    if emp_id and _blocked and _da.is_blocked_punch(_blocked, user_id, time_str):
+                        _da.record_ignored(conn, emp_id, device_id, time_str)
+                        if device_id:
+                            _da.adms_block(conn, device_id, user_id)
+                        continue
+
                     if emp_id:
                         # Duplicate Prevention: Check if this exact record already exists
                         exists = conn.execute('''
@@ -736,7 +752,13 @@ def get_request():
                 no = payload.get('FingerID') or payload.get('FID') or payload.get('No')
                 size = payload.get('Size')
                 tmp = payload.get('TMP') or payload.get('Template')
-                cmd_str = f"C:{cmd_id}:DATA UPDATE BIODATA\tPin={pin}\tNo={no}\tIndex=0\tValid=1\tDuress=0\tType=1\tMajorVer=13\tMinorVer=0\tFormat=0\tTmp={tmp}"
+                # النوعُ والإصدار كما حُفظا من الجهاز (وجهٌ Type=9 كان يُرسَل بصمةَ إصبع).
+                btype = payload.get('Type') or 1
+                major = payload.get('MajorVer') or 13
+                minor = payload.get('MinorVer') or 0
+                fmt = payload.get('Format') or 0
+                cmd_str = (f"C:{cmd_id}:DATA UPDATE BIODATA\tPin={pin}\tNo={no}\tIndex=0\tValid=1\tDuress=0"
+                           f"\tType={btype}\tMajorVer={major}\tMinorVer={minor}\tFormat={fmt}\tTmp={tmp}")
 
             elif cmd_type == 'DATA DELETE USERINFO':
                  cmd_str = f"C:{cmd_id}:DATA DELETE USERINFO PIN={payload.get('PIN')}"
@@ -976,29 +998,14 @@ def sync_all_to_adms_device(device_id):
             ''', (device_id, 'DATA UPDATE USERINFO', json.dumps(user_payload)))
             count += 1
             
-            # 2. Fingerprints
-            try:
-                fingerprints = conn.execute('SELECT finger_id, size, template FROM user_fingerprints WHERE user_id = ?', (pin,)).fetchall()
-                for fp in fingerprints:
-                    fp_payload = {'PIN': pin, 'FingerID': fp['finger_id'], 'Size': fp['size'], 'TMP': fp['template']}
-                    cursor.execute('''
-                        INSERT INTO adms_commands (device_id, command_type, payload, status)
-                        VALUES (?, ?, ?, 'PENDING')
-                    ''', (device_id, 'DATA UPDATE FINGERTMP', json.dumps(fp_payload)))
-            except:
-                pass
-            
-            # 3. Faces
-            try:
-                faces = conn.execute('SELECT format, size, template FROM user_faces WHERE user_id = ?', (pin,)).fetchall()
-                for face in faces:
-                    face_payload = {'PIN': pin, 'Format': face['format'], 'Size': face['size'], 'TMP': face['template']}
-                    cursor.execute('''
-                        INSERT INTO adms_commands (device_id, command_type, payload, status)
-                        VALUES (?, ?, ?, 'PENDING')
-                    ''', (device_id, 'DATA UPDATE FACE', json.dumps(face_payload)))
-            except:
-                pass
+            # 2. البصمات والوجه — من جداول ADMS الحقيقيّة (كانت من جداول غير موجودة
+            # فيُرسَل الموظّفُ بلا بصماته). انظر adms_template_commands.
+            from utils.fingerprint_utils import adms_template_commands
+            for cmd_type, payload in adms_template_commands(conn, pin):
+                cursor.execute('''
+                    INSERT INTO adms_commands (device_id, command_type, payload, status)
+                    VALUES (?, ?, ?, 'PENDING')
+                ''', (device_id, cmd_type, payload))
 
         conn.commit()
         return jsonify({'success': True, 'message': f'تمت جدولة {count} موظف للمزامنة لهذا الجهاز'})
