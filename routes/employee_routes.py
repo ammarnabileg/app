@@ -597,37 +597,11 @@ def edit_employee(id):
 
 @employee_bp.route('/employees/delete/<int:id>')
 @login_required
-@require_permission('employee.delete')
+@require_permission('admin.danger')
 def delete_employee(id):
-    # يُمسح من النظام ومن كلّ أجهزة البصمة كما كان — لكن إلى سلّة المحذوفات
-    # (تُسترجع من صفحة «العمليات الحساسة»)، ويُكتب في السجلّ مَن مسحه ومتى.
-    from utils import sensitive_ops
-    conn = get_db_connection()
-    sensitive_ops.delete_employee(conn, id, mode='devices', device_ids=None,
-                                  note='من زرّ الحذف في إدارة الموظفين')
-    flash(gettext('x.f_employee_deleted'), 'success')
-    return redirect(url_for('employee.employees'))
-
-@employee_bp.route('/employees/delete_all', methods=['POST'])
-@login_required
-@require_permission('admin.settings')
-def delete_all_employees():
-    # كلُّهم إلى السلّة (كلٌّ في صفّه — يُسترجع منفردًا)، ومن كلّ الأجهزة: ADMS والمباشرة.
-    # ولا يُصفَّر عدّادُ الأرقام: المُسترجَع يرجع برقمه دون أن يزاحمه جديد.
-    try:
-        from utils import sensitive_ops
-        conn = get_db_connection()
-        ids = [r['id'] for r in conn.execute('SELECT id FROM employees').fetchall()]
-        queue = []
-        for emp_id in ids:
-            sensitive_ops.delete_employee(conn, emp_id, mode='devices', device_ids=None,
-                                          note='مسح كل الموظفين', action='employee.delete_all',
-                                          direct_queue=queue)
-        sensitive_ops.flush_direct(queue)
-        flash(gettext('x.f_all_employees_deleted'), 'success')
-    except Exception as e:
-        flash(gettext('x.f_delete_error') % {'p0': f'{str(e)}'}, 'error')
-    return redirect(url_for('employee.employees'))
+    # المسحُ من صفحة «العمليات الحساسة» وحدها: هناك يُختار «من النظام فقط» أو
+    # «والأجهزة»، ويُكتب في السجلّ، ويذهب لسلّة المحذوفات. ورابطٌ قديم لا يمسح بلا سؤال.
+    return redirect(url_for('sensitive.index', tab='employees', emp=id))
 
 # Optional employee fields accepted by the Excel import. One declarative list
 # feeds the column-alias map, the downloadable template and the INSERT/UPDATE,

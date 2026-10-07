@@ -1,0 +1,102 @@
+/* الجداولُ الذكيّة — static/js/smart_table.js */
+
+.st-toolbar {
+    display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+    margin: 0 0 .5rem;
+}
+.st-toolbar .st-search { position: relative; flex: 0 1 260px; }
+.st-toolbar .st-search i {
+    position: absolute; inset-inline-start: .6rem; top: 50%; transform: translateY(-50%);
+    color: #8a948f; font-size: .8rem; pointer-events: none;
+}
+.st-toolbar .st-search input { padding-inline-start: 1.8rem; }
+.st-toolbar .st-reset { margin-inline-start: auto; padding: .15rem .5rem; }
+.st-toolbar .st-clear { padding: 0 .25rem; }
+
+.st-scroll { width: 100%; overflow-x: auto; }
+
+table.st-table th.st-th {
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+    padding-inline-end: 1.6rem;
+    white-space: nowrap;
+}
+table.st-table th.st-th[data-st-sortable="0"] { cursor: default; padding-inline-end: .75rem; }
+
+/* سهمُ الفرز — بلا نصّ (لا يدخل التصدير ولا نسخ النصّ) */
+table.st-table th.st-sort-asc::after,
+table.st-table th.st-sort-desc::after {
+    font-family: "Font Awesome 6 Free"; font-weight: 900;
+    font-size: .7em; margin-inline-start: .35rem; opacity: .85;
+}
+table.st-table th.st-sort-asc::after { content: "\f0de"; }
+table.st-table th.st-sort-desc::after { content: "\f0dd"; }
+table.st-table th.st-filtered { box-shadow: inset 0 -3px 0 #f0ad4e; }
+
+.st-menu-btn {
+    position: absolute; inset-inline-end: .2rem; top: 50%; transform: translateY(-50%);
+    border: 0; background: transparent; color: inherit; opacity: .35;
+    width: 1.3rem; height: 1.6rem; padding: 0; line-height: 1; border-radius: .3rem;
+}
+th.st-th:hover .st-menu-btn, .st-menu-btn:focus { opacity: .9; background: rgba(0, 0, 0, .06); }
+th.st-filtered .st-menu-btn, th.st-is-pinned .st-menu-btn { opacity: .9; color: #c77c02; }
+
+/* حافّةُ التكبير — في نهاية العنوان حسب اتّجاه الصفحة */
+.st-resize {
+    position: absolute; top: 0; bottom: 0; inset-inline-end: -4px; width: 8px;
+    cursor: col-resize; z-index: 4;
+}
+.st-resize:hover, body.st-resizing .st-resize { background: rgba(31, 92, 74, .25); }
+body.st-resizing, body.st-resizing * { cursor: col-resize !important; user-select: none !important; }
+
+table.st-table .st-sized { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* السحبُ للتحريك */
+th.st-dragging { opacity: .45; }
+th.st-drop-before { box-shadow: inset -3px 0 0 #1f5c4a; }
+th.st-drop-after { box-shadow: inset 3px 0 0 #1f5c4a; }
+[dir="rtl"] th.st-drop-before { box-shadow: inset -3px 0 0 #1f5c4a; }
+[dir="rtl"] th.st-drop-after { box-shadow: inset 3px 0 0 #1f5c4a; }
+[dir="ltr"] th.st-drop-before { box-shadow: inset 3px 0 0 #1f5c4a; }
+[dir="ltr"] th.st-drop-after { box-shadow: inset -3px 0 0 #1f5c4a; }
+
+/* التثبيت — الخلفيّةُ تُنسخ من الخليّة نفسِها في الجافاسكربت */
+table.st-table th.st-pinned, table.st-table td.st-pinned { position: sticky; z-index: 2; background-clip: padding-box; }
+/* الثيمُ يقصّ الجدولَ (overflow: hidden) لزواياه — فيصير الجدولُ نفسُه حاويةَ التثبيت ولا يثبت شيء. */
+table.st-table.st-has-pins { overflow: visible !important; }
+table.st-table thead th.st-pinned { z-index: 3; }
+table.st-table .st-pinned.st-pin-edge { border-inline-end: 2px solid rgba(31, 92, 74, .25); }
+table.st-table .st-pinned.st-pin-edge-end { border-inline-start: 2px solid rgba(31, 92, 74, .25); }
+
+tr.st-hide { display: none !important; }
+
+/* قائمةُ العمود */
+.st-menu {
+    position: absolute; z-index: 1080;
+    background: var(--bs-body-bg, #fff); color: var(--bs-body-color, #222);
+    border: 1px solid rgba(0, 0, 0, .12); border-radius: .6rem; padding: .35rem;
+    font-size: .875rem;
+}
+.st-menu button {
+    display: flex; align-items: center; gap: .55rem; width: 100%;
+    border: 0; background: transparent; padding: .38rem .55rem; border-radius: .4rem;
+    text-align: start; color: inherit;
+}
+.st-menu button i { width: 1rem; text-align: center; opacity: .7; }
+.st-menu button:hover { background: rgba(31, 92, 74, .08); }
+.st-menu button.on { background: rgba(31, 92, 74, .14); font-weight: 600; }
+.st-menu hr { margin: .3rem 0; opacity: .12; }
+.st-menu .st-menu-label { display: block; font-size: .75rem; color: #6c757d; margin: 0 .2rem .2rem; }
+.st-menu input { margin: 0 0 .1rem; }
+.st-menu .st-menu-hint { font-size: .72rem; color: #8a948f; padding: .3rem .4rem 0; line-height: 1.5; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .st-menu { border-color: rgba(255, 255, 255, .15); }
+}
+
+@media print {
+    .st-toolbar, .st-menu-btn, .st-resize, .st-menu { display: none !important; }
+    table.st-table .st-pinned { position: static !important; box-shadow: none !important; }
+    table.st-table th.st-th { padding-inline-end: .75rem; }
+}

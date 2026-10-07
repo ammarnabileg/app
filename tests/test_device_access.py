@@ -273,8 +273,9 @@ def test_direct_sync_does_not_record_a_stopped_employees_punches(env, monkeypatc
 def test_stopping_an_employee_applies_to_direct_devices_and_eos_too():
     src = open(os.path.join(ROOT, 'routes', 'employee_routes.py'), encoding='utf-8').read()
     assert 'device_access.apply_now()' in src
-    # الحذفُ يمرّ بسلّة المحذوفات (٢.٣٣)، وهي تحذف من الأجهزة المباشرة.
-    assert 'sensitive_ops.delete_employee' in src
+    # الحذفُ من صفحة العمليات الحساسة وحدها (٢.٣٣)، وتمرّ بالسلّة وتحذف من الأجهزة المباشرة.
+    sr = open(os.path.join(ROOT, 'routes', 'sensitive_routes.py'), encoding='utf-8').read()
+    assert 'sensitive_ops.delete_employee' in sr and "url_for('sensitive.index'" in src
     so = open(os.path.join(ROOT, 'utils', 'sensitive_ops.py'), encoding='utf-8').read()
     assert 'delete_from_direct_now' in so
     assert 'queue_adms_user_disable(employee' in src, 'الإيقافُ تعطيلٌ على ADMS لا حذف'

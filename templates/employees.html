@@ -20,14 +20,6 @@
                 <i class="fas fa-clipboard-check me-2"></i>{{ _('x.gaps_title') }}
             </a>
             {% endif %}
-            {% if has_permission('employee.delete') %}
-            <form action="{{ url_for('employee.delete_all_employees') }}" method="POST"
-                onsubmit="return confirmDeleteAll();">
-                <button type="submit" class="btn btn-outline-danger">
-                    <i class="fas fa-trash-alt me-2"></i>{{ _('btn.delete_all_employees') }}
-                </button>
-            </form>
-            {% endif %}
         </div>
         <!-- تم إزالة أزرار مزامنة البصمة -->
     </div>
@@ -171,7 +163,8 @@
 {% block scripts %}
 <script>
     let allEmployees = [];
-    const hasDeletePermission = "{{ 'true' if has_permission('employee.delete') else 'false' }}" === 'true';
+    // المسحُ للسوبر أدمن وحده، ومن صفحة «العمليات الحساسة» (من النظام فقط أو والأجهزة، وسلّة المحذوفات).
+    const hasDeletePermission = "{{ 'true' if has_permission('admin.danger') else 'false' }}" === 'true';
     const hasEditPermission = "{{ 'true' if has_permission('employee.edit') else 'false' }}" === 'true';
 
     // Fetch Employees Data
@@ -268,9 +261,8 @@
                         <i class="fas fa-edit"></i> {{ _('x.edit') }}
                     </a>` : ''}
                     ${hasDeletePermission ? `
-                    <a href="/employees/delete/${emp.id}" 
-                       class="btn btn-sm btn-outline-danger"
-                       onclick={{ _('x.onclick_confirm_delete_employee')|tojson }}>
+                    <a href="{{ url_for('sensitive.index') }}?tab=employees&emp=${emp.id}"
+                       class="btn btn-sm btn-outline-danger" title="المسح من صفحة العمليات الحساسة">
                         <i class="fas fa-trash"></i> {{ _('x.delete') }}
                     </a>` : ''}
                 </div>
@@ -352,10 +344,6 @@
                 }
             });
     });
-
-    function confirmDeleteAll() {
-        return confirm({{ _('x.severe_warning_delete_all')|tojson }});
-    }
 
     function esc(x) {
         return String(x ?? '').replace(/[&<>"']/g,

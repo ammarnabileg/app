@@ -39,7 +39,9 @@ def index():
                            bin_items=sensitive_ops.bin_items(conn, show_restored=show_restored),
                            show_restored=show_restored,
                            audit=sensitive_ops.audit_rows(conn),
-                           tab=request.args.get('tab') or 'employees')
+                           tab=request.args.get('tab') or 'employees',
+                           # من زرّ «حذف» في إدارة الموظفين: الموظّفُ مُعلَّمٌ جاهز.
+                           preselect=set(_ints(request.args.getlist('emp'))))
 
 
 @sensitive_bp.route('/employees/delete', methods=['POST'])

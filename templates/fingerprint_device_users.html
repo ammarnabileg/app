@@ -195,7 +195,7 @@
         document.getElementById('checkAllUsers').addEventListener('change', function () {
             const checked = this.checked;
             document.querySelectorAll('.user-check').forEach(cb => {
-                if (cb.closest('tr').style.display !== 'none') cb.checked = checked;
+                if (cb.closest('tr').offsetParent !== null) cb.checked = checked;   // الظاهرُ وحده (بعد أيّ فلتر)
             });
             updateCounts();
         });

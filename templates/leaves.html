@@ -334,8 +334,8 @@
         document.getElementById('start_date').value = tomorrow.toISOString().split('T')[0];
         document.getElementById('end_date').value = tomorrow.toISOString().split('T')[0];
 
-        // تهيئة البحث في الموظفين
-        initEmployeeSearch();
+        // تهيئة البحث في الموظفين (الدالّةُ لم تعد موجودة — كان النداءُ يرمي خطأً في كلّ تحميل).
+        if (typeof initEmployeeSearch === 'function') initEmployeeSearch();
     });
 
     // تهيئة select2 للبحث في الموظفين

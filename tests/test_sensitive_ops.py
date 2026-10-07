@@ -74,9 +74,45 @@ def _log(con):
 
 # ------------------------------------------------------------ زرّ الحذف في إدارة الموظفين
 
-def test_the_employee_delete_button_logs_who_and_goes_to_the_bin(web):
+def _del(c, *ids, mode='devices', devices=('1', '2', '3')):
+    return c.post('/admin/sensitive/employees/delete',
+                  data={'employee_ids': [str(i) for i in ids], 'mode': mode, 'device_ids': list(devices)})
+
+
+def test_the_employees_page_has_no_delete_all_and_delete_goes_to_the_sensitive_page(web):
     c, con, da, so, calls = web
+    html = c.get('/employees').get_data(as_text=True)
+    assert 'delete_all' not in html and 'confirmDeleteAll' not in html
+    assert '/admin/sensitive/?tab=employees&emp=' in html, 'زرّ الحذف للسوبر أدمن يوديه لصفحة المسح'
+    assert c.post('/employees/delete_all').status_code == 404, 'لا مسحَ للكلّ من هنا'
+    # الرابطُ القديم لا يمسح: يوديه للصفحة والموظّفُ مُعلَّم.
     r = c.get('/employees/delete/2')
+    assert r.status_code == 302 and '/admin/sensitive/' in r.headers['Location'] and 'emp=2' in r.headers['Location']
+    assert con.execute('SELECT 1 FROM employees WHERE id = 2').fetchone()
+    page = c.get('/admin/sensitive/?tab=employees&emp=2').get_data(as_text=True)
+    assert 'id="preselected"' in page and 'value="2" checked' in page
+
+
+def test_a_user_without_super_admin_sees_no_delete_button(web):
+    c, con, da, so, calls = web
+    con.execute("INSERT INTO users (username, password, role, full_name) VALUES ('hr2', 'x', 'admin', 'HR')")
+    uid = con.execute("SELECT id FROM users WHERE username = 'hr2'").fetchone()[0]
+    rid = con.execute("INSERT INTO roles (name) VALUES ('HR بلا مسح')").lastrowid
+    con.execute("INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions"
+                " WHERE code IN ('page.employees', 'employee.view', 'employee.delete', 'employee.edit')", (rid,))
+    con.execute("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)", (uid, rid))
+    con.commit()
+    with c.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'hr2'})
+    html = c.get('/employees').get_data(as_text=True)
+    assert "hasDeletePermission = \"false\"" in html
+    assert c.get('/employees/delete/2').status_code in (302, 403)
+    assert con.execute('SELECT 1 FROM employees WHERE id = 2').fetchone()
+
+
+def test_deleting_logs_who_and_goes_to_the_bin(web):
+    c, con, da, so, calls = web
+    r = _del(c, 2)
     assert r.status_code == 302
     assert not con.execute('SELECT 1 FROM employees WHERE id = 2').fetchone()
     log = _log(con)
@@ -84,15 +120,15 @@ def test_the_employee_delete_button_logs_who_and_goes_to_the_bin(web):
     assert 'admin' in log[0]['username'] and '102' in log[0]['target_label']
     item = con.execute("SELECT * FROM recycle_bin WHERE kind = 'employee'").fetchone()
     assert json.loads(item['payload'])['employee_number'] == '102'
-    # كما كان: من كلّ الأجهزة — ADMS بأمر، والمباشرةُ في الخلفيّة.
+    # ADMS بأمر، والمباشرةُ في الخلفيّة.
     assert con.execute("SELECT COUNT(*) FROM adms_commands WHERE command_type = 'DATA DELETE USERINFO'"
                        " AND device_id = 2").fetchone()[0] == 1
-    assert calls == [('102', [1, 3])]
+    assert calls == [(['102'], [1, 3])]
 
 
 def test_restore_brings_him_back_with_the_same_id_and_his_history(web):
     c, con, da, so, calls = web
-    c.get('/employees/delete/2')
+    _del(c, 2)
     bin_id = con.execute('SELECT id FROM recycle_bin').fetchone()[0]
     r = c.post(f'/admin/sensitive/restore/{bin_id}', data={})
     assert r.status_code == 302
@@ -110,7 +146,7 @@ def test_restore_brings_him_back_with_the_same_id_and_his_history(web):
 
 def test_restore_refuses_when_the_number_was_taken_meanwhile(web):
     c, con, da, so, calls = web
-    c.get('/employees/delete/2')
+    _del(c, 2)
     con.execute("INSERT INTO employees (name, employee_number, department, position, hire_date, salary)"
                 " VALUES ('جديد', '102', 'D', 'P', '2026-01-01', 1)")
     con.commit()
@@ -166,7 +202,7 @@ def test_device_delete_and_restore(web):
 
 def test_the_page_shows_bin_and_log_and_is_for_super_admin_only(web):
     c, con, da, so, calls = web
-    c.get('/employees/delete/2')
+    _del(c, 2)
     html = c.get('/admin/sensitive/?tab=bin').get_data(as_text=True)
     assert 'سلّة المحذوفات' in html and 'موظف 102' in html and 'استرجاع' in html
     # مستخدمٌ بلا صلاحية admin.danger لا يدخلها.
@@ -187,12 +223,12 @@ def test_super_admin_role_has_the_permission(web):
     assert n == 1
 
 
-def test_delete_all_goes_to_the_bin_and_reaches_direct_devices(web):
+def test_deleting_everyone_from_the_page_reaches_direct_devices_in_one_go(web):
     c, con, da, so, calls = web
-    c.post('/employees/delete_all')
+    _del(c, 1, 2, 3)
     assert con.execute('SELECT COUNT(*) FROM employees').fetchone()[0] == 0
     assert con.execute("SELECT COUNT(*) FROM recycle_bin WHERE kind = 'employee'").fetchone()[0] == 3
-    assert calls == [(['101', '102', '103'], [1, 3])], 'المباشرةُ كانت تُنسى في مسح الكلّ'
+    assert calls == [(['101', '102', '103'], [1, 3])], 'اتّصالٌ واحد لكلّ جهازٍ مباشر'
 
 
 # ------------------------------------------------------------ الأجهزة المباشرة: الحذف المعلّق والنقل ببصماته

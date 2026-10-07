@@ -42,8 +42,8 @@
                   </tr></thead>
                   <tbody>
                   {% for e in employees %}
-                    <tr>
-                      <td><input type="checkbox" class="form-check-input emp-check" name="employee_ids" value="{{ e.id }}"></td>
+                    <tr {% if e.id in preselect %}class="table-warning" id="preselected"{% endif %}>
+                      <td><input type="checkbox" class="form-check-input emp-check" name="employee_ids" value="{{ e.id }}" {% if e.id in preselect %}checked{% endif %}></td>
                       <td>{{ e.name }}</td>
                       <td><span class="badge bg-secondary">{{ e.employee_number }}</span></td>
                       <td class="small text-muted">{{ e.department }}</td>
@@ -226,9 +226,13 @@
   const empChecks = () => Array.from(document.querySelectorAll('.emp-check'));
   const updateEmp = () => { document.getElementById('empCount').textContent = empChecks().filter(c => c.checked).length; };
   empChecks().forEach(c => c.addEventListener('change', updateEmp));
+  updateEmp();
+  const pre = document.getElementById('preselected');
+  if (pre) pre.scrollIntoView({ block: 'center' });
   const all = document.getElementById('empAll');
   if (all) all.addEventListener('change', () => {
-    empChecks().forEach(c => { if (c.closest('tr').style.display !== 'none') c.checked = all.checked; });
+    // الظاهرُ وحده (بعد أيّ فلتر).
+    empChecks().forEach(c => { if (c.closest('tr').offsetParent !== null) c.checked = all.checked; });
     updateEmp();
   });
   const search = document.getElementById('empSearch');
