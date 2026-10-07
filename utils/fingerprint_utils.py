@@ -320,7 +320,9 @@ def queue_adms_user_update(employee_data):
         user_payload = {
             'PIN': pin,
             'Name': name,
-            'Pri': int(employee_data.get('privilege', 0) or 0),
+            # البتُّ الأوّل «معطّل» (utils/device_access): التحديثُ لموظّفٍ نشط يُفعّله.
+            'Pri': int(employee_data.get('privilege', 0) or 0) & ~1,
+            'Enabled': 1,
             'Passwd': str(employee_data.get('password', '') or ''),
             'Card': str(employee_data.get('card_number', '') or '0'),
             'Grp': str(employee_data.get('group_id', '1') or '1')
@@ -357,6 +359,24 @@ def queue_adms_user_update(employee_data):
         return 0
     finally:
         pass # conn.close() removed to prevent leak in Flask g
+
+def queue_adms_user_disable(employee_number):
+    """تعطيلُ الموظّف على كلّ أجهزة ADMS — يبقى ببصماته والجهازُ يرفض بصمتَه.
+    (للإيقاف وإنهاء الخدمة؛ الحذفُ لموظّفٍ حُذف من البرنامج.)"""
+    from utils import device_access
+    conn = get_db_connection()
+    try:
+        devices = conn.execute('SELECT id FROM fingerprint_devices WHERE is_active = 1 AND is_adms = 1').fetchall()
+        n = 0
+        for d in devices:
+            if device_access.adms_block(conn, d['id'], employee_number):
+                n += 1
+        conn.commit()
+        return n
+    except Exception as e:
+        print(f"Error queuing ADMS disable: {e}")
+        return 0
+
 
 def queue_adms_user_delete(employee_number):
     """

@@ -84,7 +84,7 @@ def adms(env):
     return adms_server.app.test_client(), con
 
 
-def test_adms_punch_of_a_stopped_employee_is_ignored_and_the_device_told_to_delete_him(adms):
+def test_adms_punch_of_a_stopped_employee_is_ignored_and_the_device_told_to_disable_him(adms):
     c, con = adms
     c.get('/iclock/cdata?SN=SNADMS1&options=all')
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -95,8 +95,12 @@ def test_adms_punch_of_a_stopped_employee_is_ignored_and_the_device_told_to_dele
                                       'JOIN employees e ON e.id = a.employee_id')]
     assert rows == ['101'], 'بصمةُ الموقوف لا تدخل الحضور ولا التقرير'
     assert con.execute('SELECT COUNT(*) FROM ignored_punches WHERE employee_id = 2').fetchone()[0] == 1
-    cmd = con.execute("SELECT payload FROM adms_commands WHERE command_type = 'DATA DELETE USERINFO'").fetchone()
-    assert cmd and json.loads(cmd[0])['PIN'] == '102'
+    assert not con.execute("SELECT 1 FROM adms_commands WHERE command_type = 'DATA DELETE USERINFO'").fetchone()
+    cmd = con.execute("SELECT id, payload FROM adms_commands WHERE command_type = 'DATA UPDATE USERINFO'").fetchone()
+    p = json.loads(cmd[1])
+    assert p['PIN'] == '102' and p['Enabled'] == 0 and p['Pri'] & 1, 'يُعطَّل ببياناته، لا يُحذف'
+    r = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
+    assert 'DATA UPDATE USERINFO' in r and 'PIN=102' in r and 'Enabled=0' in r and 'Pri=1' in r, r
 
 
 # ------------------------------------------------------------ الجهاز المباشر (K40) — وهميّ بواجهة pyzk
@@ -136,6 +140,25 @@ class FakeK40:
         self.log.append(('save_templates', user.user_id, len(fingers)))
         self.templates += [self.Finger(user.uid, f.fid, 1, f.template) for f in fingers]
 
+    # كما يستقبل الجهازُ CMD_USER_WRQ: سجلٌّ مُعبَّأ (٧٢ بايت) — نقرأ منه الصلاحيةَ كما وصلت.
+    user_packet_size = 72
+    encoding = 'UTF-8'
+
+    def _ZK__send_command(self, command, command_string, response_size):
+        from struct import unpack
+        from zk import const
+        assert command == const.CMD_USER_WRQ
+        uid, priv, pwd, name, card, gid, user_id = unpack('HB8s24s4sx7sx24s', command_string)
+        user_id = user_id.rstrip(b'\x00').decode()
+        self.log.append(('write_user', user_id, priv))
+        self.users = [u for u in self.users if u.uid != uid] + [
+            self.User(uid, name.rstrip(b'\x00').decode(), priv, pwd.rstrip(b'\x00').decode(),
+                      gid.rstrip(b'\x00').decode(), user_id, unpack('<I', card)[0])]
+        return {'status': True}
+
+    def refresh_data(self):
+        pass
+
     def disable_device(self):
         pass
 
@@ -146,34 +169,67 @@ class FakeK40:
         pass
 
 
-def test_a_stopped_employee_is_removed_from_k40_after_his_fingers_are_saved(env, monkeypatch):
+def _user(k40, user_id):
+    return next((u for u in k40.users if u.user_id == user_id), None)
+
+
+def test_a_stopped_employee_is_disabled_on_k40_not_deleted(env, monkeypatch):
     db, da, con = env
     k40 = FakeK40(users=[(1, '101', 'a'), (2, '102', 'b')],
                   templates=[(1, 0, b'\x01' * 40), (2, 0, b'\x02' * 40), (2, 6, b'\x03' * 40)])
     monkeypatch.setattr(da, '_connect', lambda device: k40)
     res = da.enforce_all(con)
     assert res['removed'] == 1 and not res['errors'], res
-    assert [u.user_id for u in k40.users] == ['101'], 'الموقوفُ لا يقدر يبصم على الجهاز'
+    stopped = _user(k40, '102')
+    assert stopped is not None, 'يبقى على الجهاز — لا يُحذف'
+    assert stopped.privilege & da.DISABLED_BIT, 'معطّل: الجهازُ يرفض بصمتَه'
+    assert stopped.name == 'b' and stopped.uid == 2
+    assert len([t for t in k40.templates if t.uid == 2]) == 2, 'وبصماتُه باقيةٌ على الجهاز'
+    assert not (_user(k40, '101').privilege & da.DISABLED_BIT)
     saved = con.execute("SELECT finger_id, template_data, major_ver FROM fingerprint_templates "
                         "WHERE pin = '102' ORDER BY finger_id").fetchall()
-    assert [(r[0], base64.b64decode(r[1])) for r in saved] == [(0, b'\x02' * 40), (6, b'\x03' * 40)]
+    assert [(r[0], base64.b64decode(r[1])) for r in saved] == [(0, b'\x02' * 40), (6, b'\x03' * 40)], 'ونسخةٌ عندنا احتياطًا'
     assert saved[0][2] == '10'
     assert da.enforce_all(con)['removed'] == 0, 'مرّةً واحدة'
 
 
-def test_reactivating_puts_him_back_on_k40_with_his_fingers(env, monkeypatch):
+def test_pyzk_set_user_would_lose_the_disabled_bit_so_it_is_not_used():
+    """`set_user` في pyzk يردّ الصلاحيةَ إلى 0 أو 14 — فيضيع التعطيل بصمت."""
+    import inspect
+    from zk.base import ZK
+    assert 'privilege not in [const.USER_DEFAULT, const.USER_ADMIN]' in inspect.getsource(ZK.set_user)
+    src = open(os.path.join(ROOT, 'utils', 'device_access.py'), encoding='utf-8').read()
+    assert 'write_user(dev, u, int(u.privilege or 0) | DISABLED_BIT)' in src
+
+
+def test_reactivating_enables_him_again_with_the_same_fingers(env, monkeypatch):
     db, da, con = env
     k40 = FakeK40(users=[(2, '102', 'b')], templates=[(2, 0, b'\x02' * 40)])
     monkeypatch.setattr(da, '_connect', lambda device: k40)
     da.enforce_all(con)
-    assert not k40.users
+    assert _user(k40, '102').privilege & da.DISABLED_BIT
     con.execute('UPDATE employees SET is_active = 1 WHERE id = 2')
     con.commit()
     res = da.enforce_all(con)
     assert res['restored'] == 1, res
-    assert [u.user_id for u in k40.users] == ['102']
-    assert ('save_templates', '102', 1) in k40.log, 'رجع ببصمته — لا يسجّل من جديد'
+    assert not (_user(k40, '102').privilege & da.DISABLED_BIT), 'يبصم تاني'
+    assert [t.uid for t in k40.templates] == [2], 'ببصماته نفسِها — لا رفعَ ولا تسجيلَ من جديد'
     assert con.execute('SELECT COUNT(*) FROM device_removed_users').fetchone()[0] == 0
+
+
+def test_someone_deleted_by_2_32_0_is_put_back_with_his_saved_fingers(env, monkeypatch):
+    """نسخة 2.32.0.0 كانت تحذف: من حُذف بها يُرفع ببصماته المحفوظة عند التفعيل."""
+    db, da, con = env
+    k40 = FakeK40(users=[], templates=[])
+    monkeypatch.setattr(da, '_connect', lambda device: k40)
+    da.ensure_schema(con)
+    con.execute("INSERT INTO device_removed_users (device_id, user_id) VALUES (1, '102')")
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, template_data)"
+                " VALUES ('102', 0, 1, ?)", (base64.b64encode(b'\x02' * 40).decode(),))
+    con.execute('UPDATE employees SET is_active = 1 WHERE id = 2')
+    con.commit()
+    assert da.enforce_all(con)['restored'] == 1
+    assert _user(k40, '102') is not None and ('save_templates', '102', 1) in k40.log
 
 
 def test_a_device_that_is_off_does_not_stop_the_others(env, monkeypatch):
@@ -217,8 +273,9 @@ def test_direct_sync_does_not_record_a_stopped_employees_punches(env, monkeypatc
 def test_stopping_an_employee_applies_to_direct_devices_and_eos_too():
     src = open(os.path.join(ROOT, 'routes', 'employee_routes.py'), encoding='utf-8').read()
     assert 'device_access.apply_now()' in src and 'delete_from_direct_now' in src
+    assert 'queue_adms_user_disable(employee' in src, 'الإيقافُ تعطيلٌ على ADMS لا حذف'
     eos = open(os.path.join(ROOT, 'routes', 'eos_routes.py'), encoding='utf-8').read()
-    assert 'queue_adms_user_delete' in eos and 'device_access.apply_now()' in eos
+    assert 'queue_adms_user_disable' in eos and 'device_access.apply_now()' in eos
     auto = open(os.path.join(ROOT, 'utils', 'device_autosync.py'), encoding='utf-8').read()
     assert '_enforce_blocked()' in auto
 
@@ -270,3 +327,13 @@ def test_punches_recorded_after_he_was_stopped_leave_the_reports(env):
     left = [r[0] for r in con.execute('SELECT check_time FROM attendance_records WHERE employee_id = 3 ORDER BY 1')]
     assert left == ['2026-09-30 08:00:00', '2026-10-03 09:00:00'], 'قبل الإيقاف، وما أدخله المسؤولُ بيده، يبقيان'
     assert con.execute('SELECT COUNT(*) FROM ignored_punches WHERE employee_id = 3').fetchone()[0] == 2
+
+
+def test_saving_an_active_employee_re_enables_him_on_adms(env):
+    db, da, con = env
+    import utils.fingerprint_utils as fu
+    importlib.reload(fu)
+    fu.queue_adms_user_update({'employee_number': '101', 'name': 'a', 'privilege': 1})
+    p = json.loads(con.execute("SELECT payload FROM adms_commands WHERE command_type = 'DATA UPDATE USERINFO'")
+                   .fetchone()[0])
+    assert p['Enabled'] == 1 and not (p['Pri'] & 1)

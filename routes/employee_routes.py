@@ -528,8 +528,9 @@ def edit_employee(id):
                 }
                 queue_adms_user_update(employee_data)
             else:
-                # If changed to inactive, delete from device
-                queue_adms_user_delete(employee['employee_number'])
+                # موقوف: يُعطَّل على الجهاز ولا يُحذف — يبقى ببصماته والجهازُ يرفض بصمتَه.
+                from utils.fingerprint_utils import queue_adms_user_disable
+                queue_adms_user_disable(employee['employee_number'])
 
             # الأجهزةُ المباشرة (IP + بورت مثل K40) كانت لا تُبلَّغ بشيء: الموقوفُ يبقى
             # عليها ويبصم. الآن يُحذف منها (بعد حفظ بصماته) ويُعاد عند التفعيل — في

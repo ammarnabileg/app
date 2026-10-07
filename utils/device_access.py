@@ -12,10 +12,12 @@
 
 ## ما يحدث الآن
 
-١) **من الجهاز يُحذف.** ADMS بأمر حذف، والمباشرُ بـpyzk فورًا (في الخلفيّة) — وقبل
-   الحذف تُحفظ بصماتُه من الجهاز عندنا، فإذا أُعيد تفعيلُه رجع للجهاز **ببصماته**
-   ولا يحتاج يسجّل من جديد. وجهازٌ مقفول وقتَها يُعالَج في المزامنة التالية
-   (كلَّ ساعة): كلُّ موظّفٍ موقوفٍ على جهازٍ مباشر يُحذف منه.
+١) **على الجهاز يُعطَّل لا يُحذف** (٢.٣٢.١). يبقى عليه ببصماته، والجهازُ يرفض بصمتَه:
+   في سجلّ المستخدم على أجهزة ZKTeco بايتُ الصلاحية، وأوّلُ بتٍّ فيه «معطّل»
+   (كما يضبطه برنامج ZKTeco نفسُه — Enabled في الـSDK). المباشرُ بـpyzk فورًا في
+   الخلفيّة، وADMS بأمر USERINFO (Pri مع البت، وEnabled=0). وعند التفعيل يُفكّ البتّ
+   فيبصم ببصماته كما كان. وتُحفظ بصماتُه عندنا احتياطًا قبل التعطيل. وجهازٌ مقفول
+   وقتَها يُعالَج في المزامنة التالية (كلَّ ساعة).
 ٢) **وبصمتُه لا تُحفظ في الحضور** — من ADMS ولا من المباشر — بعد تاريخ إيقافه.
    تُقيَّد في `ignored_punches` (لمن يسأل: «بصم وهو موقوف؟») ولا تدخل تقريرًا.
    وما بصمه **قبل** إيقافه يُحفظ عاديًّا (جهازٌ لم يُزامَن من أسبوع لا يُسقط أسبوعَ عمل).
@@ -36,6 +38,8 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 PLAN_CAP_SOURCE = 'plan_cap'
+# أوّلُ بتٍّ في صلاحية مستخدم ZKTeco: «معطّل». (0 مستخدم، 14 مسؤول — والبتُّ فوقها.)
+DISABLED_BIT = 1
 
 
 def _parse(ts):
@@ -183,15 +187,32 @@ def mark_plan_cap(conn, employee_id):
 
 # ------------------------------------------------------------ ADMS
 
-def adms_block(conn, device_id, employee_number):
-    """أمرُ حذفٍ لجهاز ADMS بصم عليه موقوف — مرّةً واحدة ما دام معلّقًا."""
+def adms_disable_payload(conn, employee_number):
+    """حمولةُ USERINFO تُعطّل الموظّف على جهاز ADMS — ببياناته كما هي."""
     import json
-    payload = json.dumps({'PIN': str(employee_number)})
-    if conn.execute("SELECT 1 FROM adms_commands WHERE device_id = ? AND command_type = 'DATA DELETE USERINFO' "
+    row = conn.execute('SELECT name, privilege, password, card_number, group_id FROM employees '
+                       'WHERE CAST(employee_number AS TEXT) = ?', (str(employee_number),)).fetchone()
+    r = dict(row) if row else {}
+    try:
+        pri = int(r.get('privilege') or 0)
+    except (TypeError, ValueError):
+        pri = 0
+    return json.dumps({
+        'PIN': str(employee_number), 'Name': str(r.get('name') or ''),
+        'Pri': pri | DISABLED_BIT, 'Passwd': str(r.get('password') or ''),
+        'Card': str(r.get('card_number') or '0'), 'Grp': str(r.get('group_id') or '1'),
+        'Enabled': 0,
+    })
+
+
+def adms_block(conn, device_id, employee_number):
+    """أمرُ تعطيلٍ لجهاز ADMS بصم عليه موقوف — مرّةً واحدة ما دام معلّقًا."""
+    payload = adms_disable_payload(conn, employee_number)
+    if conn.execute("SELECT 1 FROM adms_commands WHERE device_id = ? AND command_type = 'DATA UPDATE USERINFO' "
                     "AND payload = ? AND status = 'PENDING'", (device_id, payload)).fetchone():
         return False
     conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
-                 "VALUES (?, 'DATA DELETE USERINFO', ?, 'PENDING')", (device_id, payload))
+                 "VALUES (?, 'DATA UPDATE USERINFO', ?, 'PENDING')", (device_id, payload))
     return True
 
 
@@ -202,6 +223,32 @@ def _connect(device):
     # كما يتّصل fingerprint_sync تمامًا — الإعدادُ نفسُه الذي يعمل عند العملاء.
     zk = ZK(device['device_ip'], port=int(device['device_port'] or 4370), timeout=10)
     return zk.connect()
+
+
+def write_user(dev, user, privilege):
+    """يكتب سجلَّ مستخدمٍ على الجهاز بصلاحيةٍ كما هي — ومعها بتُّ «معطّل».
+
+    `set_user` في pyzk يردّ كلَّ صلاحيةٍ غير 0 و14 إلى 0 فيضيع البتّ ويبقى الموظّفُ
+    يبصم. فيُرسَل الأمرُ نفسُه (CMD_USER_WRQ) بالتعبئة نفسِها التي يستعملها pyzk 0.9
+    (المثبَّت في requirements) — والفرقُ الصلاحيةُ وحدها.
+    """
+    from struct import pack
+    from zk import const
+    enc = getattr(dev, 'encoding', 'UTF-8')
+    pwd = str(user.password or '').encode(enc, errors='ignore')
+    name = str(user.name or '').encode(enc, errors='ignore')
+    card = int(user.card or 0)
+    if getattr(dev, 'user_packet_size', 72) == 28:
+        gid = int(user.group_id) if str(user.group_id or '').isdigit() else 0
+        cs = pack('HB5s8sIxBHI', int(user.uid), int(privilege), pwd, name, card, gid, 0, int(user.user_id))
+    else:
+        cs = pack('HB8s24s4sx7sx24s', int(user.uid), int(privilege), pwd,
+                  name.ljust(24, b'\x00')[:24], pack('<I', card)[:4],
+                  str(user.group_id or '').encode(), str(user.user_id).encode())
+    resp = dev._ZK__send_command(const.CMD_USER_WRQ, cs, 1024)
+    if not resp.get('status'):
+        raise RuntimeError("الجهاز رفض تحديث المستخدم")
+    dev.refresh_data()
 
 
 def _direct_devices(conn):
@@ -242,7 +289,7 @@ def backup_templates(conn, dev, device, user, fp_ver=None):
 
 
 def enforce_device(conn, device, blocked=None):
-    """يحذف من جهازٍ مباشر كلَّ موظّفٍ موقوف — بعد حفظ بصماته. يُرجع عددَ من حُذف."""
+    """يُعطّل على جهازٍ مباشر كلَّ موظّفٍ موقوف — بعد حفظ بصماته. يُرجع عددَ من عُطّل."""
     ensure_schema(conn)
     blocked = blocked_map(conn) if blocked is None else blocked
     if not blocked:
@@ -251,15 +298,18 @@ def enforce_device(conn, device, blocked=None):
     removed = 0
     try:
         users = dev.get_users() or []
-        targets = [u for u in users if str(u.user_id).strip() in blocked]
+        targets = [u for u in users if str(u.user_id).strip() in blocked
+                   and not (int(u.privilege or 0) & DISABLED_BIT)]
         if not targets:
             return 0
         dev.disable_device()
         fp_ver = _fp_version(dev)
         try:
             for u in targets:
+                # احتياطًا: بصماتُه عندنا قبل أيّ تغيير على الجهاز.
                 backup_templates(conn, dev, device, u, fp_ver)
-                dev.delete_user(uid=u.uid)
+                # يُعطَّل ولا يُحذف: يبقى ببصماته، والجهازُ يرفض بصمتَه.
+                write_user(dev, u, int(u.privilege or 0) | DISABLED_BIT)
                 conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
                              (device['id'], str(u.user_id)))
                 removed += 1
@@ -278,7 +328,7 @@ def enforce_device(conn, device, blocked=None):
 
 
 def restore_device(conn, device):
-    """يرجّع لجهازٍ مباشر من حُذف منه وصار نشطًا — بياناته وبصماته المحفوظة."""
+    """يُفعّل على جهازٍ مباشر من عُطّل عليه وصار نشطًا (أو يرفعه ببصماته إن كان حُذف)."""
     ensure_schema(conn)
     rows = conn.execute('''SELECT r.user_id, e.name, e.privilege, e.password, e.card_number, e.group_id
                            FROM device_removed_users r
@@ -300,7 +350,15 @@ def restore_device(conn, device):
                 uid_s = str(r['user_id'])
                 if uid_s in by_id:
                     user = by_id[uid_s]
+                    if int(user.privilege or 0) & DISABLED_BIT:
+                        # كان معطّلًا ببصماته: يُفكّ البتُّ فقط فيبصم كما كان.
+                        write_user(dev, user, int(user.privilege or 0) & ~DISABLED_BIT)
+                        conn.execute('DELETE FROM device_removed_users WHERE device_id = ? AND user_id = ?',
+                                     (device['id'], uid_s))
+                        restored += 1
+                        continue
                 else:
+                    # حُذف من الجهاز (نسخة 2.32.0.0 كانت تحذف): يُرفع من جديد ببصماته المحفوظة.
                     uid = int(uid_s) if uid_s.isdigit() and int(uid_s) not in used and int(uid_s) < 65535 \
                         else (max(used) + 1 if used else 1)
                     used.add(uid)

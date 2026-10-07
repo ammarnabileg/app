@@ -721,7 +721,8 @@ def get_request():
                 if 'Card' in payload: parts.append(f"Card={payload['Card']}")
                 if 'Grp' in payload: parts.append(f"Grp={payload['Grp']}")
                 
-                parts.append("Enabled=1")
+                # Enabled=0 مع بتّ «معطّل» في Pri: الموظّفُ الموقوف يبقى ببصماته ولا يبصم.
+                parts.append(f"Enabled={0 if str(payload.get('Enabled', 1)) in ('0', 'False', 'false') else 1}")
                 cmd_str = f"C:{cmd_id}:DATA UPDATE USERINFO\t" + "\t".join(parts)
             
             elif cmd_type == 'DATA UPDATE FINGERTMP':
