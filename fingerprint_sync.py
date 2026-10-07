@@ -739,8 +739,17 @@ class FingerprintSyncManager:
         # المرحلة الثانية: معالجة المستخدمين المجمعين وإضافتهم للموظفين
         self.log_message("INFO", "SYSTEM", f"بدء معالجة {len(all_users_from_devices)} مستخدم مجمع من {successful_devices} جهاز")
         
+        # موظّفٌ مُسح «من النظام فقط» يبقى على الجهاز — ولا يُعاد إنشاؤه هنا كلَّ ساعة.
+        try:
+            from utils.sensitive_ops import deleted_pins
+            _deleted = deleted_pins(conn)
+        except Exception:
+            _deleted = set()
         for user_id, user_info in all_users_from_devices.items():
             total_users_processed += 1
+            if str(user_id).strip() in _deleted:
+                total_employees_skipped += 1
+                continue
             user_name = user_info['name']
             user_devices = user_info['devices']
             device_ids = user_info['device_ids']

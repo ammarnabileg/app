@@ -32,17 +32,17 @@
 """
 
 VERSION_MAJOR = 2
-VERSION_MINOR = 32
-VERSION_PATCH = 2
+VERSION_MINOR = 33
+VERSION_PATCH = 0
 VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
 
 # تاريخ البناء — يُحدَّث مع BUILD
-BUILD_DATE = "2026-09-30"
+BUILD_DATE = "2026-10-07"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "حفظ ملف الموظف"
+RELEASE_NAME = "العمليات الحساسة"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"

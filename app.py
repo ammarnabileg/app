@@ -242,6 +242,8 @@ from routes.branch_routes import branch_bp
 app.register_blueprint(branch_bp)
 from routes.backup_routes import backup_bp
 app.register_blueprint(backup_bp)
+from routes.sensitive_routes import sensitive_bp
+app.register_blueprint(sensitive_bp)
 
 from routes.field_routes import field_bp
 app.register_blueprint(field_bp)

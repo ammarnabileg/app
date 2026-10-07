@@ -599,21 +599,12 @@ def edit_employee(id):
 @login_required
 @require_permission('employee.delete')
 def delete_employee(id):
+    # يُمسح من النظام ومن كلّ أجهزة البصمة كما كان — لكن إلى سلّة المحذوفات
+    # (تُسترجع من صفحة «العمليات الحساسة»)، ويُكتب في السجلّ مَن مسحه ومتى.
+    from utils import sensitive_ops
     conn = get_db_connection()
-    employee = conn.execute('SELECT employee_number FROM employees WHERE id = ?', (id,)).fetchone()
-    if employee:
-        # Queue deletion for ADMS
-        queue_adms_user_delete(employee['employee_number'])
-        # والأجهزةُ المباشرة: يُحذف منها هو أيضًا (كان يبقى عليها يبصم بلا صاحب).
-        try:
-            from utils import device_access
-            device_access.delete_from_direct_now(employee['employee_number'])
-        except Exception as _e:
-            print(f'direct device delete failed: {_e}')
-        
-        conn.execute('DELETE FROM employees WHERE id = ?', (id,))
-        conn.commit()
-    pass # conn.close() removed to prevent leak in Flask g
+    sensitive_ops.delete_employee(conn, id, mode='devices', device_ids=None,
+                                  note='من زرّ الحذف في إدارة الموظفين')
     flash(gettext('x.f_employee_deleted'), 'success')
     return redirect(url_for('employee.employees'))
 
@@ -621,17 +612,18 @@ def delete_employee(id):
 @login_required
 @require_permission('admin.settings')
 def delete_all_employees():
+    # كلُّهم إلى السلّة (كلٌّ في صفّه — يُسترجع منفردًا)، ومن كلّ الأجهزة: ADMS والمباشرة.
+    # ولا يُصفَّر عدّادُ الأرقام: المُسترجَع يرجع برقمه دون أن يزاحمه جديد.
     try:
+        from utils import sensitive_ops
         conn = get_db_connection()
-        # Get all PINs before deleting
-        employees = conn.execute('SELECT employee_number FROM employees').fetchall()
-        for emp in employees:
-            queue_adms_user_delete(emp['employee_number'])
-            
-        conn.execute('DELETE FROM employees')
-        conn.execute('DELETE FROM sqlite_sequence WHERE name="employees"')
-        conn.commit()
-        pass # conn.close() removed to prevent leak in Flask g
+        ids = [r['id'] for r in conn.execute('SELECT id FROM employees').fetchall()]
+        queue = []
+        for emp_id in ids:
+            sensitive_ops.delete_employee(conn, emp_id, mode='devices', device_ids=None,
+                                          note='مسح كل الموظفين', action='employee.delete_all',
+                                          direct_queue=queue)
+        sensitive_ops.flush_direct(queue)
         flash(gettext('x.f_all_employees_deleted'), 'success')
     except Exception as e:
         flash(gettext('x.f_delete_error') % {'p0': f'{str(e)}'}, 'error')

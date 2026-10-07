@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% block title %}العمليات الحساسة{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1200px;" dir="rtl">
+  <h3 class="mb-1"><i class="fas fa-shield-halved text-danger me-2"></i>العمليات الحساسة</h3>
+  <p class="text-muted mb-3">
+    للسوبر أدمن بس. أي حاجة تتمسح من هنا (أو من زرار المسح في إدارة الموظفين / الأجهزة)
+    بتروح <b>سلّة المحذوفات</b> وتقدر ترجّعها بنفس بياناتها — ومفيش مسح نهائي.
+    وكل عملية بتتكتب في <b>السجلّ</b>: مين عملها وإمتى.
+  </p>
+
+  <ul class="nav nav-tabs mb-3" id="sensTabs">
+    {% for key, label, icon in [('employees','مسح موظفين','fa-user-xmark'), ('devices','مسح أجهزة','fa-fingerprint'),
+                                ('bin','سلّة المحذوفات','fa-trash-arrow-up'), ('log','السجلّ','fa-clipboard-list')] %}
+    <li class="nav-item">
+      <button class="nav-link {% if tab == key %}active{% endif %}" data-bs-toggle="tab"
+              data-bs-target="#tab-{{ key }}" type="button">
+        <i class="fas {{ icon }} me-1"></i>{{ label }}
+        {% if key == 'bin' and bin_items and not show_restored %}<span class="badge bg-secondary ms-1">{{ bin_items|length }}</span>{% endif %}
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <div class="tab-content">
+    {# ===================== مسح موظفين ===================== #}
+    <div class="tab-pane fade {% if tab == 'employees' %}show active{% endif %}" id="tab-employees">
+      <form method="post" action="{{ url_for('sensitive.delete_employees') }}" id="empForm">
+        <div class="row g-3">
+          <div class="col-lg-7">
+            <div class="card h-100">
+              <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                <b>الموظفين</b>
+                <input type="text" class="form-control form-control-sm w-50" id="empSearch" placeholder="بحث بالاسم أو الرقم...">
+              </div>
+              <div class="card-body p-0" style="max-height: 420px; overflow:auto;">
+                <table class="table table-sm table-hover mb-0">
+                  <thead class="table-light"><tr>
+                    <th style="width:36px"><input type="checkbox" class="form-check-input" id="empAll"></th>
+                    <th>الاسم</th><th>الرقم</th><th>القسم</th><th>الحالة</th>
+                  </tr></thead>
+                  <tbody>
+                  {% for e in employees %}
+                    <tr>
+                      <td><input type="checkbox" class="form-check-input emp-check" name="employee_ids" value="{{ e.id }}"></td>
+                      <td>{{ e.name }}</td>
+                      <td><span class="badge bg-secondary">{{ e.employee_number }}</span></td>
+                      <td class="small text-muted">{{ e.department }}</td>
+                      <td>{% if e.is_active %}<span class="badge bg-success">نشط</span>{% else %}<span class="badge bg-light text-muted">غير نشط</span>{% endif %}</td>
+                    </tr>
+                  {% else %}
+                    <tr><td colspan="5" class="text-center text-muted py-4">مفيش موظفين</td></tr>
+                  {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <div class="card-footer small text-muted">المختار: <b id="empCount">0</b></div>
+            </div>
+          </div>
+          <div class="col-lg-5">
+            <div class="card h-100">
+              <div class="card-header"><b>يتمسح منين؟</b></div>
+              <div class="card-body">
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="radio" name="mode" id="modeSystem" value="system">
+                  <label class="form-check-label" for="modeSystem">
+                    <b>من النظام بس</b>
+                    <div class="small text-muted">يفضل على أجهزة البصمة. بصماته مش هتتحسب، ومش هيرجع يتضاف لوحده من الجهاز.</div>
+                  </label>
+                </div>
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="radio" name="mode" id="modeDevices" value="devices" checked>
+                  <label class="form-check-label" for="modeDevices">
+                    <b>من النظام والأجهزة</b>
+                    <div class="small text-muted">من الأجهزة اللي هتعلّم عليها تحت بس. بصماته بتتحفظ عندنا قبل ما تتمسح من الجهاز.</div>
+                  </label>
+                </div>
+                <div id="devPick" class="border rounded p-2 mb-3">
+                  <div class="small fw-bold mb-1">الأجهزة:</div>
+                  {% for d in devices if d.is_active %}
+                  <div class="form-check">
+                    <input class="form-check-input dev-pick" type="checkbox" name="device_ids" value="{{ d.id }}" id="dp{{ d.id }}" checked>
+                    <label class="form-check-label" for="dp{{ d.id }}">
+                      {{ d.device_name }}
+                      {% if d.is_adms %}<span class="badge bg-success">ADMS</span>{% else %}<span class="badge bg-info text-dark">IP</span>{% endif %}
+                      <small class="text-muted">{{ d.device_ip }}</small>
+                    </label>
+                  </div>
+                  {% else %}
+                  <div class="small text-muted">مفيش أجهزة نشطة</div>
+                  {% endfor %}
+                </div>
+                <label class="form-label small">السبب (اختياري — بيتكتب في السجلّ)</label>
+                <input type="text" class="form-control mb-3" name="note" maxlength="300">
+                <button type="submit" class="btn btn-danger w-100"><i class="fas fa-trash me-1"></i>امسح الموظفين المختارين</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    {# ===================== مسح أجهزة ===================== #}
+    <div class="tab-pane fade {% if tab == 'devices' %}show active{% endif %}" id="tab-devices">
+      <form method="post" action="{{ url_for('sensitive.delete_devices') }}" id="devForm">
+        <div class="card">
+          <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0">
+              <thead class="table-light"><tr>
+                <th style="width:36px"></th><th>الجهاز</th><th>النوع</th><th>العنوان</th><th>الحالة</th>
+              </tr></thead>
+              <tbody>
+              {% for d in devices %}
+                <tr>
+                  <td><input type="checkbox" class="form-check-input" name="device_ids" value="{{ d.id }}"></td>
+                  <td>{{ d.device_name }}</td>
+                  <td>{% if d.is_adms %}ADMS{% else %}IP مباشر{% endif %}</td>
+                  <td class="small">{{ d.device_ip }}</td>
+                  <td>{% if d.is_active %}<span class="badge bg-success">نشط</span>{% else %}<span class="badge bg-light text-muted">متوقف</span>{% endif %}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="5" class="text-center text-muted py-4">مفيش أجهزة</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card-footer">
+            <div class="small text-muted mb-2">مسح الجهاز من النظام بس — مش بيلمس الجهاز نفسه، والبصمات والحضور اللي اتسحبوا منه بيفضلوا.</div>
+            <div class="d-flex gap-2">
+              <input type="text" class="form-control" name="note" maxlength="300" placeholder="السبب (اختياري)">
+              <button type="submit" class="btn btn-danger text-nowrap"><i class="fas fa-trash me-1"></i>امسح الأجهزة المختارة</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    {# ===================== سلّة المحذوفات ===================== #}
+    <div class="tab-pane fade {% if tab == 'bin' %}show active{% endif %}" id="tab-bin">
+      <div class="d-flex justify-content-end mb-2">
+        {% if show_restored %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('sensitive.index', tab='bin') }}">اعرض اللي لسه في السلّة بس</a>
+        {% else %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('sensitive.index', tab='bin', restored='1') }}">اعرض اللي اتسترجع كمان</a>
+        {% endif %}
+      </div>
+      <div class="card">
+        <div class="card-body p-0 table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light"><tr>
+              <th>النوع</th><th>الاسم</th><th>اتمسح من</th><th>مين مسحه</th><th>إمتى</th><th></th>
+            </tr></thead>
+            <tbody>
+            {% for it in bin_items %}
+              <tr class="{% if it.restored_at %}text-muted{% endif %}">
+                <td><span class="badge {% if it.kind == 'employee' %}bg-primary{% else %}bg-info text-dark{% endif %}">{{ it.kind_label }}</span></td>
+                <td>{{ it.label }}</td>
+                <td class="small">
+                  {% if it.kind == 'employee' %}
+                    {% if it.scope_obj.mode == 'devices' %}
+                      النظام + {{ it.scope_obj.devices|map(attribute='name')|join('، ') or 'لا أجهزة' }}
+                    {% else %}النظام بس{% endif %}
+                  {% else %}النظام{% endif %}
+                </td>
+                <td class="small">{{ it.deleted_by }}</td>
+                <td class="small text-nowrap">{{ it.deleted_local }}</td>
+                <td class="text-nowrap">
+                  {% if it.restored_at %}
+                    <span class="small">اتسترجع {{ it.restored_local }} — {{ it.restored_by }}</span>
+                  {% else %}
+                  <form method="post" action="{{ url_for('sensitive.restore', bin_id=it.id) }}" class="d-inline restore-form">
+                    {% if it.kind == 'employee' and it.scope_obj.mode == 'devices' and it.scope_obj.devices %}
+                    <div class="form-check form-check-inline small mb-0">
+                      <input class="form-check-input" type="checkbox" name="reupload" value="1" id="ru{{ it.id }}" checked>
+                      <label class="form-check-label" for="ru{{ it.id }}">ارفعه على الأجهزة تاني</label>
+                    </div>
+                    {% endif %}
+                    <button class="btn btn-sm btn-success"><i class="fas fa-rotate-left me-1"></i>استرجاع</button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="text-center text-muted py-4">السلّة فاضية</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    {# ===================== السجلّ ===================== #}
+    <div class="tab-pane fade {% if tab == 'log' %}show active{% endif %}" id="tab-log">
+      <div class="card">
+        <div class="card-body p-0 table-responsive">
+          <table class="table table-sm mb-0">
+            <thead class="table-light"><tr>
+              <th>إمتى</th><th>مين</th><th>العملية</th><th>على</th><th>التفاصيل</th><th>من جهاز</th>
+            </tr></thead>
+            <tbody>
+            {% for a in audit %}
+              <tr>
+                <td class="small text-nowrap">{{ a.created_local }}</td>
+                <td class="small">{{ a.username }}</td>
+                <td><span class="badge {% if 'restore' in a.action %}bg-success{% else %}bg-danger{% endif %}">{{ a.action_label }}</span></td>
+                <td>{{ a.target_label }}</td>
+                <td class="small text-muted">{{ a.details }}</td>
+                <td class="small text-muted">{{ a.ip or '' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="text-center text-muted py-4">لسه مفيش عمليات</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const empChecks = () => Array.from(document.querySelectorAll('.emp-check'));
+  const updateEmp = () => { document.getElementById('empCount').textContent = empChecks().filter(c => c.checked).length; };
+  empChecks().forEach(c => c.addEventListener('change', updateEmp));
+  const all = document.getElementById('empAll');
+  if (all) all.addEventListener('change', () => {
+    empChecks().forEach(c => { if (c.closest('tr').style.display !== 'none') c.checked = all.checked; });
+    updateEmp();
+  });
+  const search = document.getElementById('empSearch');
+  if (search) search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    empChecks().forEach(c => { const tr = c.closest('tr'); tr.style.display = tr.innerText.toLowerCase().includes(q) ? '' : 'none'; });
+  });
+  const syncMode = () => {
+    const dev = document.getElementById('modeDevices').checked;
+    document.getElementById('devPick').style.opacity = dev ? 1 : .45;
+    document.querySelectorAll('.dev-pick').forEach(c => c.disabled = !dev);
+  };
+  document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', syncMode));
+  syncMode();
+
+  function confirmSubmit(form, text) {
+    form.addEventListener('submit', function (ev) {
+      if (form.dataset.ok) return;
+      ev.preventDefault();
+      const n = form.querySelectorAll('input[name=employee_ids]:checked, input[name=device_ids]:checked:not(.dev-pick)').length;
+      if (!n) { Swal.fire('تنبيه', 'مفيش حاجة متعلَّمة', 'warning'); return; }
+      Swal.fire({ title: 'متأكد؟', text: text(n), icon: 'warning', showCancelButton: true,
+                  confirmButtonText: 'أيوه امسح', cancelButtonText: 'لأ', confirmButtonColor: '#dc3545' })
+        .then(r => { if (r.isConfirmed) { form.dataset.ok = '1'; form.submit(); } });
+    });
+  }
+  confirmSubmit(document.getElementById('empForm'), n => {
+    const dev = document.getElementById('modeDevices').checked;
+    return `هيتمسح ${n} موظف ${dev ? 'من النظام والأجهزة المختارة' : 'من النظام بس'} — وتقدر ترجّعهم من سلّة المحذوفات.`;
+  });
+  confirmSubmit(document.getElementById('devForm'), n => `هيتمسح ${n} جهاز من النظام — وتقدر ترجّعهم من سلّة المحذوفات.`);
+})();
+</script>
+{% endblock %}

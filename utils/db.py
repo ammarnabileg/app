@@ -1768,6 +1768,7 @@ def init_db():
             # Admin / Settings
             ('admin.users', 'Manage Users', 'Administration', 'Manage system users and roles'),
             ('admin.settings', 'System Settings', 'Administration', 'Global system settings'),
+            ('admin.danger', 'العمليات الحساسة (سوبر أدمن)', 'Administration', 'Delete employees/devices, recycle bin and sensitive audit log'),
             ('admin.roles', 'Manage Roles', 'Administration', 'Create/Edit roles and permissions'),
             
             # Pages

@@ -1058,6 +1058,13 @@
                                     {% endif %}
                                     {# النسخ الاحتياطي: للمسؤول وحده، والمسار نفسه يتحقّق
                                        من ذلك ولا يكتفي بإخفاء الرابط. #}
+                                    {% if has_permission('admin.danger') %}
+                                    <li class="nav-item">
+                                        <a class="nav-link py-2 text-danger" href="{{ url_for('sensitive.index') }}">
+                                            <i class="fas fa-shield-halved small me-2"></i>العمليات الحساسة
+                                        </a>
+                                    </li>
+                                    {% endif %}
                                     {% if session.get('role') == 'admin' %}
                                     <li class="nav-item">
                                         <a class="nav-link py-2 text-dark" href="{{ url_for('backup.index') }}">

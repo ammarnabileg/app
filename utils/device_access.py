@@ -72,6 +72,14 @@ def ensure_schema(conn):
         removed_at TEXT DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (device_id, user_id)
     )''')
+    # حذفٌ من جهازٍ مباشر كان مقفولًا وقتَها — يُعاد في المزامنة التالية حتى يتمّ.
+    conn.execute('''CREATE TABLE IF NOT EXISTS device_pending_deletes (
+        device_id INTEGER NOT NULL,
+        user_id TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_error TEXT,
+        PRIMARY KEY (device_id, user_id)
+    )''')
 
 
 # ------------------------------------------------------------ مَن الموقوف
@@ -418,6 +426,7 @@ def enforce_all(conn=None):
             out['errors'].append(f'move: {str(e)[:120]}')
         for d in _direct_devices(conn):
             try:
+                out['deleted'] = out.get('deleted', 0) + run_pending_deletes(conn, d)
                 out['removed'] += enforce_device(conn, d, blocked)
                 out['restored'] += restore_device(conn, d)
             except Exception as e:              # noqa: BLE001 — جهازٌ مقفول لا يوقف البقيّة
@@ -432,34 +441,261 @@ def enforce_all(conn=None):
     return out
 
 
-def delete_from_direct(employee_number):
-    """موظّفٌ حُذف من البرنامج: يُحذف من كلّ جهازٍ مباشر (لا رجعة — لا تفعيلَ بعد الحذف)."""
-    from utils.db import get_db_connection
-    conn = get_db_connection()
+def _delete_on_device(dev, user_ids, conn=None, device=None):
+    """يحذف من جهازٍ مفتوح — وبصماتُ كلٍّ منهم تُحفظ عندنا أولًا (لتُرفع إن استُرجع)."""
+    ids = {str(x).strip() for x in user_ids}
+    targets = [u for u in dev.get_users() or [] if str(u.user_id).strip() in ids]
+    if targets and conn is not None and device is not None:
+        fp_ver = _fp_version(dev)
+        for u in targets:
+            backup_templates(conn, dev, device, u, fp_ver)
+    for u in targets:
+        dev.delete_user(uid=u.uid)
+    return len(targets)
+
+
+def delete_from_direct(employee_number, device_ids=None, conn=None):
+    """موظّفٌ حُذف من البرنامج: يُحذف من الأجهزة المباشرة (كلِّها، أو المختارة).
+
+    `employee_number`: رقمٌ واحد أو قائمة (مسح الكلّ: اتّصالٌ واحد بكلّ جهاز).
+    جهازٌ مقفول وقتَها لا يُنسى: يُقيَّد في `device_pending_deletes` وتُعيد
+    المزامنةُ كلَّ ساعة المحاولةَ حتى يُحذف منه (كان يبقى عليه يبصم بلا صاحب).
+    """
+    owned = conn is None
+    if owned:
+        from utils.db import get_db_connection
+        conn = get_db_connection()
+    nums = [employee_number] if isinstance(employee_number, (str, int)) else list(employee_number)
+    nums = [str(n).strip() for n in nums if str(n).strip()]
     done = 0
     try:
+        ensure_schema(conn)
+        wanted = {int(x) for x in device_ids} if device_ids is not None else None
         for d in _direct_devices(conn):
+            if wanted is not None and int(d['id']) not in wanted:
+                continue
             try:
                 dev = _connect(d)
                 try:
-                    for u in dev.get_users() or []:
-                        if str(u.user_id).strip() == str(employee_number).strip():
-                            dev.delete_user(uid=u.uid)
-                            done += 1
+                    done += _delete_on_device(dev, nums, conn, d)
                 finally:
                     dev.disconnect()
+                conn.executemany('DELETE FROM device_pending_deletes WHERE device_id = ? AND user_id = ?',
+                                 [(d['id'], n) for n in nums])
             except Exception as e:              # noqa: BLE001
-                logger.warning(f'delete {employee_number} from {d["device_ip"]}: {e}')
+                logger.warning(f'delete {nums[:5]} from {d["device_ip"]}: {e}')
+                conn.executemany('''INSERT INTO device_pending_deletes (device_id, user_id, last_error)
+                                    VALUES (?, ?, ?) ON CONFLICT(device_id, user_id)
+                                    DO UPDATE SET last_error = excluded.last_error''',
+                                 [(d['id'], n, str(e)[:200]) for n in nums])
+        conn.commit()
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if owned:
+            try:
+                conn.close()
+            except Exception:
+                pass
     return done
 
 
-def delete_from_direct_now(employee_number):
-    threading.Thread(target=delete_from_direct, args=(str(employee_number),), daemon=True).start()
+def delete_from_direct_now(employee_number, device_ids=None):
+    if not isinstance(employee_number, (str, int)):
+        employee_number = [str(n) for n in employee_number]
+    else:
+        employee_number = str(employee_number)
+    threading.Thread(target=delete_from_direct, args=(employee_number, device_ids),
+                     daemon=True).start()
+
+
+def run_pending_deletes(conn, device):
+    """ما لم يُحذف من جهازٍ كان مقفولًا: يُحذف الآن. يُرجع العدد."""
+    ensure_schema(conn)
+    rows = [r['user_id'] for r in conn.execute(
+        'SELECT user_id FROM device_pending_deletes WHERE device_id = ?', (device['id'],)).fetchall()]
+    if not rows:
+        return 0
+    dev = _connect(device)
+    try:
+        done = _delete_on_device(dev, rows, conn, device)
+    finally:
+        try:
+            dev.disconnect()
+        except Exception:
+            pass
+    conn.execute('DELETE FROM device_pending_deletes WHERE device_id = ?', (device['id'],))
+    conn.commit()
+    return done
+
+
+def cancel_pending_deletes(conn, employee_number):
+    """موظّفٌ استُرجع من سلّة المحذوفات: لا يُحذف من الأجهزة بعد ذلك."""
+    ensure_schema(conn)
+    conn.execute('DELETE FROM device_pending_deletes WHERE user_id = ?', (str(employee_number).strip(),))
+
+
+# ------------------------------------------------------------ نقلُ موظّفٍ ببصماته بين الأجهزة
+
+def _template_compatible(row, fp_ver):
+    """بصمةٌ تنفع على جهازٍ بإصدار خوارزميةٍ معيّن؟ (10 لا تُقرأ على 12 والعكس.)"""
+    keys = row.keys()
+    fmt = str(row['format']) if 'format' in keys and row['format'] is not None else ''
+    if fmt == '1':                       # ISO — أجهزةُ ZK بالاتّصال المباشر لا تقرؤها
+        return False
+    major = str(row['major_ver']).strip() if 'major_ver' in keys and row['major_ver'] not in (None, '') else ''
+    if not major or not fp_ver:
+        return True                      # لا نعرف — نجرّب، والجهازُ يرفض إن لم تنفع
+    return major.split('.')[0] == str(fp_ver).split('.')[0]
+
+
+def pull_direct(conn, device, pins=None):
+    """بصماتُ الموظّفين من جهازٍ مباشر إلى البرنامج — لتُرفع منه لأيّ جهازٍ آخر.
+
+    `pins`: أرقامُ موظّفين بعينهم، أو None للكلّ. تُستبدل البصمةُ المحفوظة لنفس الإصبع
+    (السحبُ طلبٌ صريح، والأحدثُ هو الصحيح). يُرجع ملخّصًا.
+    """
+    pins = {str(p).strip() for p in (pins or []) if str(p).strip()}
+    dev = _connect(device)
+    try:
+        dev.disable_device()
+        try:
+            fp_ver = _fp_version(dev)
+            try:
+                sn = dev.get_serialnumber()
+            except Exception:
+                sn = None
+            users = dev.get_users() or []
+            temps = dev.get_templates() or []
+        finally:
+            try:
+                dev.enable_device()
+            except Exception:
+                pass
+    finally:
+        try:
+            dev.disconnect()
+        except Exception:
+            pass
+    by_uid = {u.uid: u for u in users}
+    known = {str(r[0]).strip() for r in conn.execute('SELECT employee_number FROM employees').fetchall()}
+    saved, people, unknown = 0, set(), set()
+    for f in temps:
+        u = by_uid.get(getattr(f, 'uid', None))
+        tpl = getattr(f, 'template', None)
+        if u is None or not tpl:
+            continue
+        pin = str(u.user_id).strip()
+        if pins and pin not in pins:
+            continue
+        if pin not in known:
+            unknown.add(pin)
+            continue
+        conn.execute('''INSERT OR REPLACE INTO fingerprint_templates
+            (device_sn, pin, finger_id, valid, template_type, major_ver, minor_ver, format, template_data)
+            VALUES (?, ?, ?, ?, 1, ?, NULL, 'pyzk', ?)''',
+                     (sn or device['device_ip'], pin, int(f.fid), int(f.valid or 1), fp_ver,
+                      base64.b64encode(bytes(tpl)).decode('ascii')))
+        saved += 1
+        people.add(pin)
+    conn.commit()
+    on_device = {str(u.user_id).strip() for u in users}
+    return {'templates': saved, 'employees': len(people), 'fp_version': fp_ver,
+            'unknown': sorted(unknown), 'missing': sorted(pins - on_device) if pins else []}
+
+
+def _free_uid(pin, used):
+    if pin.isdigit() and 0 < int(pin) < 65535 and int(pin) not in used:
+        return int(pin)
+    uid = (max(used) + 1) if used else 1
+    while uid in used:
+        uid += 1
+    return uid
+
+
+def push_direct(conn, device, employees):
+    """يرفع موظّفين لجهازٍ مباشر **ببصماتهم** المحفوظة عندنا.
+
+    - المكانُ (uid) على الجهاز: مكانُه إن كان عليه، وإلّا مكانٌ فارغ — كان يُرفع
+      برقمه في الجدول فيكتب فوق موظّفٍ آخر يشغل الرقمَ نفسه على الجهاز.
+    - البصماتُ التي بإصدار خوارزميةٍ غير إصدار الجهاز لا تُرسَل (لا تنفع)، ويُقال ذلك.
+    يُرجع (details, fp_version) — details: [{user, status, message}].
+    """
+    from zk.finger import Finger
+    from zk.user import User
+    details = []
+    dev = _connect(device)
+    try:
+        dev.disable_device()
+        try:
+            fp_ver = _fp_version(dev)
+            users = dev.get_users() or []
+            by_id = {str(u.user_id).strip(): u for u in users}
+            used = {u.uid for u in users}
+            for emp in employees:
+                pin = str(emp['employee_number']).strip()
+                name = str(emp['name'] or '')[:24]
+                try:
+                    priv = 14 if int(emp['privilege'] or 0) == 14 else 0
+                except (TypeError, ValueError, IndexError, KeyError):
+                    priv = 0
+                try:
+                    card = int(emp['card_number'] or 0)
+                except (TypeError, ValueError, IndexError, KeyError):
+                    card = 0
+                try:
+                    password = str(emp['password'] or '')
+                except (IndexError, KeyError):
+                    password = ''
+                try:
+                    old = by_id.get(pin)
+                    uid = old.uid if old else _free_uid(pin, used)
+                    dev.set_user(uid=uid, name=name, privilege=priv, password=password,
+                                 group_id='', user_id=pin, card=card)
+                    used.add(uid)
+                    user = User(uid, name, priv, password, '', pin, card)
+                    rows = conn.execute("SELECT * FROM fingerprint_templates WHERE pin = ? "
+                                        "AND COALESCE(template_type, 1) = 1 ORDER BY finger_id",
+                                        (pin,)).fetchall()
+                    fingers, skipped = [], 0
+                    for t in rows:
+                        if not _template_compatible(t, fp_ver) or not (0 <= int(t['finger_id']) <= 9):
+                            skipped += 1
+                            continue
+                        try:
+                            fingers.append(Finger(uid, int(t['finger_id']), int(t['valid'] or 1),
+                                                  base64.b64decode(t['template_data'])))
+                        except Exception:
+                            skipped += 1
+                    msg = 'رُفع'
+                    status = 'success'
+                    if fingers:
+                        try:
+                            dev.save_user_template(user, fingers)
+                            msg += f' ومعه {len(fingers)} بصمة'
+                        except Exception as e:      # noqa: BLE001
+                            status = 'warning'
+                            msg += f' بدون بصمات — الجهاز رفضها ({str(e)[:60]})'
+                    elif not rows:
+                        status = 'warning'
+                        msg += ' بدون بصمات — لا بصمات محفوظة له (اسحبها من جهازه أولًا)'
+                    if skipped:
+                        status = 'warning'
+                        msg += (f' — {skipped} بصمة لم تُرسل: إصدارها غير إصدار الجهاز'
+                                f' ({fp_ver or "؟"})، يبصم عليه من جديد')
+                    details.append({'user': emp['name'], 'status': status, 'message': msg})
+                except Exception as e:              # noqa: BLE001
+                    details.append({'user': emp['name'], 'status': 'error',
+                                    'message': f'فشل الرفع: {str(e)[:120]}'})
+        finally:
+            try:
+                dev.enable_device()
+            except Exception:
+                pass
+    finally:
+        try:
+            dev.disconnect()
+        except Exception:
+            pass
+    return details, fp_ver
 
 
 def apply_now():

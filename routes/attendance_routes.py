@@ -251,9 +251,10 @@ def toggle_device(id):
 @login_required
 @require_permission('attendance.devices')
 def delete_device(id):
+    # إلى سلّة المحذوفات بسجلّ — يُسترجع من صفحة «العمليات الحساسة».
+    from utils import sensitive_ops
     conn = get_db_connection()
-    conn.execute('DELETE FROM fingerprint_devices WHERE id = ?', (id,))
-    conn.commit()
+    sensitive_ops.delete_device(conn, id, note='من صفحة الأجهزة')
     pass # conn.close() removed to prevent leak in Flask g
     flash(gettext('x.f_device_deleted'), 'success')
     return redirect(url_for('attendance.devices'))
@@ -408,125 +409,65 @@ def upload_users_api():
     employees = conn.execute(f'SELECT * FROM employees WHERE id IN ({placeholders})', user_ids).fetchall()
     pass # conn.close() removed to prevent leak in Flask g
     
+    from utils import device_access
+    from utils.fingerprint_utils import adms_template_commands
     for device_id in device_ids:
         device_results = {'device_id': device_id, 'success_count': 0, 'fail_count': 0, 'details': []}
-        
-        # Check device type
         conn = get_db_connection()
-        device_info = conn.execute('SELECT is_adms FROM fingerprint_devices WHERE id = ?', (device_id,)).fetchone()
-        pass # conn.close() removed to prevent leak in Flask g
-        
-        is_adms = device_info['is_adms'] if device_info else 0
-        
-        for emp in employees:
-            # Prepare user data
-            try:
-                card_num = int(emp['card_number']) if emp['card_number'] and str(emp['card_number']).isdigit() else 0
-            except:
-                card_num = 0
-                
-            user_data = {
-                'uid': int(emp['id']), # Try to use DB ID as internal UID
-                'user_id': str(emp['employee_number']), 
-                'name': emp['name'],
-                'privilege': int(emp['privilege']) if emp['privilege'] is not None else 0,
-                'password': str(emp['password']) if emp['password'] else '',
-                'card': card_num,
-                'group_id': str(emp['group_id']) if emp['group_id'] else '1'
-            }
-            
-            if is_adms:
-                # Queue Command
-                import json
-                payload = {
-                    'PIN': user_data['user_id'],
-                    'Name': user_data['name'],
-                    'Pri': user_data['privilege'],
-                    'Passwd': user_data['password'],
-                    'Card': user_data['card'],
-                    'Grp': user_data['group_id']
-                }
-                
-                try:
-                    conn = get_db_connection()
-                    
-                    # 1. Queue User Info
-                    conn.execute('''
-                        INSERT INTO adms_commands (device_id, command_type, payload, status)
-                        VALUES (?, 'DATA UPDATE USERINFO', ?, 'PENDING')
-                    ''', (device_id, json.dumps(payload)))
-                    
-                    # 2. Queue Templates (Fingerprint/Face)
-                    # Fetch stored templates for this user (PIN)
-                    # Note: We use the employee_number (user_id) as PIN
-                    user_pin = user_data['user_id']
-                    templates = conn.execute('SELECT * FROM fingerprint_templates WHERE pin = ?', (user_pin,)).fetchall()
-                    
-                    for t in templates:
-                        # Construct payload for template
-                        # Command: DATA UPDATE FINGERTMP PIN=... FingerID=... Size=... Valid=... Template=...
-                        # We use generic ADMS command type 'UPDATE_TEMPLATE' or raw construction in adms_routes?
-                        # adms_routes.py currently handles ADD_USER and DELETE_USER and otherwise sends raw.
-                        # So we can set command_type to 'DATA UPDATE FINGERTMP ...' directly or handle it.
-                        # Let's use 'RAW' or specific type.
-                        # Let's use command_type='UPDATE_TEMPLATE' and handle in adms_routes OR just build payload here?
-                        # adms_routes handles: if type == 'ADD_USER'... else: cmd_str = f"C:{id}:{type}"
-                        
-                        # So if we put the full command body in `command_type`, it will work.
-                        # Body: DATA UPDATE FINGERTMP PIN=...
-                        
-                        tmp_data = t['template_data']
-                        size = len(tmp_data) 
-                        
-                        fp_payload = {
-                            'PIN': t['pin'],
-                            'FingerID': t['finger_id'],
-                            'Size': size,
-                            'Template': tmp_data,
-                            'Type': t['template_type'] or '1'
-                        }
-                        
-                        conn.execute('''
-                            INSERT INTO adms_commands (device_id, command_type, payload, status)
-                            VALUES (?, 'DATA UPDATE BIODATA', ?, 'PENDING')
-                        ''', (device_id, json.dumps(fp_payload)))
+        device = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (device_id,)).fetchone()
+        if not device:
+            device_results['fail_count'] = len(employees)
+            device_results['details'].append({'user': '-', 'status': 'error', 'message': 'الجهاز غير موجود'})
+            results.append(device_results)
+            continue
 
+        if device['is_adms']:
+            for emp in employees:
+                try:
+                    card_num = int(emp['card_number']) if emp['card_number'] and str(emp['card_number']).isdigit() else 0
+                except Exception:
+                    card_num = 0
+                payload = {
+                    'PIN': str(emp['employee_number']),
+                    'Name': emp['name'],
+                    'Pri': int(emp['privilege']) if emp['privilege'] is not None else 0,
+                    'Passwd': str(emp['password']) if emp['password'] else '',
+                    'Card': card_num,
+                    'Grp': str(emp['group_id']) if emp['group_id'] else '1',
+                    'Enabled': 1,
+                }
+                try:
+                    conn.execute('''INSERT INTO adms_commands (device_id, command_type, payload, status)
+                                    VALUES (?, 'DATA UPDATE USERINFO', ?, 'PENDING')''',
+                                 (device_id, json.dumps(payload)))
+                    # البصماتُ بنوعها وإصدارها كما حُفظت (من ADMS أو من جهازٍ مباشر).
+                    cmds = adms_template_commands(conn, emp['employee_number'])
+                    for ctype, cpayload in cmds:
+                        conn.execute('''INSERT INTO adms_commands (device_id, command_type, payload, status)
+                                        VALUES (?, ?, ?, 'PENDING')''', (device_id, ctype, cpayload))
                     conn.commit()
-                    pass # conn.close() removed to prevent leak in Flask g
-                    
                     device_results['success_count'] += 1
                     device_results['details'].append({
-                        'user': emp['name'],
-                        'status': 'success',
-                        'message': f'User & {len(templates)} Templates Queued'
-                    })
+                        'user': emp['name'], 'status': 'success' if cmds else 'warning',
+                        'message': (f'في الطابور ومعه {len(cmds)} بصمة/وجه' if cmds
+                                    else 'في الطابور بدون بصمات — لا بصمات محفوظة له')})
                 except Exception as e:
-                    # Closing conn if error occurred before commit/close?
-                    # Python sqlite3 context manager or manual close 
-                    # Use separated try/finally if strict, but here local scope.
-                    try: pass # conn.close() removed to prevent leak in Flask g 
-                    except: pass
-                    
                     device_results['fail_count'] += 1
-                    device_results['details'].append({
-                        'user': emp['name'],
-                        'status': 'error',
-                        'message': f'Queue Error: {str(e)}'
-                    })
-            else:
-                # Normal Direct Connection
-                res = upload_user_to_device(device_id, user_data)
-                status = 'success' if res['success'] else 'error'
-                if res['success']:
-                    device_results['success_count'] += 1
+                    device_results['details'].append({'user': emp['name'], 'status': 'error',
+                                                      'message': f'Queue Error: {str(e)}'})
+        else:
+            # جهازٌ مباشر (IP + بورت، مثل K40): يُرفع ومعه بصماتُه المحفوظة عندنا.
+            try:
+                details, _ver = device_access.push_direct(conn, device, employees)
+            except Exception as e:
+                details = [{'user': emp['name'], 'status': 'error',
+                            'message': f'خطأ في الاتصال بالجهاز: {str(e)[:120]}'} for emp in employees]
+            for d in details:
+                if d['status'] == 'error':
+                    device_results['fail_count'] += 1
                 else:
-                    device_results['fail_count'] += 1
-                    
-                device_results['details'].append({
-                    'user': emp['name'],
-                    'status': status,
-                    'message': res['message']
-                })
+                    device_results['success_count'] += 1
+            device_results['details'].extend(details)
             
         results.append(device_results)
         
@@ -538,7 +479,8 @@ def upload_users_api():
 def sync_from_device():
     """صفحة سحب البيانات من الأجهزة"""
     conn = get_db_connection()
-    devices = conn.execute('SELECT * FROM fingerprint_devices WHERE is_adms = 1').fetchall()
+    # كلُّ الأجهزة: ADMS بأوامر تُنفَّذ عند اتّصاله، والمباشرُ (IP + بورت) يُسحب منه فورًا.
+    devices = conn.execute('SELECT * FROM fingerprint_devices WHERE is_active = 1 ORDER BY device_name').fetchall()
     
     # Fetch employees to allow specific selection
     employees = conn.execute('''
@@ -569,7 +511,25 @@ def sync_from_device_api():
     results = []
     
     try:
+        from utils import device_access
         for dev_id in device_ids:
+            device = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (dev_id,)).fetchone()
+            if device and not device['is_adms']:
+                # مباشر: البصماتُ تُسحب الآن وتُحفظ — لتُرفع منه لأيّ جهاز.
+                try:
+                    r = device_access.pull_direct(conn, device, user_pins or None)
+                    msg = f"سُحبت {r['templates']} بصمة لـ {r['employees']} موظف"
+                    if r['fp_version']:
+                        msg += f" (إصدار البصمة {r['fp_version']})"
+                    if r['unknown']:
+                        msg += f" — {len(r['unknown'])} مستخدم على الجهاز غير مسجّل في البرنامج"
+                    if r['missing']:
+                        msg += f" — غير موجود على الجهاز: {', '.join(r['missing'][:10])}"
+                    results.append({'device_id': dev_id, 'success': True, 'message': msg})
+                except Exception as e:
+                    results.append({'device_id': dev_id, 'success': False,
+                                    'message': f'تعذّر الاتصال بالجهاز: {str(e)[:120]}'})
+                continue
             if user_pins:
                 # Sync specific users
                 for pin in user_pins:

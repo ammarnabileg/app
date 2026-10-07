@@ -33,6 +33,13 @@
     </li>
 </ul>
 
+<div class="alert alert-info py-2 small" dir="rtl">
+    <i class="fas fa-exchange-alt me-1"></i>
+    <strong>نقل موظف ببصماته من جهاز لجهاز:</strong>
+    اسحب بصماته من جهازه (تبويب السحب) ثم ارفعه للجهاز التاني (تبويب الرفع) — يشتغل مع أجهزة ADMS وأجهزة الـIP المباشرة (زي K40).
+    البصمة تنتقل بس بين أجهزة بنفس إصدار البصمة (مثلًا 10 مع 10)؛ غير كده الموظف يترفع ويبصم على الجهاز من جديد.
+</div>
+
 <div class="row">
     <div class="col-md-7">
         <div class="card shadow-sm h-100">
@@ -195,12 +202,20 @@
         document.getElementById('btnUpload').classList.toggle('d-none', op !== 'upload');
         document.getElementById('btnPull').classList.toggle('d-none', op !== 'pull');
         document.getElementById('pullNote').classList.toggle('d-none', op !== 'pull');
-        document.querySelectorAll('.device-check').forEach(cb => {
-            const isAdms = cb.dataset.adms === '1';
-            if (op === 'pull' && !isAdms) { cb.checked = false; cb.disabled = true; }
-            else { cb.disabled = false; }
-        });
+        // كلُّ الأجهزة تُسحب منها البصمات: ADMS بأوامر، والمباشرُ (IP + بورت) فورًا.
+        document.querySelectorAll('.device-check').forEach(cb => { cb.disabled = false; });
         updateCounts();
+    }
+
+    function esc(t) {
+        const d = document.createElement('div');
+        d.textContent = t == null ? '' : String(t);
+        return d.innerHTML;
+    }
+    function deviceName(id) {
+        const cb = document.querySelector(`.device-check[value="${id}"]`);
+        const n = cb && cb.closest('label').querySelector('strong');
+        return n ? n.textContent : ('#' + id);
     }
 
     function updateCounts() {
@@ -269,7 +284,7 @@
                 <div class="accordion-item">
                     <h2 class="accordion-header">
                         <button class="accordion-button ${index > 0 ? 'collapsed' : ''}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${index}">
-                             Device #${deviceRes.device_id}
+                             ${esc(deviceName(deviceRes.device_id))}
                              <span class="badge ${badgeClass} ms-2">
                                 {{ _('x.succeeded_colon') }} ${deviceRes.success_count} | {{ _('x.failed') }}: ${deviceRes.fail_count}
                              </span>
@@ -279,11 +294,12 @@
                         <div class="accordion-body p-0">
                             <ul class="list-group list-group-flush">`;
                     deviceRes.details.forEach(detail => {
-                        const icon = detail.status === 'success' ? 'text-success fas fa-check-circle' : 'text-danger fas fa-times-circle';
+                        const icon = detail.status === 'success' ? 'text-success fas fa-check-circle'
+                            : (detail.status === 'warning' ? 'text-warning fas fa-exclamation-circle' : 'text-danger fas fa-times-circle');
                         html += `
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <span><i class="${icon} me-2"></i>${detail.user}</span>
-                        <span class="small text-muted">${detail.message}</span>
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                        <span class="text-nowrap"><i class="${icon} me-2"></i>${esc(detail.user)}</span>
+                        <span class="small text-muted">${esc(detail.message)}</span>
                     </li>`;
                     });
                     html += `</ul></div></div></div>`;
@@ -328,14 +344,19 @@
                     return;
                 }
                 let html = '<div class="list-group">';
+                let anyAdms = false;
                 data.results.forEach(res => {
+                    const cb = document.querySelector(`.device-check[value="${res.device_id}"]`);
+                    if (cb && cb.dataset.adms === '1') anyAdms = true;
+                    const icon = res.success ? 'fa-check-circle text-success' : 'fa-times-circle text-danger';
                     html += `
                     <div class="list-group-item">
-                        <h6 class="mb-1"><i class="fas fa-check-circle text-success me-2"></i>{{ _('x.device') }}: ${res.device_id}</h6>
-                        <p class="mb-0 small text-muted">${res.message}</p>
+                        <h6 class="mb-1"><i class="fas ${icon} me-2"></i>${esc(deviceName(res.device_id))}</h6>
+                        <p class="mb-0 small text-muted">${esc(res.message)}</p>
                     </div>`;
                 });
-                html += {{ _('x.scheduled_alert_html')|tojson }};
+                // تنبيهُ «تمت الجدولة» لأجهزة ADMS وحدها — المباشرُ سُحب فعلًا.
+                html += anyAdms ? {{ _('x.scheduled_alert_html')|tojson }} : '</div>';
                 resultsBody.innerHTML = html;
                 finishOpModal(true);
             })

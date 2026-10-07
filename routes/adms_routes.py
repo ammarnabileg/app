@@ -484,7 +484,9 @@ def cdata():
                                         _new_active = 1 if can_activate(conn)[0] else 0
                                     except Exception:
                                         _new_active = 1
-                                    conn.execute('''
+                                    # مُسح «من النظام فقط»: يبقى على الجهاز ولا يُعاد إنشاؤه.
+                                    from utils.sensitive_ops import deleted_pins as _deleted_pins
+                                    if str(info.get('PIN') or '').strip() not in _deleted_pins(conn): conn.execute('''
                                         INSERT INTO employees (
                                             employee_number, name, department, position, 
                                             hire_date, salary, default_start_time, default_end_time, 
