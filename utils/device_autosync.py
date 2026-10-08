@@ -65,6 +65,14 @@ def run_punches():
     try:
         from fingerprint_sync import sync_all_fingerprint_devices
         result = sync_all_fingerprint_devices()
+        # الماركاتُ الجديدة (Hikvision…): حضورُها، وحذفُها المؤجّل، وموقوفوها — بالمحرّك الموحّد.
+        try:
+            from utils.devices import engine as _eng
+            brands = _eng.run_cycle()
+            if isinstance(result, dict) and (brands.get('attendance') or {}).get('devices'):
+                result['brands'] = brands
+        except Exception:
+            pass
         # من أُضيف يدويًّا منذ المزامنة السابقة: بصماتُه المنتظرة تدخل الآن.
         try:
             from utils import pending_punches
@@ -119,6 +127,13 @@ def run_users():
     try:
         from fingerprint_sync import sync_users_to_employees
         res = sync_users_to_employees()
+        try:
+            from utils.devices import engine as _eng
+            b = _eng.sync_users_all()
+            if isinstance(res, dict) and b.get('employees_added'):
+                res['employees_added'] = int(res.get('employees_added') or 0) + b['employees_added']
+        except Exception:
+            pass
         # موظّفون أُضيفوا الآن من الأجهزة: بصماتُهم قبل إضافتهم تدخل الحضور.
         try:
             from utils import pending_punches
@@ -155,7 +170,8 @@ def run_templates(force=False):
         conn.execute('''CREATE TABLE IF NOT EXISTS device_template_pulls (
             device_id INTEGER PRIMARY KEY, last_at REAL)''')
         now = time.time()
-        for d in conn.execute("SELECT * FROM fingerprint_devices WHERE is_active = 1").fetchall():
+        from utils.devices.registry import LEGACY_SQL
+        for d in conn.execute(f"SELECT * FROM fingerprint_devices WHERE is_active = 1 AND {LEGACY_SQL}").fetchall():
             last = conn.execute('SELECT last_at FROM device_template_pulls WHERE device_id = ?', (d['id'],)).fetchone()
             if not force and last and now - (last[0] or 0) < TEMPLATES_EVERY:
                 continue

@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 68
+SCHEMA_VERSION = 69
 
 
 def get_schema_version(conn):
@@ -1220,6 +1220,13 @@ def init_db():
         ('fingerprint_devices', 'branch_id', 'INTEGER'),
         # إصداراتُ البصمة/الوجه على جهاز ADMS كما أبلغ بها (utils/biometric_templates) — v68.
         ('fingerprint_devices', 'bio_versions', 'TEXT'),
+        # محرّك الأجهزة الموحّد (utils/devices) — v69: الماركة/البروتوكول وبيانات الدخول.
+        # فارغٌ في الأجهزة الموجودة = ZKTeco كما كانت.
+        ('fingerprint_devices', 'driver', 'TEXT'),
+        ('fingerprint_devices', 'auth_user', 'TEXT'),
+        ('fingerprint_devices', 'auth_secret', 'TEXT'),
+        ('fingerprint_devices', 'use_https', 'INTEGER DEFAULT 0'),
+        ('fingerprint_devices', 'driver_options', 'TEXT'),
     ]
     
     for table, column, col_type in migrations:

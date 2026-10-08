@@ -244,6 +244,8 @@ from routes.backup_routes import backup_bp
 app.register_blueprint(backup_bp)
 from routes.sensitive_routes import sensitive_bp
 app.register_blueprint(sensitive_bp)
+from routes.device_engine_routes import device_engine_bp, DEVICE_PUSH_ENDPOINTS
+app.register_blueprint(device_engine_bp)
 
 from routes.field_routes import field_bp
 app.register_blueprint(field_bp)
@@ -330,7 +332,7 @@ def check_license_globally():
     # بصماتُه. وخادمُ البصمة المستقلّ (adms_server) لا يفحص الترخيص أصلًا —
     # فالمسارُ نفسُه عبر الويب لا يُعامَل بغير ما يُعامَل به هناك. شاشاتُ
     # ADMS الإداريّة تبقى خلف الترخيص.
-    if request.endpoint in ADMS_DEVICE_ENDPOINTS:
+    if request.endpoint in ADMS_DEVICE_ENDPOINTS or request.endpoint in DEVICE_PUSH_ENDPOINTS:
         return
 
     # Check license

@@ -91,7 +91,11 @@ jobs:
           Write-Host 'HRSystem.exe started and served / (signed ${{ steps.ver.outputs.v }})'
 
       # بعد اختبار التشغيل لا قبله: لا يُنشر بناءٌ لا يقوم.
+      # والإصدارُ لفروع الإصدار (v2.37.0.0) وحدها: تشغيلٌ يدويّ من فرع تجربة (dev1) يبني
+      # ويُرفق الحزمة بالتشغيل (artifact) فقط — كان يُنشئ إصدارًا عامًّا، أو يكتب فوق
+      # ملفّات إصدارٍ منشور يحمل الرقمَ نفسه.
       - name: Release notes
+        if: startsWith(github.ref_name, 'v')
         shell: bash
         run: |
           python - <<'PY'
@@ -104,6 +108,7 @@ jobs:
           PY
 
       - name: GitHub Release
+        if: startsWith(github.ref_name, 'v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

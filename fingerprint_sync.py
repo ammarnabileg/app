@@ -174,9 +174,11 @@ class FingerprintSyncManager:
             # Retrieve max_devices limit
             max_devices = get_effective_max_devices()
             
-            devices = conn.execute('''
+            # ZKTeco وحدها — أجهزةُ الماركات الأخرى لها سوّاقاتُها (utils/devices) ولا تُعامَل كـ K40.
+            from utils.devices.registry import LEGACY_SQL
+            devices = conn.execute(f'''
                 SELECT * FROM fingerprint_devices 
-                WHERE is_active = 1 
+                WHERE is_active = 1 AND {LEGACY_SQL}
                 ORDER BY created_at ASC
                 LIMIT ?
             ''', (max_devices,)).fetchall()

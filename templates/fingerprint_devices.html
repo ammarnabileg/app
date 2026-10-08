@@ -39,6 +39,28 @@
     </div>
 </div>
 
+{# محرّك الأجهزة الموحّد (utils/devices): ZKTeco دائمًا، والماركات الأخرى تجريبيّة تُفعَّل هنا. #}
+{% if driver_catalog %}
+<div class="card mb-3" id="deviceBrands" dir="rtl">
+    <div class="card-body py-2">
+        <form method="POST" action="{{ url_for('device_engine.set_drivers') }}" class="d-flex flex-wrap align-items-center gap-3 m-0">
+            <strong><i class="fas fa-plug me-1"></i> الماركات المدعومة:</strong>
+            {% for c in driver_catalog %}
+            <div class="form-check form-check-inline m-0">
+                <input class="form-check-input" type="checkbox" name="drivers" value="{{ c.key }}" id="drv_{{ c.key }}"
+                       {{ 'checked' if c.enabled }} {{ 'disabled' if not c.experimental }}>
+                <label class="form-check-label small" for="drv_{{ c.key }}">
+                    {{ c.label }}{% if c.experimental %} <span class="badge bg-warning text-dark">تجريبي</span>{% endif %}
+                </label>
+            </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-sm btn-outline-primary ms-auto">حفظ</button>
+        </form>
+        <div class="small text-muted mt-1">الماركات التجريبية لسه متجربتش على جهاز حقيقي — فعّلها للتجربة بس. ZKTeco شغال زي ما هو.</div>
+    </div>
+</div>
+{% endif %}
+
 <div class="card">
     <div class="card-header">
         <h5 class="mb-0"><i class="fas fa-list me-2"></i>{{ _('fingerprint.registered_devices') }}</h5>
@@ -71,8 +93,14 @@
                                     <i class="fas fa-microchip text-primary"></i>
                                 </div>
                                 <div>
+                                    {% set dd = (dev_drivers or {}).get(device.id) or {'legacy': True, 'caps': []} %}
                                     <div class="fw-bold">{{ device.device_name }}</div>
+                                    {% if dd.legacy %}
                                     <small class="text-muted">{{ _('fingerprint.zkteco_device') }}</small>
+                                    {% else %}
+                                    <small class="text-muted">{{ dd.label }}</small>
+                                    {% if dd.experimental %}<span class="badge bg-warning text-dark ms-1">تجريبي</span>{% endif %}
+                                    {% endif %}
                                     {% if device.is_adms %}
                                     <span class="badge bg-info text-dark ms-1">ADMS</span>
                                     {% endif %}
@@ -127,6 +155,16 @@
                                     title="{{ _('btn.test_connection') }}">
                                     <i class="fas fa-network-wired"></i>
                                 </button>
+                                {% if not dd.legacy %}
+                                <button class="btn btn-outline-primary" onclick="driverSync({{ device.id }})" title="مزامنة الآن (الحضور والموظفين)">
+                                    <i class="fas fa-rotate"></i>
+                                </button>
+                                {% if 'push_events' in dd.caps %}
+                                <button class="btn btn-outline-success" onclick="showPushUrl({{ device.id }})" title="عنوان الحضور اللحظي (يتحط في الجهاز)">
+                                    <i class="fas fa-satellite-dish"></i>
+                                </button>
+                                {% endif %}
+                                {% endif %}
                                 {% if device.is_adms %}
                                 <button class="btn btn-outline-primary" onclick="syncAdmsUsers({{ device.id }})"
                                     title="{{ _('x.sync_users_adms') }}">
@@ -137,19 +175,24 @@
                                     title="{{ _('btn.edit') }}">
                                     <i class="fas fa-edit"></i>
                                 </button>
+                                {% if dd.legacy %}
                                 <button class="btn btn-outline-dark" onclick="clearDeviceUsers({{ device.id }})"
                                     title="{{ _('x.clear_all_employees_from_device') }}">
                                     <i class="fas fa-user-slash"></i>
                                 </button>
+                                {% endif %}
+                                {% if dd.legacy or 'users' in dd.caps %}
                                 <button class="btn btn-outline-primary" onclick="showDeviceUserCount({{ device.id }})"
                                     title="{{ _('x.show_device_employee_count') }}">
                                     <i class="fas fa-users"></i>
                                 </button>
+                                {% endif %}
                                 <a href="{{ url_for('attendance.toggle_device', id=device.id) }}"
                                     class="btn btn-outline-{{ 'secondary' if device.is_active else 'success' }}"
                                     title="{{ _('btn.deactivate') if device.is_active else _('btn.activate') }}">
                                     <i class="fas fa-{{ 'pause' if device.is_active else 'play' }}"></i>
                                 </a>
+                                {% if dd.legacy %}
                                 <button class="btn btn-outline-secondary" onclick="rebootDevice({{ device.id }})"
                                     title="{{ _('x.restart_device') }}">
                                     <i class="fas fa-power-off"></i>
@@ -158,6 +201,7 @@
                                     title="{{ _('x.factory_reset_device') }}">
                                     <i class="fas fa-bomb"></i>
                                 </button>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
@@ -224,7 +268,41 @@
                             min="1" max="65535">
                         <div class="form-text">{{ _('fingerprint.port_help') }}</div>
                     </div>
-                    <div class="mb-3">
+
+                    {# الماركة (utils/devices) — بلا اختيار = ZKTeco كما كان. #}
+                    <div class="mb-3" dir="rtl">
+                        <label for="driver" class="form-label">الماركة / طريقة الاتصال</label>
+                        <select class="form-select" id="driver" name="driver" onchange="onDriverChange('')">
+                            <option value="">ZKTeco (زي ما هو — ADMS أو IP)</option>
+                            {% for c in driver_catalog or [] %}{% if c.experimental and c.enabled %}
+                            <option value="{{ c.key }}" data-port="{{ c.default_port }}" data-login="{{ 1 if c.needs_login else 0 }}">{{ c.label }} — تجريبي</option>
+                            {% endif %}{% endfor %}
+                        </select>
+                        <div class="form-text">ماركات تانية (Hikvision / Dahua / Suprema) بتتفعّل من «الماركات المدعومة» فوق.</div>
+                    </div>
+                    <div id="brandFields" class="border rounded p-3 mb-3 bg-light" style="display:none" dir="rtl">
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label small">اسم المستخدم على الجهاز</label>
+                                <input type="text" class="form-control form-control-sm" id="auth_user" name="auth_user" autocomplete="off">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">كلمة المرور</label>
+                                <input type="password" class="form-control form-control-sm" id="auth_password" name="auth_password" autocomplete="new-password">
+                                <div class="form-text small" id="pw_hint">بتتحفظ متشفّرة.</div>
+                            </div>
+                        </div>
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" id="use_https" name="use_https" value="1">
+                            <label class="form-check-label small" for="use_https">HTTPS</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="insecure_tls" name="insecure_tls" value="1">
+                            <label class="form-check-label small" for="insecure_tls">تجاهل شهادة HTTPS (للأجهزة اللي جوه الشبكة وشهادتها ذاتية)</label>
+                        </div>
+                        <div class="small text-muted mt-1" id="supremaHint" style="display:none">Suprema: اكتب عنوان خادم BioStar 2 مش عنوان كل جهاز.</div>
+                    </div>
+                    <div class="mb-3" id="admsSwitchWrap">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="is_adms" name="is_adms"
                                 onchange="toggleAdmsMode()">
@@ -319,7 +397,41 @@
                         </div>
                         <div class="form-text">{{ _('fingerprint.device_active_help') }}</div>
                     </div>
-                    <div class="mb-3">
+
+                    {# الماركة (utils/devices) — بلا اختيار = ZKTeco كما كان. #}
+                    <div class="mb-3" dir="rtl">
+                        <label for="edit_driver" class="form-label">الماركة / طريقة الاتصال</label>
+                        <select class="form-select" id="edit_driver" name="driver" onchange="onDriverChange('edit_')">
+                            <option value="">ZKTeco (زي ما هو — ADMS أو IP)</option>
+                            {% for c in driver_catalog or [] %}{% if c.experimental and c.enabled %}
+                            <option value="{{ c.key }}" data-port="{{ c.default_port }}" data-login="{{ 1 if c.needs_login else 0 }}">{{ c.label }} — تجريبي</option>
+                            {% endif %}{% endfor %}
+                        </select>
+                        <div class="form-text">ماركات تانية (Hikvision / Dahua / Suprema) بتتفعّل من «الماركات المدعومة» فوق.</div>
+                    </div>
+                    <div id="edit_brandFields" class="border rounded p-3 mb-3 bg-light" style="display:none" dir="rtl">
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label small">اسم المستخدم على الجهاز</label>
+                                <input type="text" class="form-control form-control-sm" id="edit_auth_user" name="auth_user" autocomplete="off">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">كلمة المرور</label>
+                                <input type="password" class="form-control form-control-sm" id="edit_auth_password" name="auth_password" autocomplete="new-password">
+                                <div class="form-text small" id="edit_pw_hint">بتتحفظ متشفّرة.</div>
+                            </div>
+                        </div>
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" id="edit_use_https" name="use_https" value="1">
+                            <label class="form-check-label small" for="edit_use_https">HTTPS</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="edit_insecure_tls" name="insecure_tls" value="1">
+                            <label class="form-check-label small" for="edit_insecure_tls">تجاهل شهادة HTTPS (للأجهزة اللي جوه الشبكة وشهادتها ذاتية)</label>
+                        </div>
+                        <div class="small text-muted mt-1" id="edit_supremaHint" style="display:none">Suprema: اكتب عنوان خادم BioStar 2 مش عنوان كل جهاز.</div>
+                    </div>
+                    <div class="mb-3" id="edit_admsSwitchWrap">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="edit_is_adms" name="is_adms">
                             <label class="form-check-label" for="edit_is_adms">
@@ -1045,6 +1157,40 @@
     }
 
     // تعديل جهاز
+    // ---- محرّك الأجهزة الموحّد
+    function onDriverChange(prefix, keepPort) {
+        const sel = document.getElementById(prefix + 'driver');
+        if (!sel) return;
+        const opt = sel.options[sel.selectedIndex];
+        const brand = !!sel.value;
+        document.getElementById(prefix + 'brandFields').style.display = brand ? '' : 'none';
+        const adms = document.getElementById(prefix ? prefix + 'admsSwitchWrap' : 'admsSwitchWrap');
+        if (adms) adms.style.display = brand ? 'none' : '';
+        const ip = document.getElementById(prefix + 'device_ip');
+        // الماركات الأخرى: عنوانٌ أو اسمُ خادم (BioStar) — لا IPv4 فقط.
+        if (ip) { if (brand) ip.removeAttribute('pattern'); else ip.setAttribute('pattern', '^(\\d{1,3}\\.){3}\\d{1,3}$'); }
+        const port = document.getElementById(prefix + 'device_port');
+        if (brand && port && !keepPort && opt.dataset.port) port.value = opt.dataset.port;
+        document.getElementById(prefix + 'supremaHint').style.display = sel.value === 'suprema' ? '' : 'none';
+        if (sel.value === 'suprema' && !keepPort) document.getElementById(prefix + 'use_https').checked = true;
+    }
+    function driverSync(id) {
+        Swal.fire({ title: 'جاري المزامنة…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        fetch(`/fingerprint/devices/${id}/driver_sync`, { method: 'POST' })
+            .then(r => r.json())
+            .then(d => Swal.fire({ title: d.success ? 'تمت المزامنة' : 'تعذّرت المزامنة', text: d.message || '',
+                                   icon: d.success ? 'success' : 'error', confirmButtonColor: '#1f5c4a' }))
+            .catch(e => Swal.fire('خطأ', String(e), 'error'));
+    }
+    function showPushUrl(id) {
+        fetch(`/fingerprint/devices/${id}/push_url`).then(r => r.json()).then(d => {
+            if (!d.success) { Swal.fire('', d.message, 'info'); return; }
+            Swal.fire({ title: 'عنوان الحضور اللحظي', icon: 'info', confirmButtonColor: '#1f5c4a',
+                html: `<div dir="rtl" class="text-start small">${d.hint}</div>
+                       <input class="form-control mt-2" dir="ltr" readonly value="${d.url}" onclick="this.select()">` });
+        });
+    }
+
     function editDevice(deviceId) {
         // جلب بيانات الجهاز
         fetch(`/fingerprint/devices/edit/${deviceId}`, {
@@ -1066,6 +1212,23 @@
                 document.getElementById('edit_device_ip').value = device.device_ip || '';
                 document.getElementById('edit_device_port').value = device.device_port || 4370;
                 document.getElementById('edit_is_active').checked = device.is_active === 1;
+                // الماركة وبيانات الدخول (كلمة المرور لا تأتي — يُقال فقط إنها محفوظة).
+                const drvSel = document.getElementById('edit_driver');
+                if (drvSel) {
+                    const k = (device.driver && !['zk_push', 'zk_direct'].includes(device.driver)) ? device.driver : '';
+                    if (k && !Array.from(drvSel.options).some(o => o.value === k)) {
+                        const o = document.createElement('option'); o.value = k; o.textContent = k; drvSel.appendChild(o);
+                    }
+                    drvSel.value = k;
+                    document.getElementById('edit_auth_user').value = device.auth_user || '';
+                    document.getElementById('edit_auth_password').value = '';
+                    document.getElementById('edit_use_https').checked = !!device.use_https;
+                    let opts = {}; try { opts = JSON.parse(device.driver_options || '{}') || {}; } catch (e) {}
+                    document.getElementById('edit_insecure_tls').checked = !!opts.insecure_tls;
+                    document.getElementById('edit_pw_hint').textContent = device.has_password
+                        ? 'محفوظة — سيبها فاضية عشان متتغيرش.' : 'بتتحفظ متشفّرة.';
+                    onDriverChange('edit_', true);
+                }
 
                 // الفرع
                 const branchName = device.branch_name || 'الفرع الرئيسي';

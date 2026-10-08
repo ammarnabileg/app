@@ -148,9 +148,12 @@ def delete_employee(conn, emp_id, mode='devices', device_ids=None, note='', who=
                        (emp_id, label, json.dumps(emp, ensure_ascii=False, default=str),
                         json.dumps(scope, ensure_ascii=False), who['name'], who['id']))
     bin_id = cur.lastrowid
-    direct_ids = []
+    direct_ids, brand_ids = [], []
+    from utils.devices import registry as _reg
     for d in devices:
-        if d['is_adms']:
+        if not _reg.is_legacy(d):
+            brand_ids.append(int(d['id']))           # Hikvision وأخواتها — المحرّك الموحّد
+        elif d['is_adms']:
             conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
                          "VALUES (?, 'DATA DELETE USERINFO', ?, 'PENDING')",
                          (d['id'], json.dumps({'PIN': num})))
@@ -162,6 +165,12 @@ def delete_employee(conn, emp_id, mode='devices', device_ids=None, note='', who=
         details += f' — السبب: {note}'
     log(conn, action, 'employee', emp_id, label, details, who)
     conn.commit()
+    if brand_ids and num:
+        try:
+            from utils.devices import engine as _eng
+            _eng.delete_now([num], brand_ids)
+        except Exception as e:                  # noqa: BLE001
+            logger.warning(f'brand device delete {num}: {e}')
     if direct_ids and num and direct_queue is not None:
         direct_queue.append((num, tuple(sorted(direct_ids))))
     elif direct_ids and num:
@@ -273,6 +282,11 @@ def restore(conn, bin_id, reupload=False, who=None):
     return False, 'نوع غير معروف'
 
 
+def _is_legacy(d):
+    from utils.devices import registry
+    return registry.is_legacy(d)
+
+
 def reupload_employee(emp_id, device_ids):
     """يرفع موظّفًا مُسترجَعًا ببصماته للأجهزة التي مُسح منها — في الخلفيّة."""
     import threading
@@ -299,8 +313,11 @@ def reupload_employee(emp_id, device_ids):
                             conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
                                          "VALUES (?, ?, ?, 'PENDING')", (d['id'], ctype, cp))
                         conn.commit()
-                    else:
+                    elif _is_legacy(d):
                         device_access.push_direct(conn, d, [emp])
+                    else:
+                        from utils.devices import engine as _eng
+                        _eng.push_employees(conn, d, [emp])
                 except Exception as e:          # noqa: BLE001
                     logger.warning(f'reupload {emp_id} to {d["id"]}: {e}')
         finally:

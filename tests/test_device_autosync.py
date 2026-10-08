@@ -94,7 +94,11 @@ def test_disabled_or_no_devices_means_no_run(env, monkeypatch):
     time.sleep(0.3)
     assert not calls, 'مُطفأة'
     db.set_setting(das.SETTING_ENABLED, '1')
-    time.sleep(0.3)
+    # يُنتظر حتى ٥ ثوانٍ لا ٠٫٣: عاملٌ في الخلفيّة على جهازٍ مشغول قد يتأخّر — والسؤالُ «هل يعمل؟» لا «في كم؟».
+    for _ in range(50):
+        if calls:
+            break
+        time.sleep(0.1)
     assert calls, 'مفعّلةٌ وفيها جهاز: تعمل'
 
 

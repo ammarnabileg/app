@@ -79,7 +79,17 @@ def devices():
     except:
         max_devices = 3
         
-    return render_template('fingerprint_devices.html', devices=devices, max_devices=max_devices, current_active=current_active, branches=branches)
+    # محرّك الأجهزة الموحّد: الماركة وقدراتُها لكلّ جهاز، والماركاتُ المدعومة للشركة.
+    from utils.devices import registry as _reg
+    _cat = {c['key']: c for c in _reg.catalog()}
+    dev_drivers = {}
+    for d in devices:
+        k = _reg.driver_key(d)
+        c = _cat.get(k, {})
+        dev_drivers[d['id']] = {'key': k, 'label': c.get('label', k), 'legacy': _reg.is_legacy(d),
+                                'experimental': c.get('experimental', False), 'caps': c.get('capabilities', [])}
+    return render_template('fingerprint_devices.html', devices=devices, max_devices=max_devices, current_active=current_active,
+                           branches=branches, driver_catalog=list(_cat.values()), dev_drivers=dev_drivers)
 
 @attendance_bp.route('/fingerprint/branches/add', methods=['POST'])
 @login_required
@@ -96,6 +106,43 @@ def add_branch_quick():
         return jsonify({'success': True, 'branch': dict(branch) if branch else {'id': None, 'name': name}})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+def _form_driver():
+    """السوّاق المختار في نموذج الجهاز: '' (لم يُرسَل — ZKTeco كما كان)، أو مفتاحه،
+    أو False (غير مفعّل عند هذه الشركة — مع رسالة)."""
+    key = (request.form.get('driver') or '').strip()
+    if not key:
+        return ''
+    from utils.devices import registry
+    if key not in registry.enabled_keys():
+        flash('الماركة دي مش مفعّلة — فعّلها الأول من «الماركات المدعومة» في صفحة الأجهزة', 'error')
+        return False
+    return key
+
+
+def _save_driver_fields(conn, device_id, drv):
+    """الماركة وبيانات الدخول — لجهازٍ اختير له سوّاق. كلمةُ المرور تُحفظ مشفّرة، ولا
+    تُمسح إن تُركت الخانة فارغة عند التعديل."""
+    if not drv or not device_id:
+        return
+    import json as _json
+    from utils.devices import secrets as dsec, registry, engine
+    row = conn.execute('SELECT driver_options FROM fingerprint_devices WHERE id = ?', (device_id,)).fetchone()
+    try:
+        opts = _json.loads((row[0] if row else '') or '{}') or {}
+    except Exception:
+        opts = {}
+    opts['insecure_tls'] = bool(request.form.get('insecure_tls'))
+    conn.execute('UPDATE fingerprint_devices SET driver = ?, auth_user = ?, use_https = ?, driver_options = ? WHERE id = ?',
+                 (drv, (request.form.get('auth_user') or '').strip(), 1 if request.form.get('use_https') else 0,
+                  _json.dumps(opts), device_id))
+    pw = request.form.get('auth_password') or ''
+    if pw:
+        conn.execute('UPDATE fingerprint_devices SET auth_secret = ? WHERE id = ?', (dsec.seal(pw), device_id))
+    conn.commit()
+    if not registry.is_legacy({'driver': drv}):
+        engine.ensure_push_token(conn, device_id)
+
 
 @attendance_bp.route('/fingerprint/devices/add', methods=['POST'])
 @login_required
@@ -120,6 +167,12 @@ def add_device():
     device_port = int(request.form.get('device_port', 4370))
     is_adms = 1 if 'is_adms' in request.form else 0
     branch_name = (request.form.get('branch_name') or '').strip()
+    # الماركة/البروتوكول (utils/devices). بلا اختيار = ZKTeco كما كان دائمًا.
+    drv = _form_driver()
+    if drv is False:
+        return redirect(url_for('attendance.devices'))
+    if drv:
+        is_adms = 1 if drv == 'zk_push' else 0
     
     branch_id = None
     if branch_name:
@@ -133,11 +186,12 @@ def add_device():
             print(f"Error registering branch: {be}")
     
     try:
-        conn.execute('''
+        cur = conn.execute('''
             INSERT INTO fingerprint_devices (device_name, device_ip, device_port, is_active, is_adms, branch_name, branch_id)
             VALUES (?, ?, ?, 1, ?, ?, ?)
         ''', (device_name, device_ip, device_port, is_adms, branch_name or 'الفرع الرئيسي', branch_id))
         conn.commit()
+        _save_driver_fields(conn, cur.lastrowid, drv)
         
         # If ADMS, remove from pending list if exists
         if is_adms:
@@ -167,6 +221,11 @@ def edit_device(id):
         is_active = 1 if 'is_active' in request.form else 0
         is_adms = 1 if 'is_adms' in request.form else 0
         branch_name = (request.form.get('branch_name') or '').strip()
+        drv = _form_driver()
+        if drv is False:
+            return redirect(url_for('attendance.devices'))
+        if drv:
+            is_adms = 1 if drv == 'zk_push' else 0
         
         branch_id = None
         if branch_name:
@@ -198,6 +257,7 @@ def edit_device(id):
                 WHERE id = ?
             ''', (device_name, device_ip, device_port, is_active, is_adms, branch_name or 'الفرع الرئيسي', branch_id, id))
             conn.commit()
+            _save_driver_fields(conn, id, drv)
             flash(gettext('x.f_device_updated'), 'success')
         except Exception as e:
             flash(gettext('x.f_error_colon') % {'p0': f'{e}'}, 'error')
@@ -213,6 +273,10 @@ def edit_device(id):
             return jsonify({'success': False, 'message': 'الجهاز غير موجود'}), 404
             
     dev_dict = dict(device)
+    # كلمةُ مرور الجهاز لا تخرج للمتصفّح — يُقال فقط إن كانت محفوظة.
+    dev_dict['has_password'] = bool(dev_dict.pop('auth_secret', None))
+    from utils.devices import registry as _reg
+    dev_dict['driver'] = _reg.driver_key(dev_dict)
     for k, v in dev_dict.items():
         if hasattr(v, 'isoformat'):
             dev_dict[k] = v.isoformat()
@@ -259,10 +323,33 @@ def delete_device(id):
     flash(gettext('x.f_device_deleted'), 'success')
     return redirect(url_for('attendance.devices'))
 
+def _new_device(device_id):
+    """صفُّ الجهاز إن كان من الماركات الجديدة (Hikvision…)، وإلّا None — ZKTeco بمساره القديم."""
+    from utils.devices import registry
+    row = get_db_connection().execute('SELECT * FROM fingerprint_devices WHERE id = ?', (device_id,)).fetchone()
+    if row is None or registry.is_legacy(row):
+        return None
+    return row
+
+
+def _driver_test(device):
+    from utils.devices import registry, base as dbase
+    try:
+        r = registry.get_driver(device).test()
+        return {'success': bool(r.get('ok')), 'message': r.get('message', ''), 'device_info': r.get('info', {})}
+    except dbase.DriverError as e:
+        return {'success': False, 'message': str(e)}
+    except Exception as e:
+        return {'success': False, 'message': f'خطأ: {str(e)[:150]}'}
+
+
 @attendance_bp.route('/fingerprint/test/<int:device_id>')
 @login_required
 @require_permission('attendance.devices')
 def test_device_api(device_id):
+    _new = _new_device(device_id)
+    if _new is not None:
+        return jsonify(_driver_test(_new))
     success, result = test_fingerprint_device(device_id)
     
     if success:
@@ -281,6 +368,11 @@ def test_device_api(device_id):
 @login_required
 @require_permission('attendance.devices')
 def test_device_route(device_id):
+    _new = _new_device(device_id)
+    if _new is not None:
+        r = _driver_test(_new)
+        flash(r['message'], 'success' if r['success'] else 'error')
+        return redirect(url_for('attendance.devices'))
     success, message = test_fingerprint_device(device_id)
     if success:
         flash(message, 'success')
@@ -442,7 +534,17 @@ def upload_users_api():
             results.append(device_results)
             continue
 
-        if device['is_adms']:
+        from utils.devices import registry as _reg, engine as _eng
+        if not _reg.is_legacy(device):
+            # ماركة جديدة (Hikvision…): المحرّك — الموظّف، ووجهُه من صورته إن قبلها الجهاز.
+            try:
+                details = _eng.push_employees(conn, device, employees)
+            except Exception as e:
+                details = [{'user': emp['name'], 'status': 'error', 'message': str(e)[:150]} for emp in employees]
+            for d in details:
+                device_results['fail_count' if d['status'] == 'error' else 'success_count'] += 1
+            device_results['details'].extend(details)
+        elif device['is_adms']:
             for emp in employees:
                 try:
                     card_num = int(emp['card_number']) if emp['card_number'] and str(emp['card_number']).isdigit() else 0
@@ -543,6 +645,17 @@ def sync_from_device_api():
         from utils import device_access
         for dev_id in device_ids:
             device = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (dev_id,)).fetchone()
+            from utils.devices import registry as _reg, engine as _eng
+            if device and not _reg.is_legacy(device):
+                # ماركة جديدة: الموظّفون (ومن ليس موظّفًا يُضاف) — البصماتُ لا تنتقل بين الماركات.
+                try:
+                    r = _eng.sync_users(conn, device)
+                    msg = (r.get('skipped') or f"اتقرى {r['users']} موظف من الجهاز، واتضاف {r['employees_added']} موظف جديد"
+                           " — بصمات الصباع بتفضل على الجهاز (مبتتنقلش بين الماركات)")
+                    results.append({'device_id': dev_id, 'success': 'skipped' not in r, 'message': msg})
+                except Exception as e:
+                    results.append({'device_id': dev_id, 'success': False, 'message': f'تعذّر: {str(e)[:150]}'})
+                continue
             if device and not device['is_adms']:
                 # مباشر: البصماتُ تُسحب الآن وتُحفظ — لتُرفع منه لأيّ جهاز.
                 try:
@@ -1048,6 +1161,8 @@ def sync_queue_data_api():
 @require_permission('attendance.edit')
 def clear_device_users_api(device_id):
     """API endpoint to clear all users from a device"""
+    if _new_device(device_id) is not None:
+        return jsonify({'success': False, 'message': 'العملية دي لأجهزة ZKTeco بس — اعملها من شاشة الجهاز نفسه'})
     success, message = clear_fingerprint_device_users(device_id)
     return jsonify({
         'success': success,
@@ -1058,6 +1173,14 @@ def clear_device_users_api(device_id):
 @require_permission('attendance.view')
 def get_device_user_count_api(device_id):
     """API endpoint to get the number of users on a device"""
+    _new = _new_device(device_id)
+    if _new is not None:
+        from utils.devices import registry
+        try:
+            n = len(registry.get_driver(_new).list_users())
+            return jsonify({'success': True, 'count': n, 'message': f'{n} موظف على الجهاز', 'is_adms': False})
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)[:200]})
     success, result = get_device_user_count(device_id)
     if success:
         return jsonify({
@@ -1077,6 +1200,8 @@ def get_device_user_count_api(device_id):
 @require_permission('attendance.edit')
 def reboot_device_api(device_id):
     """API endpoint to reboot a device"""
+    if _new_device(device_id) is not None:
+        return jsonify({'success': False, 'message': 'العملية دي لأجهزة ZKTeco بس — اعملها من شاشة الجهاز نفسه'})
     success, message = reboot_fingerprint_device(device_id)
     return jsonify({
         'success': success,
@@ -1088,6 +1213,8 @@ def reboot_device_api(device_id):
 @require_permission('attendance.edit')
 def factory_reset_device_api(device_id):
     """API endpoint to factory reset a device"""
+    if _new_device(device_id) is not None:
+        return jsonify({'success': False, 'message': 'العملية دي لأجهزة ZKTeco بس — اعملها من شاشة الجهاز نفسه'})
     success, message = factory_reset_fingerprint_device(device_id)
     return jsonify({
         'success': success,
