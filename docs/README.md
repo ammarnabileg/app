@@ -7,6 +7,7 @@
 | **[التشغيل](ops/)** | فريق onz.one — من يجهّز الخوادم ويشغّل المستأجرين | [ops/README.md](ops/README.md) |
 | **[المنتج](product/)** | العميل — من يستخدم النظام في شركته | [product/README.md](product/README.md) |
 | **[الإصدار](RELEASE.md)** | من يبني نسخة جديدة ويوصلها للعملاء | [RELEASE.md](RELEASE.md) |
+| **[خارطة الطريق](ROADMAP_2026.md)** | صاحب المشروع والفريق — ما التالي وبأيّ ترتيب | [ROADMAP_2026.md](ROADMAP_2026.md) |
 
 ---
 
@@ -37,7 +38,7 @@ plesk ext docker --help
 ملف غلط بجوار ملف صحيح أخطر من غياب الملفين، لذلك حُذفت بدل أن تُترك.
 
 **ما بقي كما هو**، لأنه خطط ورؤية لا تعليمات تشغيل:
-`BIOMETRIC_ROADMAP.md` · `DEVICE_ENGINE_PLAN.md` · `ONZ_PLATFORM_VISION.md`
+`BIOMETRIC_ROADMAP.md` · `DEVICE_ENGINE_PLAN.md` · `ONZ_PLATFORM_VISION.md` · `ROADMAP_2026.md`
 
 ---
 
