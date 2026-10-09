@@ -1397,6 +1397,9 @@ def init_db():
                 days_basis INTEGER DEFAULT 26,
                 hours_per_day INTEGER DEFAULT 8,
                 is_active INTEGER DEFAULT 1,
+                -- في الإنشاء نفسه: ترحيلُ العمود يجري قبل إنشاء الجدول في قاعدةٍ جديدة،
+                -- فكان يُضاف في الإقلاع الثاني فقط (init_db غير تكراريّ — tools/check_migrations).
+                data_source TEXT DEFAULT 'raw',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
