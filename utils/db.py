@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 70
+SCHEMA_VERSION = 71
 
 
 def get_schema_version(conn):
@@ -1916,6 +1916,13 @@ def init_db():
         _hr_requests_schema(conn)
     except Exception as e:
         print(f'hr requests schema failed: {e}')
+
+    # متابعةُ الموظّفين: الإقامة، تنبيهاتُ الوثائق، وقوائمُ الاستلام والتسليم (v71).
+    try:
+        from utils.employee_lifecycle import ensure_schema as _lifecycle_schema
+        _lifecycle_schema(conn)
+    except Exception as e:
+        print(f'employee lifecycle schema failed: {e}')
 
     # ثانيةً: جداولُ تُنشئها الترحيلاتُ أعلاه (تاريخُ الشفتات) لم تكن
     # موجودةً عند التثبيت الأوّل في قاعدةٍ جديدة. `IF NOT EXISTS` يجعلها بلا كلفة.

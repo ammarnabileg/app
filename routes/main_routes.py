@@ -39,6 +39,11 @@ def index():
     
     # تنبيهات انتهاء الصلاحية
     expiry_alerts = get_document_expiry_alerts()
+    try:
+        from utils import employee_lifecycle
+        employee_lifecycle.run_daily(conn)
+    except Exception:
+        pass
     
     # إحصائيات سريعة
     stats = {

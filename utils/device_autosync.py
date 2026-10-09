@@ -361,6 +361,12 @@ def run_once(source='auto'):
         cloud_sync.wake()
     except Exception:
         pass
+    # تنبيهاتُ الوثائق قبل انتهائها — مرّةً في اليوم (utils/employee_lifecycle).
+    try:
+        from utils import employee_lifecycle
+        employee_lifecycle.run_daily()
+    except Exception:
+        pass
     # ومع كلّ مزامنةٍ يُسأل عن طلبات البوّابة (تجهيزُ كشف، اعتمادُه) — لا من
     # داخل أمرٍ من البوّابة نفسها: ذاك يُبلغ نتيجتَه بنفسه.
     if source != 'portal':

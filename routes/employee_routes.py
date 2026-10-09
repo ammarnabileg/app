@@ -13,6 +13,15 @@ from utils.fingerprint_utils import queue_adms_user_update, queue_adms_user_dele
 
 employee_bp = Blueprint('employee', __name__)
 
+
+def _apply_residency(conn, emp_id):
+    """رقم الإقامة وتاريخ انتهائها — على حدة كنمط العمل (utils/employee_lifecycle)."""
+    if 'residency_expiry_date' not in request.form and 'residency_number' not in request.form:
+        return
+    conn.execute('UPDATE employees SET residency_number = ?, residency_expiry_date = ? WHERE id = ?',
+                 ((request.form.get('residency_number') or '').strip() or None,
+                  (request.form.get('residency_expiry_date') or '').strip() or None, emp_id))
+
 @employee_bp.route('/employees')
 @login_required
 @require_permission('page.employees')
@@ -252,6 +261,7 @@ def add_employee():
             if _wm in ('office', 'field', 'both'):
                 conn.execute('UPDATE employees SET work_mode = ? WHERE id = ?',
                              (_wm, employee_id))
+            _apply_residency(conn, employee_id)
             _perr = _apply_probation(conn, employee_id)
             if _perr:
                 conn.rollback()
@@ -499,6 +509,7 @@ def edit_employee(id):
             _wm = (request.form.get('work_mode') or '').strip()
             if _wm in ('office', 'field', 'both'):
                 conn.execute('UPDATE employees SET work_mode = ? WHERE id = ?', (_wm, id))
+            _apply_residency(conn, id)
             _perr = _apply_probation(conn, id)
             if _perr:
                 conn.rollback()
