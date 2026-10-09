@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 69
+SCHEMA_VERSION = 70
 
 
 def get_schema_version(conn):
@@ -1781,6 +1781,7 @@ def init_db():
             ('admin.settings', 'System Settings', 'Administration', 'Global system settings'),
             ('admin.danger', 'العمليات الحساسة (سوبر أدمن)', 'Administration', 'Delete employees/devices, recycle bin and sensitive audit log'),
             ('admin.roles', 'Manage Roles', 'Administration', 'Create/Edit roles and permissions'),
+            ('hr.requests', 'طلبات الموظفين والموافقات (موارد بشرية)', 'Employees', 'HR step of employee requests (letters, expenses, loans, overtime), letter templates and approval chains'),
             
             # Pages
             ('page.dashboard', 'الرئيسية (Dashboard)', 'Pages', 'Access Dashboard page'),
@@ -1908,6 +1909,13 @@ def init_db():
         _labor_migrate(conn)
     except Exception as e:
         print(f'labor law migration failed: {e}')
+
+    # طلباتُ الموظّفين ومسارُ موافقاتها وقوالبُ الخطابات (v70).
+    try:
+        from utils.hr_requests import ensure_schema as _hr_requests_schema
+        _hr_requests_schema(conn)
+    except Exception as e:
+        print(f'hr requests schema failed: {e}')
 
     # ثانيةً: جداولُ تُنشئها الترحيلاتُ أعلاه (تاريخُ الشفتات) لم تكن
     # موجودةً عند التثبيت الأوّل في قاعدةٍ جديدة. `IF NOT EXISTS` يجعلها بلا كلفة.

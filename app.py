@@ -246,6 +246,8 @@ from routes.sensitive_routes import sensitive_bp
 app.register_blueprint(sensitive_bp)
 from routes.device_engine_routes import device_engine_bp, DEVICE_PUSH_ENDPOINTS
 app.register_blueprint(device_engine_bp)
+from routes.hr_request_routes import hr_requests_bp
+app.register_blueprint(hr_requests_bp)
 
 from routes.field_routes import field_bp
 app.register_blueprint(field_bp)
