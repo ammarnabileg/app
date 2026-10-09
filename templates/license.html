@@ -105,6 +105,18 @@
             </div>
           </form>
           {% endif %}
+          {# تركيبٌ بلا إنترنت: ملفّ رخصة موقَّع لهذا الجهاز (utils/license.import_offline_token). #}
+          <details class="mt-3" dir="rtl">
+            <summary class="small text-muted">الجهاز ده مش متوصل بالإنترنت خالص؟</summary>
+            <div class="small mt-2">ابعت <b>كود الجهاز</b> ده للدعم، وهيرجعلك ملف ترخيص موقّع للجهاز ده بس:</div>
+            <input class="form-control form-control-sm font-monospace my-2" dir="ltr" readonly value="{{ offline_hwid }}" onclick="this.select()">
+            <form method="POST" enctype="multipart/form-data" action="{{ url_for('main.license_page') }}">
+              <input type="hidden" name="type" value="offline_token">
+              <input type="file" name="token_file" class="form-control form-control-sm mb-1" accept=".txt,.lic,.onz">
+              <textarea name="token" class="form-control form-control-sm font-monospace" rows="2" dir="ltr" placeholder="أو الصق النص ONZ1.…"></textarea>
+              <button class="btn btn-sm btn-outline-success mt-2">تفعيل بالملف</button>
+            </form>
+          </details>
         </div>
       </div>
 

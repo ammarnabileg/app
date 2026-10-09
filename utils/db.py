@@ -135,7 +135,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 72
+SCHEMA_VERSION = 73
 
 
 def get_schema_version(conn):
@@ -1932,6 +1932,13 @@ def init_db():
         _smart_punch_schema(conn)
     except Exception as e:
         print(f'engagement / smart punch schema failed: {e}')
+
+    # الوكيلُ المحلّيّ لأجهزة الشركة مع النسخة الأونلاين (v73).
+    try:
+        from utils.connector import ensure_schema as _connector_schema
+        _connector_schema(conn)
+    except Exception as e:
+        print(f'connector schema failed: {e}')
 
     # ثانيةً: جداولُ تُنشئها الترحيلاتُ أعلاه (تاريخُ الشفتات) لم تكن
     # موجودةً عند التثبيت الأوّل في قاعدةٍ جديدة. `IF NOT EXISTS` يجعلها بلا كلفة.

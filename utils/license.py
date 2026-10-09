@@ -899,3 +899,31 @@ def verify_license_full_flow(key):
         return False, f"Online Check Failed: {online_msg}"
         
     return True, "Valid"
+
+
+def import_offline_token(token):
+    """تركيبٌ بلا إنترنت: ملفّ رخصة موقَّع (ONZ1.…) من لوحة onz.one لهذا الجهاز بعينه.
+
+    لا يُقبل إلا بتوقيعنا (المفتاح العامّ وحده هنا) ولهذا الجهاز (hwid) وغير منتهٍ —
+    فنسخُه لجهازٍ آخر أو تعديلُ تاريخه لا ينفع. يُرجع (ok, رسالة).
+    """
+    from utils.license_verify import verify_license_token
+    from utils.db import set_setting
+    token = str(token or '').strip()
+    try:
+        hwid = get_system_hwid()
+    except Exception:
+        hwid = None
+    r = verify_license_token(token, current_hwid=hwid)
+    if not r.get('ok'):
+        reasons = {'bad_signature': 'الملف ده مش صادر من onz.one أو اتعدّل', 'bad_format': 'ده مش ملف ترخيص',
+                   'expired': 'الترخيص ده منتهي', 'hwid_mismatch': 'الترخيص ده لجهاز تاني — ابعت كود الجهاز اللي هنا'}
+        reason = str(r.get('reason') or '')
+        return False, reasons.get(reason.split(':')[0], reason or 'ملف غير صالح')
+    set_setting('license_token', token)
+    key = str((r.get('data') or {}).get('key') or '')
+    if key and get_saved_license_key() != key:
+        save_license_key(key)
+    invalidate_license_cache()
+    return True, f"اتفعّل بدون إنترنت — باقي {r.get('days_left')} يوم"
+

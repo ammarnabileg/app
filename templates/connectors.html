@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}الوكيل المحلي{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1150px;" dir="rtl">
+  <h3 class="mb-1"><i class="fas fa-network-wired text-primary me-2"></i>الوكيل المحلي</h3>
+  <p class="text-muted mb-3">
+    للنسخة الأونلاين: السيرفر مش شايف جهاز البصمة (K40 وأمثاله) اللي جوه شبكة الشركة. الوكيل برنامج صغير على أي
+    كمبيوتر ويندوز في الشركة — بيسحب البصمات من الأجهزة ويرفعها هنا، وبينفّذ على الأجهزة أوامر الإيقاف والحذف.
+    أجهزة ADMS مش محتاجاه (هي اللي بتكلّم السيرفر).
+  </p>
+
+  {% if new_key %}
+  <div class="alert alert-success">
+    <b>مفتاح الوكيل</b> — انسخه دلوقتي، مش هيظهر تاني:
+    <input class="form-control mt-2 font-monospace" dir="ltr" readonly value="{{ new_key.key }}" onclick="this.select()">
+    <div class="small mt-2">على كمبيوتر الشركة (من فولدر البرنامج):</div>
+    <pre class="bg-dark text-light p-2 rounded small mt-1 mb-0" dir="ltr">connector_agent.exe --setup --server {{ server }} --key {{ new_key.key }}
+connector_agent.exe</pre>
+    <div class="small text-muted mt-1">أو بالبايثون: <code dir="ltr">python connector_agent.py --setup …</code> — وبعدها يشتغل لوحده في الخلفية.</div>
+  </div>
+  {% endif %}
+
+  <form method="post" class="card mb-3"><div class="card-body row g-2 align-items-center">
+    <input type="hidden" name="action" value="create">
+    <div class="col-md-8"><input name="name" class="form-control" placeholder="اسم الوكيل (مثلًا: كمبيوتر الاستقبال — الشويخ)"></div>
+    <div class="col-md-4"><button class="btn btn-primary w-100"><i class="fas fa-plus"></i> وكيل جديد + مفتاح</button></div>
+  </div></form>
+
+  {% for c in connectors %}
+  <div class="card mb-3 {% if not c.is_active %}opacity-50{% endif %}"><div class="card-body">
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <div>
+        <b>{{ c.name }}</b> <code class="small" dir="ltr">{{ c.key_hint }}</code>
+        <div class="small text-muted">
+          {% if c.last_seen %}آخر اتصال <span dir="ltr">{{ c.last_seen }}</span> من <span dir="ltr">{{ c.last_ip or '' }}</span>{% if c.agent_version %} · نسخة {{ c.agent_version }}{% endif %}
+          {% else %}<span class="text-warning">لسه ما اتصلش</span>{% endif %}
+          · أوامر منتظرة: {{ c.pending }}
+        </div>
+        {% if c.last_error %}<div class="small text-danger">آخر خطأ: {{ c.last_error }}</div>{% endif %}
+      </div>
+      <div class="d-flex gap-1">
+        <form method="post"><input type="hidden" name="action" value="rotate"><input type="hidden" name="id" value="{{ c.id }}">
+          <button class="btn btn-sm btn-outline-secondary" onclick="return confirm('المفتاح القديم هيبطل يشتغل. متأكد؟')">مفتاح جديد</button></form>
+        <form method="post"><input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="{{ c.id }}">
+          <button class="btn btn-sm {{ 'btn-outline-danger' if c.is_active else 'btn-outline-success' }}">{{ 'إيقاف' if c.is_active else 'تشغيل' }}</button></form>
+      </div>
+    </div>
+    <div class="small mt-2">
+      الأجهزة: {% for d in c.devices %}<span class="badge bg-light text-dark border me-1">{{ d.device_name }} <span dir="ltr">{{ d.device_ip }}</span>{% if d.last_sync_time %} · {{ d.last_sync_time }}{% endif %}</span>{% else %}
+      <span class="text-muted">مفيش — ضيف جهاز من <a href="{{ url_for('attendance.devices') }}">إدارة الأجهزة</a> واختار «ZKTeco — عبر الوكيل المحلي».</span>{% endfor %}
+    </div>
+  </div></div>
+  {% endfor %}
+
+  {% if commands %}
+  <h6 class="mt-4">آخر الأوامر</h6>
+  <div class="table-responsive"><table class="table table-sm small align-middle">
+    <thead><tr><th>#</th><th>الجهاز</th><th>الأمر</th><th>الموظف</th><th>الحالة</th><th>محاولات</th><th>النتيجة</th><th>الوقت</th></tr></thead>
+    <tbody>{% for x in commands %}
+      <tr><td>{{ x.id }}</td><td>{{ x.device_name or x.device_id }}</td><td>{{ x.kind_label }}</td><td>{{ x.pin or '' }}</td>
+        <td><span class="badge {{ {'done':'bg-success','failed':'bg-danger','sent':'bg-info text-dark'}.get(x.status, 'bg-secondary') }}">{{ x.status }}</span></td>
+        <td>{{ x.attempts }}</td><td>{{ x.result or '' }}</td><td dir="ltr">{{ x.done_at or x.created_at }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+</div>
+{% endblock %}

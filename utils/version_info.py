@@ -42,7 +42,7 @@ CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUI
 BUILD_DATE = "2026-10-07"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "محرّك الأجهزة الموحّد (dev1)"
+RELEASE_NAME = "خارطة الطريق كاملة (dev1)"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"

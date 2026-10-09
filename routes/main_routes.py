@@ -493,6 +493,17 @@ def license_page():
             flash(gettext('x.f_logout_deactivated'), 'success')
             return redirect(url_for('main.license_page'))
 
+        if req_type == 'offline_token':
+            # تركيبٌ بلا إنترنت: ملفّ رخصة موقَّع لهذا الجهاز (utils/license.import_offline_token).
+            tok = request.form.get('token') or ''
+            f = request.files.get('token_file')
+            if f and f.filename:
+                tok = f.read(20000).decode('utf-8', errors='ignore')
+            from utils.license import import_offline_token
+            ok, msg = import_offline_token(tok)
+            flash(msg, 'success' if ok else 'error')
+            return redirect(url_for('main.index') if ok else url_for('main.license_page'))
+
         if req_type == 'login':
             # Activation by Login
             username = request.form.get('username')
@@ -545,7 +556,12 @@ def license_page():
         emp_usage = usage(get_db_connection())
     except Exception as e:
         print(f"[limits] {e}")
-    return render_template('license.html', info=info, emp_usage=emp_usage)
+    try:
+        from utils.system_id import get_system_hwid
+        offline_hwid = get_system_hwid()
+    except Exception:
+        offline_hwid = ''
+    return render_template('license.html', info=info, emp_usage=emp_usage, offline_hwid=offline_hwid)
 
 # نقاط النهاية API
 @main_bp.route('/api/stats')

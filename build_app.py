@@ -29,6 +29,24 @@ def build_uninstaller():
         '--log-level=WARN'
     ])
 
+def build_connector():
+    """الوكيلُ المحلّيّ (utils/connector_agent): exe صغير بجوار HRSystem.exe — للنسخة الأونلاين."""
+    print("Building Connector Agent...")
+    PyInstaller.__main__.run([
+        'connector_agent.py',
+        '--onefile',
+        '--console',
+        '--name=connector_agent',
+        f'--icon={os.path.abspath("app_icon.ico")}',
+        '--hidden-import=zk',
+        '--hidden-import=requests',
+        '--distpath=dist/HRSystem',
+        '--workpath=build/connector',
+        '--specpath=build/connector',
+        '--clean',
+        '--log-level=WARN'
+    ])
+
 def build_main_app(thin=False):
     print(f"Building HR System ({'THIN' if thin else 'FULL'})...")
     
@@ -123,6 +141,9 @@ if __name__ == "__main__":
     # 3. Build Main App
     is_thin = "--thin" in sys.argv
     build_main_app(thin=is_thin)
+
+    # 4. Connector agent (next to HRSystem.exe, after the onedir build so it is not wiped)
+    build_connector()
     
     print("\n------------------------------------------------")
     print("Build Complete!")

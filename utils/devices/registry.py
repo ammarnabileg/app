@@ -23,8 +23,9 @@ def _all():
     from .hikvision import HikvisionDriver
     from .dahua import DahuaDriver
     from .suprema import SupremaBioStarDriver
+    from .connector_driver import ZkConnectorDriver
     return {d.key: d for d in (ZkPushDriver, ZkDirectDriver, HikvisionDriver, DahuaDriver,
-                               SupremaBioStarDriver)}
+                               SupremaBioStarDriver, ZkConnectorDriver)}
 
 
 def drivers():

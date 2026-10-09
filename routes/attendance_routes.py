@@ -89,7 +89,18 @@ def devices():
         dev_drivers[d['id']] = {'key': k, 'label': c.get('label', k), 'legacy': _reg.is_legacy(d),
                                 'experimental': c.get('experimental', False), 'caps': c.get('capabilities', [])}
     return render_template('fingerprint_devices.html', devices=devices, max_devices=max_devices, current_active=current_active,
-                           branches=branches, driver_catalog=list(_cat.values()), dev_drivers=dev_drivers)
+                           branches=branches, driver_catalog=list(_cat.values()), dev_drivers=dev_drivers,
+                           connectors=_connectors())
+
+
+def _connectors():
+    try:
+        from utils import connector as _C
+        conn = get_db_connection()
+        _C.ensure_schema(conn)
+        return [dict(r) for r in conn.execute('SELECT id, name FROM connectors WHERE is_active = 1 ORDER BY id')]
+    except Exception:
+        return []
 
 @attendance_bp.route('/fingerprint/branches/add', methods=['POST'])
 @login_required
@@ -133,6 +144,11 @@ def _save_driver_fields(conn, device_id, drv):
     except Exception:
         opts = {}
     opts['insecure_tls'] = bool(request.form.get('insecure_tls'))
+    if request.form.get('connector_id'):
+        try:
+            opts['connector_id'] = int(request.form.get('connector_id'))
+        except ValueError:
+            pass
     conn.execute('UPDATE fingerprint_devices SET driver = ?, auth_user = ?, use_https = ?, driver_options = ? WHERE id = ?',
                  (drv, (request.form.get('auth_user') or '').strip(), 1 if request.form.get('use_https') else 0,
                   _json.dumps(opts), device_id))

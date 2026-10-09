@@ -254,6 +254,8 @@ from routes.engagement_routes import engagement_bp
 app.register_blueprint(engagement_bp)
 from routes.smart_punch_routes import smart_punch_bp
 app.register_blueprint(smart_punch_bp)
+from routes.connector_routes import connector_bp, CONNECTOR_API_ENDPOINTS
+app.register_blueprint(connector_bp)
 
 from routes.field_routes import field_bp
 app.register_blueprint(field_bp)
@@ -341,6 +343,9 @@ def check_license_globally():
     # فالمسارُ نفسُه عبر الويب لا يُعامَل بغير ما يُعامَل به هناك. شاشاتُ
     # ADMS الإداريّة تبقى خلف الترخيص.
     if request.endpoint in ADMS_DEVICE_ENDPOINTS or request.endpoint in DEVICE_PUSH_ENDPOINTS:
+        return
+    # الوكيلُ المحلّيّ: برنامجٌ بمفتاح لا يتبع تحويلة (routes/connector_routes).
+    if request.endpoint in CONNECTOR_API_ENDPOINTS:
         return
 
     # Check license
