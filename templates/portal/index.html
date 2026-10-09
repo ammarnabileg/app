@@ -1184,6 +1184,9 @@
         <!-- VIEW 1: TODAY / HOME                                           -->
         <!-- ============================================================== -->
         <section id="view-today" class="portal-view active">
+
+            <!-- الإعلانات والاستبيانات (utils/engagement) -->
+            <div id="engageBlock"></div>
             
             <!-- بطاقة الحضور: زجاجٌ أخضرُ داكن، ساعةٌ حيّة، وزرُّ البصمة إن كانت مفعّلة -->
             <div class="hero-card hero-today">
@@ -1721,10 +1724,17 @@
                     <div class="form-group"><label>موجّه إلى</label><input class="form-control-ios" name="addressee" placeholder="مثلًا: بنك الكويت الوطني — أو اتركه: من يهمه الأمر"></div>
                 </div>
                 <div class="hr-f" data-for="expense">
-                    <div class="form-group"><label>المبلغ</label><input type="number" step="0.001" min="0" class="form-control-ios" name="amount" inputmode="decimal"></div>
-                    <div class="form-group"><label>التاريخ</label><input type="date" class="form-control-ios" name="expense_date" value="{{ today_date }}"></div>
-                    <div class="form-group"><label>الوصف</label><input class="form-control-ios" name="description" placeholder="مثلًا: بنزين مشوار العميل"></div>
-                    <div class="form-group"><label>صورة الفاتورة (اختياري)</label><input type="file" class="form-control-ios" id="hrReqFile" accept="image/*,application/pdf"></div>
+                    <div class="form-group" id="hrMileageBox" style="display:none;">
+                        <label><input type="checkbox" id="hrMileageOn" onchange="hrMileageToggle()"> بدل مسافة من رحلاتي (التتبّع)</label>
+                        <div id="hrMileageFields" style="display:none; margin-top:6px;">
+                            <input type="month" class="form-control-ios" id="hrMileageMonth" onchange="hrMileagePreview()">
+                            <small id="hrMileageInfo" style="color: var(--ios-subtext);"></small>
+                        </div>
+                    </div>
+                    <div class="form-group hr-nomileage"><label>المبلغ</label><input type="number" step="0.001" min="0" class="form-control-ios" name="amount" inputmode="decimal"></div>
+                    <div class="form-group hr-nomileage"><label>التاريخ</label><input type="date" class="form-control-ios" name="expense_date" value="{{ today_date }}"></div>
+                    <div class="form-group hr-nomileage"><label>الوصف</label><input class="form-control-ios" name="description" placeholder="مثلًا: بنزين مشوار العميل"></div>
+                    <div class="form-group hr-nomileage"><label>صورة الفاتورة (اختياري)</label><input type="file" class="form-control-ios" id="hrReqFile" accept="image/*,application/pdf"></div>
                 </div>
                 <div class="hr-f" data-for="loan">
                     <div class="form-group"><label>مبلغ السلفة</label><input type="number" step="0.001" min="0" class="form-control-ios" name="amount" inputmode="decimal"></div>
@@ -1738,6 +1748,15 @@
                 </div>
                 <button type="submit" class="btn-ios-submit" id="submitHrReqBtn">إرسال الطلب</button>
             </form>
+        </div>
+    </div>
+
+    <div class="ios-sheet-overlay" id="surveyModalOverlay" onclick="this.style.display='none'">
+        <div class="ios-sheet" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <h3 class="sheet-title" id="surveyTitle">استبيان</h3>
+            <p id="surveyDesc" style="color: var(--ios-subtext);"></p>
+            <form id="surveyForm" onsubmit="submitSurvey(event)"></form>
         </div>
     </div>
 
@@ -2905,6 +2924,7 @@
                     fetch('/portal/api/requests/approvals').then(r => r.json()),
                 ]);
                 HR_TYPES = t.types || [];
+                document.getElementById('hrMileageBox').style.display = t.mileage ? '' : 'none';
                 const sel = document.getElementById('hrReqType');
                 sel.innerHTML = HR_TYPES.map(x => `<option value="${x.code}">${escH(x.label)}</option>`).join('');
                 document.getElementById('hrReqLetters').innerHTML = (t.letters || []).map(l => `<option value="${l.id}">${escH(l.name)}</option>`).join('');
@@ -2933,8 +2953,31 @@
                 el.style.display = on ? '' : 'none';
                 el.querySelectorAll('input,select').forEach(i => i.disabled = !on);
             });
+            if (code === 'expense' && document.getElementById('hrMileageOn').checked) hrMileageToggle();
             const t = HR_TYPES.find(x => x.code === code);
             document.getElementById('hrReqChain').textContent = t && t.chain.length ? 'بيتعتمد من: ' + t.chain.join(' ← ') : '';
+        }
+        function hrMileageToggle() {
+            const on = document.getElementById('hrMileageOn').checked;
+            document.getElementById('hrMileageFields').style.display = on ? '' : 'none';
+            document.querySelectorAll('#hrRequestForm .hr-nomileage').forEach(el => {
+                el.style.display = on ? 'none' : '';
+                el.querySelectorAll('input').forEach(i => i.disabled = on);
+            });
+            if (on) {
+                const m = document.getElementById('hrMileageMonth');
+                if (!m.value) m.value = new Date().toISOString().slice(0, 7);
+                hrMileagePreview();
+            }
+        }
+        async function hrMileagePreview() {
+            const info = document.getElementById('hrMileageInfo');
+            const month = document.getElementById('hrMileageMonth').value;
+            info.textContent = '...';
+            try {
+                const d = await fetch('/portal/api/requests/mileage?month=' + month).then(r => r.json());
+                info.textContent = d.success ? `${d.km} كم من ${d.trips} رحلة × ${d.rate} = ${d.amount}` : d.message;
+            } catch (e) { info.textContent = ''; }
         }
         function readFileAsDataURL(file) {
             return new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(file); });
@@ -2945,6 +2988,9 @@
             const payload = {};
             new FormData(form).forEach((v, k) => { if (k !== 'type') payload[k] = v; });
             const type = document.getElementById('hrReqType').value;
+            if (type === 'expense' && document.getElementById('hrMileageOn').checked) {
+                payload.mileage_month = document.getElementById('hrMileageMonth').value;
+            }
             const file = document.getElementById('hrReqFile').files[0];
             if (type === 'expense' && file) {
                 if (file.size > 3 * 1024 * 1024) return showPortalAlert('الملف كبير', 'أقصى حجم 3 ميجا', 'error');
@@ -2975,7 +3021,53 @@
             loadHrRequests();
         }
 
+        // ==================== الإعلانات والاستبيانات ====================
+        let ENGAGE_SURVEYS = [];
+        async function loadEngagement() {
+            try {
+                const d = await fetch('/portal/api/engagement').then(r => r.json());
+                ENGAGE_SURVEYS = d.surveys || [];
+                const anns = (d.announcements || []).slice(0, 5);
+                let html = anns.map(a => `<div class="ios-list-card" style="background:#fff; border-radius:16px; padding:14px; margin-bottom:10px; box-shadow:0 2px 10px rgba(0,0,0,.05); ${a.read_at ? '' : 'border-right:4px solid var(--ios-blue);'}" onclick="readAnnouncement(${a.id}, this)">
+                    <div style="font-weight:800;">${a.pinned ? '📌 ' : '📢 '}${escH(a.title)}</div>
+                    ${a.body ? `<div style="margin-top:6px; white-space:pre-line; font-size:.92rem;">${escH(a.body)}</div>` : ''}
+                    <div style="color:var(--ios-subtext); font-size:.75rem; margin-top:6px;">${escH((a.created_at || '').slice(0, 10))}</div></div>`).join('');
+                html += ENGAGE_SURVEYS.map((s, i) => `<div class="ios-list-card" style="background:linear-gradient(135deg, rgba(88,86,214,.1), #fff); border-radius:16px; padding:14px; margin-bottom:10px;">
+                    <div style="font-weight:800;">📝 ${escH(s.title)}</div>
+                    <div style="color:var(--ios-subtext); font-size:.85rem;">${s.anonymous ? 'مجهول — اسمك مش هيظهر' : ''}${s.closes_on ? ' · لحد ' + escH(s.closes_on) : ''}</div>
+                    <button class="btn-approve" style="margin-top:10px; width:100%" onclick="openSurvey(${i})">جاوب (${s.questions.length} سؤال)</button></div>`).join('');
+                document.getElementById('engageBlock').innerHTML = html;
+            } catch (e) { /* اختياريّ */ }
+        }
+        async function readAnnouncement(id, el) {
+            el.style.borderRight = '';
+            try { await fetch(`/portal/api/announcements/${id}/read`, { method: 'POST' }); } catch (e) {}
+        }
+        let CURRENT_SURVEY = null;
+        function openSurvey(i) {
+            const s = ENGAGE_SURVEYS[i]; CURRENT_SURVEY = s;
+            document.getElementById('surveyTitle').textContent = s.title;
+            document.getElementById('surveyDesc').textContent = s.description || '';
+            document.getElementById('surveyForm').innerHTML = s.questions.map((q, n) => {
+                let input;
+                if (q.type === 'choice') input = `<select class="form-control-ios" name="q${n}" required><option value="">اختار…</option>${q.options.map(o => `<option>${escH(o)}</option>`).join('')}</select>`;
+                else if (q.type === 'rating') input = `<div style="display:flex; gap:6px; justify-content:space-between;">${[1,2,3,4,5].map(v => `<label style="flex:1; text-align:center; background:#F2F2F7; border-radius:10px; padding:8px 0;"><input type="radio" name="q${n}" value="${v}" required> ${v}</label>`).join('')}</div>`;
+                else input = `<textarea class="form-control-ios" name="q${n}" rows="2"></textarea>`;
+                return `<div class="form-group"><label>${n + 1}. ${escH(q.q)}</label>${input}</div>`;
+            }).join('') + '<button type="submit" class="btn-ios-submit">إرسال</button>';
+            document.getElementById('surveyModalOverlay').style.display = 'flex';
+        }
+        async function submitSurvey(e) {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const answers = CURRENT_SURVEY.questions.map((q, n) => fd.get('q' + n));
+            const d = await fetch(`/portal/api/surveys/${CURRENT_SURVEY.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers }) }).then(r => r.json());
+            if (d.success) { document.getElementById('surveyModalOverlay').style.display = 'none'; showToast(d.message, 'success'); loadEngagement(); }
+            else showPortalAlert('تعذر الإرسال', d.message || '', 'error');
+        }
+
         // Initial Load
+        loadEngagement();
         loadHrRequests();
         loadMyData();
         {% if is_manager %}

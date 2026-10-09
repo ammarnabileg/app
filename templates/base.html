@@ -826,6 +826,15 @@
                             </a>
                         </li>
                         {% endif %}
+                        {% if has_permission('attendance.edit') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'smart_punch.admin' %}active{% endif %}"
+                                href="{{ url_for('smart_punch.admin') }}">
+                                <i class="fas fa-qrcode"></i>
+                                الحضور الذكي
+                            </a>
+                        </li>
+                        {% endif %}
                         {% if has_permission('page.oracle_control') %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'attendance.oracle_control' %}active{% endif %}"
@@ -866,6 +875,11 @@
                                     <li class="nav-item">
                                         <a class="nav-link py-2 text-dark" href="{{ url_for('lifecycle.index') }}">
                                             <i class="fas fa-user-clock small me-2"></i>متابعة الموظفين
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link py-2 text-dark" href="{{ url_for('engagement.index') }}">
+                                            <i class="fas fa-bullhorn small me-2"></i>الإعلانات والاستبيانات
                                         </a>
                                     </li>
                                     {% endif %}

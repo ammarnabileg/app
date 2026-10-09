@@ -971,6 +971,12 @@ def api_punch():
     accuracy = data.get('accuracy', 0)
     gps_timestamp = data.get('timestamp')
     device_uuid = (data.get('device_uuid') or '').strip()[:64]
+
+    # موقعٌ من تطبيق «موقع وهمي»: يُرفض ويُسجَّل (utils/smart_punch).
+    from utils import smart_punch
+    _mock = smart_punch.check_mocked(conn, emp_id, data, 'portal_punch')
+    if _mock:
+        return jsonify({'success': False, 'code': 'mocked', 'message': _mock}), 403
     
     try:
         emp_lat = float(emp_lat) if emp_lat is not None else None

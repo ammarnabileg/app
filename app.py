@@ -250,6 +250,10 @@ from routes.hr_request_routes import hr_requests_bp
 app.register_blueprint(hr_requests_bp)
 from routes.lifecycle_routes import lifecycle_bp
 app.register_blueprint(lifecycle_bp)
+from routes.engagement_routes import engagement_bp
+app.register_blueprint(engagement_bp)
+from routes.smart_punch_routes import smart_punch_bp
+app.register_blueprint(smart_punch_bp)
 
 from routes.field_routes import field_bp
 app.register_blueprint(field_bp)

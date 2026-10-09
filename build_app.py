@@ -55,7 +55,8 @@ def build_main_app(thin=False):
         'pandas',
         'flask_babel',
         'adms_server',
-        'fingerprint_sync'
+        'fingerprint_sync',
+        'segno'
     ]
     
     args = [

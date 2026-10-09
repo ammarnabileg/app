@@ -138,6 +138,7 @@ class _StationScreenState extends State<StationScreen> {
               accuracy: pos.accuracy,
               token: token,
               photo: shot,
+              isMocked: pos.isMocked,
             )
           : await widget.api.checkOut(
               visitId: widget.visitId!,
@@ -146,6 +147,7 @@ class _StationScreenState extends State<StationScreen> {
               accuracy: pos.accuracy,
               token: token,
               photo: shot,
+              isMocked: pos.isMocked,
             );
 
       if (mounted) Navigator.pop(context, res);

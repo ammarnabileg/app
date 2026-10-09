@@ -183,6 +183,19 @@ def validate(conn, rtype, payload):
             raise ValueError('اختار نوع الخطاب')
         p['template_name'] = t[1]
         p['addressee'] = (p.get('addressee') or 'من يهمه الأمر').strip()[:120]
+    elif rtype == 'expense' and p.get('mileage_month'):
+        p.update(mileage(conn, p.get('employee_id_for_mileage'), p['mileage_month']))
+        p.pop('employee_id_for_mileage', None)
+        if p['km'] <= 0:
+            raise ValueError('مفيش مسافة متسجّلة من رحلاتك في الشهر ده')
+        if p['amount'] <= 0:
+            raise ValueError('سعر الكيلو مش متحدد — كلّم الموارد البشرية')
+        dup = conn.execute('''SELECT 1 FROM hr_requests WHERE employee_id = ? AND type = 'expense'
+                              AND status IN ('pending', 'approved') AND json_extract(payload, '$.mileage_month') = ?''',
+                           (p.get('_employee_id'), p['mileage_month'])).fetchone()
+        if dup:
+            raise ValueError('اتقدّم بدل مسافة للشهر ده قبل كده')
+        p.pop('_employee_id', None)
     elif rtype == 'expense':
         amt = _amount(p.get('amount'))
         if amt <= 0:
@@ -213,6 +226,38 @@ def validate(conn, rtype, payload):
     return p
 
 
+def mileage_rate():
+    try:
+        from utils.db import get_setting
+        return max(float(get_setting('mileage_rate_per_km', '0') or 0), 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def mileage(conn, employee_id, month):
+    """بدل المسافة من رحلات المندوب في شهر 'YYYY-MM' — المسافة محسوبة من نقاط التتبّع نفسها."""
+    import re
+    if not re.fullmatch(r'\d{4}-\d{2}', str(month or '')):
+        raise ValueError('اختار الشهر')
+    total_m, trips = 0.0, 0
+    try:
+        from utils.field import build_path
+        ids = [r[0] for r in conn.execute("SELECT id FROM field_trips WHERE employee_id = ? AND substr(trip_date, 1, 7) = ?",
+                                          (employee_id, month))]
+    except Exception:
+        ids = []
+    for tid in ids:
+        pts = [dict(r) for r in conn.execute('SELECT latitude, longitude, accuracy, recorded_at FROM field_track_points '
+                                             'WHERE trip_id = ? ORDER BY recorded_at', (tid,))]
+        if pts:
+            total_m += build_path(pts)[1]['distance_meters']
+            trips += 1
+    km = round(total_m / 1000.0, 1)
+    rate = mileage_rate()
+    return {'mileage_month': month, 'km': km, 'trips': trips, 'rate': rate, 'amount': round(km * rate, 3),
+            'description': f'بدل مسافة {month}: {km} كم من {trips} رحلة × {rate}', 'expense_date': f'{month}-01'}
+
+
 def _amount(v):
     try:
         return round(float(str(v).replace(',', '').strip()), 3)
@@ -226,6 +271,10 @@ def create(conn, employee_id, rtype, payload, created_by=None):
     st = type_settings(conn).get(rtype)
     if not st or not st['enabled']:
         raise ValueError('النوع ده مش متاح')
+    payload = dict(payload or {})
+    if rtype == 'expense' and payload.get('mileage_month'):
+        payload['employee_id_for_mileage'] = employee_id
+        payload['_employee_id'] = employee_id
     p = validate(conn, rtype, payload)
     cur = conn.execute('INSERT INTO hr_requests (employee_id, type, payload, created_by) VALUES (?, ?, ?, ?)',
                        (employee_id, rtype, json.dumps(p, ensure_ascii=False), created_by))

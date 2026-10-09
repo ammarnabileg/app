@@ -64,7 +64,15 @@ def api_types():
               'chain': [H.approver_label(conn, a) for a in t['chain']]}
              for t in H.type_settings(conn).values() if t['enabled']]
     letters = [{'id': t['id'], 'name': t['name']} for t in H.letter_templates(conn)]
-    return jsonify(success=True, types=types, letters=letters, can_request=bool(_own_employee_id()))
+    emp = _own_employee_id()
+    mileage = False
+    if emp and H.mileage_rate() > 0:
+        try:
+            from utils.field import is_field_rep
+            mileage = bool(is_field_rep(conn, emp))
+        except Exception:
+            mileage = False
+    return jsonify(success=True, types=types, letters=letters, can_request=bool(emp), mileage=mileage)
 
 
 @hr_requests_bp.route('/portal/api/requests', methods=['POST'])
@@ -91,6 +99,18 @@ def api_create():
     except ValueError as e:
         return jsonify(success=False, message=str(e)), 400
     return jsonify(success=True, id=rid, message='اتبعت الطلب')
+
+
+@hr_requests_bp.route('/portal/api/requests/mileage')
+@login_required
+def api_mileage():
+    emp = _own_employee_id()
+    if not emp:
+        return jsonify(success=False, message='الحساب ده مش مربوط بموظف'), 403
+    try:
+        return jsonify(success=True, **H.mileage(get_db_connection(), emp, request.args.get('month')))
+    except ValueError as e:
+        return jsonify(success=False, message=str(e)), 400
 
 
 @hr_requests_bp.route('/portal/api/requests/mine')

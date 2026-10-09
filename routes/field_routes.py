@@ -166,6 +166,11 @@ def api_track():
 
     points = data.get('points') if isinstance(data.get('points'), list) else []
     n = field.add_points(conn, trip_id, emp_id, points)
+    try:
+        from utils import smart_punch
+        smart_punch.check_teleport(conn, emp_id, points[:field.MAX_POINTS_PER_BATCH])
+    except Exception:
+        pass
     # `processed`: كم نقطةً نُظر فيها (مقبولةً أو مرفوضة) — يمحوها الهاتفُ من
     # ذاكرته ويُبقي الباقي. كان يمحو الدفعةَ كلّها والخادمُ لا يقرأ إلّا أوّل ٥٠٠.
     return jsonify({'success': True, 'accepted': n,
@@ -287,6 +292,10 @@ def api_check_in():
     lat, lon = _f(request.form.get('latitude')), _f(request.form.get('longitude'))
     accuracy = _f(request.form.get('accuracy')) or 0
     trip_id = request.form.get('trip_id', type=int)
+    from utils import smart_punch
+    _mock = smart_punch.check_mocked(conn, emp_id, request.form, 'field_check_in')
+    if _mock:
+        return jsonify({'success': False, 'code': 'mocked', 'message': _mock}), 403
 
     station = conn.execute(
         'SELECT * FROM field_stations WHERE id = ? AND is_active = 1', (station_id,)).fetchone()
@@ -382,6 +391,10 @@ def api_check_out():
     visit_id = request.form.get('visit_id', type=int)
     lat, lon = _f(request.form.get('latitude')), _f(request.form.get('longitude'))
     accuracy = _f(request.form.get('accuracy')) or 0
+    from utils import smart_punch
+    _mock = smart_punch.check_mocked(conn, emp_id, request.form, 'field_check_out')
+    if _mock:
+        return jsonify({'success': False, 'code': 'mocked', 'message': _mock}), 403
 
     visit = conn.execute('''
         SELECT v.*, s.name AS station_name, s.latitude, s.longitude, s.radius_meters,
