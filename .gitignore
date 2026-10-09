@@ -94,3 +94,6 @@ logs/
 *.txt.log
 sync_log_universal.txt
 sync_agent.log
+
+# سجلّات ADMS حقيقيّة من عملاء (tools/adms_replay.py) — فيها بيانات ناس، لا تُرفع أبدًا.
+tests/fixtures/adms_private/

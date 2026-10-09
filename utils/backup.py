@@ -735,8 +735,102 @@ def run_auto_backup(force=False):
             return False, 'خرجت النسخة تالفة ولم تُحفظ'
 
         pruned = _prune(cfg['keep'])
-        return True, f'{name} (حُذف {pruned} قديمة)' if pruned else name
+        msg = f'{name} (حُذف {pruned} قديمة)' if pruned else name
+        off = offsite_push(path, cfg['keep'])
+        if off is not None:
+            msg += f' · خارج السيرفر: {off[1]}'
+        return True, msg
 
     except Exception as e:                              # noqa: BLE001
         print(f'[backup] تعذّرت النسخة التلقائية: {e}')
         return False, str(e)
+
+
+# ------------------------------------------------------------ نسخة خارج السيرفر (خارطة الطريق، المرحلة ١)
+#
+# النسخة التلقائية على نفس قرص البرنامج لا تنفع يوم يقع القرص أو السيرفر. فكلُّ نسخةٍ
+# تلقائيّة تُنسخ أيضًا — إن ضُبط — إلى:
+#   * فولدر تاني (قرص/NAS/Volume منفصل في Coolify): `backup_offsite_dir` أو متغيّر HR_OFFSITE_DIR؛
+#   * و/أو WebDAV عبر HTTPS (Nextcloud، Synology، Hetzner Storage Box…): PUT بالمستخدم وكلمة المرور.
+# ويُحفظ هناك نفس عدد النسخ. النتيجة تُسجَّل وتظهر في «صحّة الشركات» باللوحة.
+
+def offsite_settings():
+    from utils.db import get_setting
+    return {
+        'dir': (os.environ.get('HR_OFFSITE_DIR') or get_setting('backup_offsite_dir', '') or '').strip(),
+        'url': (get_setting('backup_offsite_url', '') or '').strip(),
+        'user': (get_setting('backup_offsite_user', '') or '').strip(),
+        'has_password': bool(get_setting('backup_offsite_password', '')),
+        'last_at': get_setting('backup_offsite_last_at', '') or '',
+        'last_ok': (get_setting('backup_offsite_last_ok', '') or '') == '1',
+        'last_msg': get_setting('backup_offsite_last_msg', '') or '',
+        'env_dir': bool(os.environ.get('HR_OFFSITE_DIR')),
+    }
+
+
+def save_offsite_settings(directory, url, user, password=None):
+    from utils.db import set_setting
+    url = (url or '').strip()
+    if url and not (url.startswith('https://') or url.startswith('http://127.0.0.1') or url.startswith('http://localhost')):
+        raise ValueError('عنوان WebDAV لازم يكون https — النسخة فيها رواتب')
+    set_setting('backup_offsite_dir', (directory or '').strip())
+    set_setting('backup_offsite_url', url)
+    set_setting('backup_offsite_user', (user or '').strip())
+    if password:
+        from utils.devices.secrets import seal
+        set_setting('backup_offsite_password', seal(password))
+
+
+def _offsite_password():
+    from utils.db import get_setting
+    raw = get_setting('backup_offsite_password', '') or ''
+    if not raw:
+        return ''
+    from utils.devices.secrets import unseal
+    return unseal(raw)
+
+
+def offsite_push(path, keep=7, http=None):
+    """يرفع نسخةً للأماكن المضبوطة. None = مفيش حاجة مضبوطة، وإلا (ok, رسالة). لا يرمي."""
+    from utils.db import set_setting
+    cfg = offsite_settings()
+    if not cfg['dir'] and not cfg['url']:
+        return None
+    name = os.path.basename(path)
+    done, errors = [], []
+    if cfg['dir']:
+        try:
+            os.makedirs(cfg['dir'], exist_ok=True)
+            shutil.copy2(path, os.path.join(cfg['dir'], name))
+            olds = sorted((n for n in os.listdir(cfg['dir']) if n.startswith('auto-') and n.endswith('.db')),
+                          reverse=True)
+            for n in olds[keep:]:
+                try:
+                    os.remove(os.path.join(cfg['dir'], n))
+                except OSError:
+                    pass
+            done.append('الفولدر')
+        except Exception as e:                  # noqa: BLE001
+            errors.append(f'الفولدر: {str(e)[:120]}')
+    if cfg['url']:
+        try:
+            if http is None:
+                import requests as http
+            with open(path, 'rb') as f:
+                r = http.request('PUT', cfg['url'].rstrip('/') + '/' + name, data=f,
+                                 auth=(cfg['user'], _offsite_password()) if cfg['user'] else None, timeout=600)
+            if r.status_code not in (200, 201, 204):
+                raise RuntimeError(f'رد {r.status_code}')
+            done.append('WebDAV')
+        except Exception as e:                  # noqa: BLE001
+            errors.append(f'WebDAV: {str(e)[:120]}')
+    ok = not errors
+    msg = ('اترفعت على ' + ' و'.join(done)) if ok else ' | '.join(errors)
+    try:
+        set_setting('backup_offsite_last_at', datetime.now().strftime('%Y-%m-%d %H:%M'))
+        set_setting('backup_offsite_last_ok', '1' if ok else '0')
+        set_setting('backup_offsite_last_msg', msg[:300])
+    except Exception:
+        pass
+    return ok, msg
+

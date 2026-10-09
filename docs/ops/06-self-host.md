@@ -38,7 +38,9 @@ docker compose -p acme up -d --build
   docker run --rm -v acme_hr_data:/d -v "$PWD":/b alpine tar czf /b/hr-backup-$(date +%F).tgz -C /d .
   ```
 
-  خلّي نسخة يومية تتنقل لمكان تاني غير السيرفر (NAS / سحابة الشركة).
+  والأسهل: **النسخ الاحتياطي ← نسخة خارج السيرفر**: فولدر تاني (قرص/NAS) أو WebDAV على https —
+  وكل نسخة تلقائية بتتنسخ هناك لوحدها. في Docker تقدر تحط `HR_OFFSITE_DIR=/offsite` وتربطه
+  بـvolume على قرص تاني.
 - **التحديث**: `git fetch --tags && git checkout vX.Y.Z.W && docker compose -p acme up -d --build`.
   الترحيل بيحصل لوحده عند الإقلاع (`tools/check_migrations.py` بيتأكد منه قبل كل إصدار).
 - **HTTPS** (لو البوابة هتتفتح من موبايلات برا الشركة): حط قدامه nginx / Caddy بشهادة، واضبط

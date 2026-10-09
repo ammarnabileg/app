@@ -54,12 +54,22 @@ def _license_key_param():
     وهو سلوك ما قبل التثبيت تمامًا — أما رمي الاستثناء فيقطع
     التحديثات كلها عن جهازٍ لأن قاعدته المحلّية تعثّرت لحظة.
     """
+    out = {}
     try:
         from utils.license import get_saved_license_key
         key = (get_saved_license_key() or '').strip()
-        return {'license_key': key} if key else {}
+        if key:
+            out['license_key'] = key
     except Exception:
-        return {}
+        pass
+    # قناة التحديثات (stable/beta) — لوحةٌ لا تعرفها تتجاهلها فيرجع الأحدث كالعادة.
+    try:
+        from utils.db import get_setting
+        if (get_setting('update_channel', '') or '') == 'beta':
+            out['channel'] = 'beta'
+    except Exception:
+        pass
+    return out
 
 
 def _ask_panel():

@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_babel import _, gettext
 from datetime import datetime, date
-from utils.db import get_db_connection
+from utils.db import get_db_connection, get_setting, set_setting
 from utils.auth import login_required
 from utils.rbac import require_permission
 from utils.document_utils import get_document_expiry_alerts
@@ -88,7 +88,18 @@ def settings():
                            cloud=_cloud_sync_state(conn),
                            msggw=_message_gateway_state(conn),
                            field_on=_field.module_enabled(conn),
-                           field_data=_field.module_footprint(conn))
+                           field_data=_field.module_footprint(conn),
+                           update_channel=get_setting('update_channel', '') or 'stable')
+
+
+@main_bp.route('/settings/update-channel', methods=['POST'])
+@login_required
+@require_permission('page.settings')
+def save_update_channel():
+    ch = 'beta' if request.form.get('update_channel') == 'beta' else 'stable'
+    set_setting('update_channel', ch)
+    flash('التحديثات: ' + ('تجريبية' if ch == 'beta' else 'مستقرة'), 'success')
+    return redirect(url_for('main.settings'))
 
 
 def _cloud_sync_state(conn):

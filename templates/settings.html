@@ -700,6 +700,18 @@
     </script>
     <form id="msgGwRunForm" method="POST"
           action="{{ url_for('main.run_message_gateway_now') }}" class="d-none"></form>
+
+    {# قناة التحديثات (utils/update_manager): التجريبيّ يوصل لبعض الشركات قبل الباقي. #}
+    <form method="POST" action="{{ url_for('main.save_update_channel') }}" class="card mt-3">
+        <div class="card-header"><i class="fas fa-code-branch me-2"></i>التحديثات</div>
+        <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+            <select name="update_channel" class="form-select form-select-sm" style="max-width: 360px">
+                <option value="stable" {% if update_channel != 'beta' %}selected{% endif %}>مستقرة — التحديث بعد ما يتجرّب عند غيرنا</option>
+                <option value="beta" {% if update_channel == 'beta' %}selected{% endif %}>تجريبية (beta) — الجديد أول بأول</option>
+            </select>
+            <button class="btn btn-sm btn-outline-primary">حفظ</button>
+        </div>
+    </form>
 </div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
