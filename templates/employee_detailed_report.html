@@ -406,7 +406,8 @@
                     'Weekend': {{ _('x.weekly_off')|tojson }},
                     'Rest Day': {{ _('x.rest')|tojson }},
                     'Mission': {{ _('x.assignment')|tojson }},
-                    'Holiday Work': {{ _('x.work_on_holiday')|tojson }}
+                    'Holiday Work': {{ _('x.work_on_holiday')|tojson }},
+                    'Weekend Work': 'شغل يوم راحة (أوفرتايم)'
                 };
                 const label = statusMap[record.status] || record.status;
                 const color = ['Weekend', 'Rest Day'].includes(record.status) ? 'bg-secondary' : 'bg-warning text-dark';

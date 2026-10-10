@@ -181,7 +181,7 @@
                 else if (val === 'W') { cellContent = SYMBOL_WEEKEND; cellClass = 'bg-secondary bg-opacity-10 text-muted fw-bold'; }
                 else if (val === 'A') { cellContent = SYMBOL_ABSENT; cellClass = 'bg-danger bg-opacity-25 text-danger fw-bold'; }
                 else if (val === 'I') { cellContent = SYMBOL_INVALID; cellClass = 'bg-danger text-white fw-bold'; tooltip += ' (' + TIP_MISSING_PUNCH + ')'; }
-                else if (val > 0) { cellContent = val; }
+                else if (val > 0) { cellContent = fmtHM(val); }
                 else { cellContent = '<span class="text-muted opacity-25">-</span>'; }
 
                 let finalContent = `<div class="d-flex flex-column align-items-center justify-content-center">${timesLine}<div class="fw-bold">${cellContent}</div></div>`;

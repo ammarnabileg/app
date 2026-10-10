@@ -571,6 +571,34 @@ def calculate_official_holidays_in_month(conn, year, month, weekly_leave_start, 
         print(f"خطأ في حساب العطلات الرسمية: {e}")
         return 0
 
+def weekend_days_py(employee):
+    """أيام راحة الموظف بترقيم بايثون (الاثنين=0 … الأحد=6).
+
+    المرجع الأيامُ المختارة نفسها (`weekly_leave_selected_days`، 0=الأحد … 6=السبت) — كما
+    يقرؤها التقرير الذكي ومحرّك الرواتب. وكان هنا «أوّل يوم + عدد الأيام» فقط: راحةٌ غير
+    متتالية (الأحد والجمعة مثلًا) تُحسب الأحد والاثنين.
+    """
+    def _get(k):
+        try:
+            return employee[k]
+        except (KeyError, IndexError, TypeError):
+            return None
+    raw = str(_get('weekly_leave_selected_days') or '').strip()
+    days = set()
+    for x in raw.split(','):
+        x = x.strip()
+        if x.isdigit() and 0 <= int(x) <= 6:
+            days.add((int(x) + 6) % 7)
+    if days:
+        return days
+    w_start = _get('weekly_leave_start')
+    w_start = 5 if w_start is None else int(w_start)
+    w_days = _get('weekly_leave_days')
+    w_days = 1 if w_days is None else int(w_days)
+    py_start = (w_start + 6) % 7
+    return {(py_start + i) % 7 for i in range(max(w_days, 0))}
+
+
 def calculate_salary_for_employee_v3(conn, employee_id, month, year):
     """
     Calculate Salary using strict daily logic V3.
@@ -668,42 +696,14 @@ def calculate_salary_for_employee_v3(conn, employee_id, month, year):
         # We need to map DB `weekly_leave_start` to Python weekdays.
         # Often DB 0=Sun...
         
-        w_start = employee['weekly_leave_start'] 
-        if w_start is None: w_start = 5 # Default Friday
-        w_days = employee['weekly_leave_days']
-        if w_days is None: w_days = 1 # Default 1 day
-        
-        # Map DB(0=Sun) to Python(6=Sun)
-        # If DB 0=Sun, 1=Mon...
-        # Python: Mon=0, Tue=1, ... Sun=6
-        # Map: Python = (DB_Day - 1) % 7? No.
-        # DB 0 (Sun) -> Py 6
-        # DB 1 (Mon) -> Py 0
-        # DB 2 (Tue) -> Py 1
-        # DB 3 (Wed) -> Py 2
-        # DB 4 (Thu) -> Py 3
-        # DB 5 (Fri) -> Py 4
-        # DB 6 (Sat) -> Py 5
-        
-        def map_db_to_py(d):
-            if d == 0: return 6
-            return d - 1
-            
-        weekend_days_py = []
-        # Add primary day
-        py_start = map_db_to_py(w_start)
-        weekend_days_py.append(py_start)
-        
-        # Add subsequent days
-        for i in range(1, int(w_days)):
-             weekend_days_py.append((py_start + i) % 7)
-             
+        weekend_set = weekend_days_py(employee)
+
         for day in range(1, days_in_month + 1):
             date_str = f"{year:04d}-{month:02d}-{day:02d}"
             curr_date = date(year, month, day)
             py_wd = curr_date.weekday()
             
-            is_weekend = (py_wd in weekend_days_py)
+            is_weekend = (py_wd in weekend_set)
             
             day_punches = punches_by_day.get(date_str, [])
             
@@ -735,12 +735,18 @@ def calculate_salary_for_employee_v3(conn, employee_id, month, year):
                 employee_id, date_str, shift, holidays_list, leaves_list, day_punches, salary_settings
             )
             
-            # Post-Process: If Absent but it was Weekend (and somehow logic missed it, mainly if punches exist? No, if punches exist it's work)
-            # If logic returned Absent (no punches) and we didn't catch it above?
-            # The block above catches "No Punch + Weekend".
-            # So here we are safe.
+            # يوم راحة فيه بصمات (ومش عطلة رسمية ولا إجازة): شغله كلّه أوفرتايم بمعامل الراحة،
+            # بلا تأخير ولا انصراف مبكر. وبصمةٌ واحدة فيه لا تُحسب «ناقصة» ولا غرامة عليها.
+            if is_weekend and not day_res.get('is_holiday') and not day_res.get('is_leave'):
+                if day_res.get('is_invalid'):
+                    day_res.update(status='Weekend', code='W', is_invalid=False, work_hours=0,
+                                   late_mins=0, early_mins=0, ot_mins=0)
+                    daily_details.append(day_res)
+                    continue
+                if not day_res.get('is_absent') and day_res.get('work_hours', 0) > 0:
+                    day_res.update(status='Weekend Work', late_mins=0, early_mins=0,
+                                   ot_mins=int(round(day_res['work_hours'] * 60)))
 
-            
             # Aggregate
             if day_res['is_invalid']:
                 stats['invalid_days'] += 1
@@ -760,6 +766,9 @@ def calculate_salary_for_employee_v3(conn, employee_id, month, year):
                 stats['late_mins'] += day_res['late_mins']
                 stats['early_mins'] += day_res['early_mins']
                 stats['ot_mins'] += day_res['ot_mins']
+                _kind = ('ot_holiday_mins' if day_res.get('status') == 'Holiday Work' else
+                         'ot_weekend_mins' if day_res.get('status') == 'Weekend Work' else 'ot_weekday_mins')
+                stats[_kind] = stats.get(_kind, 0) + day_res['ot_mins']
             
             daily_details.append(day_res)
 
@@ -773,7 +782,12 @@ def calculate_salary_for_employee_v3(conn, employee_id, month, year):
             'absent': round(stats['absent_days'] * daily_salary, 3)
         }
         
-        ot_amount = round((stats['ot_mins'] / 60.0) * hourly_rate * ot_multiplier, 3)
+        # كلّ نوع بمعامله من الإعدادات — كان معامل الأيام العادية للكلّ (حتى العطلة الرسمية).
+        weekend_mult = float(salary_settings.get('weekend_ot_multiplier', 1.5))
+        holiday_mult = float(salary_settings.get('holiday_ot_multiplier', 2.0))
+        ot_amount = round(((stats.get('ot_weekday_mins', 0) * ot_multiplier
+                            + stats.get('ot_weekend_mins', 0) * weekend_mult
+                            + stats.get('ot_holiday_mins', 0) * holiday_mult) / 60.0) * hourly_rate, 3)
         
         # Missing Punch Penalty Logic
         missing_punch_policy = salary_settings.get('missing_punch_policy', 'invalid')

@@ -116,3 +116,41 @@ def test_attendance_summary_shows_rest_days_and_leaves(client):
     row = next(x for x in r['rows'] if str(x['employee_number']) == '101')
     st = {x['date']: x['status'] for x in row['cells']}
     assert st['2026-09-05'] == 'weekly_off' and st['2026-09-03'] == 'leave'
+
+
+# ------------------------------------------------ التقرير الشهري القديم (salary_utils v3) والتقارير الشبيهة
+
+def test_v3_rest_day_work_is_weekend_overtime_without_late(client):
+    c, con = client
+    from utils.salary_utils import calculate_salary_for_employee_v3
+    r = calculate_salary_for_employee_v3(con, 1, 9, 2026)
+    d = {x['date']: x for x in r['details']}
+    assert d['2026-09-04']['status'] == 'Weekend Work' and d['2026-09-04']['late_mins'] == 0
+    assert d['2026-09-04']['early_mins'] == 0 and d['2026-09-04']['ot_mins'] == 240
+    assert d['2026-09-07']['status'] == 'Holiday Work' and d['2026-09-07']['ot_mins'] == 480
+    s = r['stats']
+    assert s['ot_weekend_mins'] == 240 and s['ot_holiday_mins'] == 480
+    from utils.labor_law import daily_divisor
+    hourly = 300 / daily_divisor(con, 2026, 9) / 8
+    want = ((s.get('ot_weekday_mins', 0) * 1.25 + 240 * 1.5 + 480 * 2.0) / 60) * hourly
+    assert r['ot_amount'] == pytest.approx(want, abs=0.001), 'كل نوع بمعامله'
+
+
+def test_v3_weekend_comes_from_selected_days():
+    from utils.salary_utils import weekend_days_py
+    assert weekend_days_py({'weekly_leave_selected_days': '0,5'}) == {6, 4}, 'الأحد والجمعة — مش الأحد والاثنين'
+    assert weekend_days_py({'weekly_leave_selected_days': '', 'weekly_leave_start': 5, 'weekly_leave_days': 2}) == {4, 5}
+
+
+def test_old_monthly_report_marks_rest_and_holiday_work(client):
+    c, con = client
+    r = c.get('/api/fingerprint/monthly_employees_report?year=2026&month=9').get_json()['rows'][0]
+    assert r['daily_hours'][3] == {'code': 'W', 'ot_hours': 4.0, 'tooltip': 'شغل يوم راحة — أوفرتايم'}
+    assert r['daily_hours'][6]['code'] == 'H' and r['daily_hours'][6]['ot_hours'] == 8.0
+    assert r['deduction_details']['late'] == 0 and r['deduction_details']['early'] == 0
+
+
+def test_presence_report_rest_day_is_w_not_leave(client):
+    c, con = client
+    r = c.get('/api/fingerprint/monthly_presence_report?year=2026&month=9').get_json()['rows'][0]
+    assert r['daily_hours'][4]['code'] == 'W'

@@ -376,6 +376,8 @@ def fingerprint_attendance_api():
                     status = 'holiday'
                 elif 'إجازة أسبوعية' in record['status']:
                     status = 'weekly_off'
+                elif record['status'].startswith('إجازة'):
+                    status = 'leave'        # إجازة معتمدة — كانت تظهر غيابًا
                 
                 tooltip_html = f"<strong>{record['date']}</strong><br>"
                 tooltip_html += f"<strong>الشفت:</strong> {record['scheduled_start']} - {record['scheduled_end']}<br>"
@@ -1464,7 +1466,7 @@ def monthly_employees_report_api():
         query = '''
             SELECT e.id, e.name, e.arabic_name, e.employee_number, e.department, e.position, 
                    e.salary as base_salary, st.hours_per_day,
-                   e.weekly_leave_start, e.weekly_leave_days 
+                   e.weekly_leave_start, e.weekly_leave_days, e.weekly_leave_selected_days
             FROM employees e
             LEFT JOIN shift_types st ON e.shift_type = st.name
             WHERE (e.hire_date IS NULL OR e.hire_date <= ?)
@@ -1548,7 +1550,7 @@ def monthly_employees_report_api():
             details = salary_data.get('details', [])
             
             required_work_hours = 0
-            non_working_statuses = ['Weekend', 'Holiday', 'Leave', 'Weekly Off', 'Holiday Work'] 
+            non_working_statuses = ['Weekend', 'Holiday', 'Leave', 'Weekly Off', 'Holiday Work', 'Weekend Work']
             
             for day_record in details:
                 status = day_record.get('status', '')
@@ -1571,7 +1573,11 @@ def monthly_employees_report_api():
                     work_hours = record.get('work_hours', 0)
                     
                     # تحديد القيمة المعروضة بناءً على الحالة
-                    if status == 'Weekend':
+                    if status in ('Weekend Work', 'Holiday Work'):
+                        # شغل يوم راحة/عطلة: الرمز والساعات (كلّها أوفرتايم).
+                        val = {'code': 'W' if status == 'Weekend Work' else 'H', 'ot_hours': round(work_hours, 4),
+                               'tooltip': 'شغل يوم راحة — أوفرتايم' if status == 'Weekend Work' else 'شغل عطلة رسمية — أوفرتايم'}
+                    elif status == 'Weekend':
                         val = {'code': 'W', 'tooltip': 'إجازة أسبوعية'}
                     elif status == 'Holiday':
                         val = {'code': 'H', 'tooltip': 'عطلة رسمية'}
@@ -1611,24 +1617,10 @@ def monthly_employees_report_api():
             
             # 1. Calculate Expected Work Days (Total - Weekends - Holidays)
             # This follows the user's rule: e.g if 2 days weekend -> 22 days work.
-            w_start = emp['weekly_leave_start']
-            if w_start is None: w_start = 5 # Default Friday
-            w_days = emp['weekly_leave_days']
-            if w_days is None: w_days = 1 # Default 1 day
-            
-            # Map DB(0=Sun...6=Sat) to Python(0=Mon...6=Sun)
-            # DB Sun(0) -> Py 6
-            # DB Mon(1) -> Py 0 ...
-            # Formula: (DB - 1) % 7 ?? 
-            # 0-1 = -1%7 = 6 (Sun) Correct.
-            # 1-1 = 0 (Mon) Correct.
-            
-            weekend_days_py = []
-            py_start = (w_start - 1) % 7
-            weekend_days_py.append(py_start)
-            for i in range(1, int(w_days)):
-                weekend_days_py.append((py_start + i) % 7)
-                
+            # أيام الراحة المختارة نفسها (utils/salary_utils.weekend_days_py) — لا «أوّل يوم + عدد».
+            from utils.salary_utils import weekend_days_py as _weekend_days_py
+            weekend_days_py = _weekend_days_py(emp)
+
             expected_work_days = 0
             for day in range(1, days_in_month_count + 1):
                 d_date = date(year, month, day)
@@ -1792,14 +1784,16 @@ def api_monthly_presence_report():
                     elif st == 'غائب':
                         cell_data['code'] = 'A'
                         absent_days += 1
+                    elif st == 'إجازة أسبوعية':
+                         # قبل «إجازة»: كانت تطابق «إجازة» أوّلًا فتظهر رمز إجازة معتمدة.
+                         cell_data['code'] = 'W'
+                         cell_data['tooltip'] = st
                     elif 'إجازة' in st:
                          cell_data['code'] = 'L'
                          cell_data['tooltip'] = st
                     elif 'عطلة' in st:
                          cell_data['code'] = 'H'
                          cell_data['tooltip'] = st
-                    elif st == 'إجازة أسبوعية':
-                         cell_data['code'] = 'W'
                     else:
                          cell_data['code'] = wh if wh > 0 else 'I'
                          if wh > 0: present_days += 1
