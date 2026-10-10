@@ -33,16 +33,16 @@
 
 VERSION_MAJOR = 2
 VERSION_MINOR = 36
-VERSION_PATCH = 0
+VERSION_PATCH = 1
 VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
 
 # تاريخ البناء — يُحدَّث مع BUILD
-BUILD_DATE = "2026-10-07"
+BUILD_DATE = "2026-10-10"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "التصدير بالفلتر"
+RELEASE_NAME = "حسابات التقرير الشامل"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"

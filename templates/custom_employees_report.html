@@ -176,13 +176,15 @@
                 let statusText = c.status;
                 let tooltip = `{{ _('x.in_colon_space') }}${c.check_in || '-'}\n{{ _('x.out_colon_space') }}${c.check_out || '-'}\n{{ _('x.work_hours') }}: ${fmtHM(c.work_hours || 0)}`;
 
-                if (statusText === 'holiday') { cellContent = {{ _("symbol.holiday") | tojson }}; cellClass = 'bg-warning bg-opacity-25 text-warning fw-bold'; }
+                // شغل يوم الراحة/العطلة أوفرتايم: الرمز وتحته الساعات.
+                const otCell = c.overtime_minutes > 0 ? `<div class="small text-success">${fmtHM(c.overtime_minutes / 60)}</div>` : '';
+                if (statusText === 'holiday') { cellContent = {{ _("symbol.holiday") | tojson }} + otCell; cellClass = 'bg-warning bg-opacity-25 text-warning fw-bold'; }
                 else if (statusText === 'leave') { cellContent = {{ _("symbol.leave") | tojson }}; cellClass = 'bg-info bg-opacity-25 text-info fw-bold'; }
-                else if (statusText === 'weekly_off') { cellContent = {{ _("symbol.weekend") | tojson }}; cellClass = 'bg-secondary bg-opacity-10 text-muted fw-bold'; }
+                else if (statusText === 'weekly_off') { cellContent = {{ _("symbol.weekend") | tojson }} + otCell; cellClass = 'bg-secondary bg-opacity-10 text-muted fw-bold'; }
                 else if (statusText === 'absent') { cellContent = {{ _("symbol.absent") | tojson }}; cellClass = 'bg-danger bg-opacity-25 text-danger fw-bold'; if (CAN_EDIT_ATT) { clickAction = `onclick="openActionModal('${r.id}', '${r.name}', '${c.date}', 'absent')"`; cellStyle = 'cursor:pointer;'; } }
                 else if (statusText === 'partial') { cellContent = {{ _("symbol.invalid") | tojson }}; cellClass = 'bg-danger text-white fw-bold'; tooltip += ' ({{ _("tooltip.missing_punch") }})'; if (CAN_EDIT_ATT) { clickAction = `onclick="openActionModal('${r.id}', '${r.name}', '${c.date}', 'invalid')"`; cellStyle = 'cursor:pointer;'; } }
                 else if (statusText === 'terminated') { cellContent = '<i class="fas fa-ban"></i>'; cellClass = 'bg-dark bg-opacity-10 text-muted fw-bold'; tooltip = {{ _('x.termination_resignation')|tojson }}; }
-                else if (statusText === 'present') { cellContent = c.work_hours > 0 ? c.work_hours : '<span class="text-success">&#10003;</span>'; }
+                else if (statusText === 'present') { cellContent = c.work_hours > 0 ? fmtHM(c.work_hours) : '<span class="text-success">&#10003;</span>'; }
                 else { cellContent = '<span class="text-muted opacity-25">-</span>'; }
 
                 daysHtml += `<td class="${cellClass}" title="${tooltip}" style="${cellStyle}" ${clickAction}>${cellContent}</td>`;
@@ -203,15 +205,15 @@
                     </td>
                     <td>${r.department || ''}</td>
                     <td><small>${r.position || ''}</small></td>
-                    <td class="align-middle fw-bold text-primary">${r.stats.present_days + r.stats.absent_days + r.stats.holiday_days + r.stats.weekly_off_days}</td>
-                    <td class="align-middle fw-bold text-danger">0</td>
+                    <td class="align-middle fw-bold text-primary">${r.stats.work_days}</td>
+                    <td class="align-middle fw-bold text-danger">${r.stats.sick_days}</td>
                     ${daysHtml}
-                    <td class="fw-bold text-muted bg-light border-end">0</td>
-                    <td class="fw-bold text-secondary">0</td>
-                    <td class="fw-bold text-danger">0</td>
-                    <td class="fw-bold text-success">${r.stats.total_overtime_mins / 60}</td>
+                    <td class="fw-bold text-muted bg-light border-end">${fmtHM(r.stats.required_hours)}</td>
+                    <td class="fw-bold text-secondary">${fmtHM(r.stats.basic_hours)}</td>
+                    <td class="fw-bold text-danger">${fmtHM(r.stats.missing_hours)}</td>
+                    <td class="fw-bold text-success">${fmtHM(r.stats.overtime_hours)}</td>
                     <td class="fw-bold text-dark border-start">${fmtHM(r.stats.total_work_hours)}</td>
-                    <td class="text-danger">${r.stats.total_late_mins / 60}</td>
+                    <td class="text-danger">${fmtHM(r.stats.total_late_mins / 60)}</td>
                     <td class="text-success">${r.stats.present_days}</td>
                     <td class="text-danger">${r.stats.absent_days}</td>
                     <td class="text-info fw-bold">${r.salary}</td>
@@ -255,7 +257,7 @@
                         c.status || '',
                         c.check_in || '',
                         c.check_out || '',
-                        c.work_hours || 0
+                        fmtHM(c.work_hours || 0)
                     ]);
                 });
             });

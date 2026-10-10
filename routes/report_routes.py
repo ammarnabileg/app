@@ -633,8 +633,11 @@ def custom_fingerprint_attendance_api():
                     status = 'partial'
                 elif 'عطلة رسمية' in record['status']:
                     status = 'holiday'
-                elif 'عطلة أسبوعية' in record['status']:
+                elif 'إجازة أسبوعية' in record['status'] or 'عطلة أسبوعية' in record['status']:
+                    # التقرير الذكي يكتبها «إجازة أسبوعية» — كان يُبحث عن «عطلة أسبوعية» فتظهر غيابًا.
                     status = 'weekly_off'
+                elif record['status'].startswith('إجازة'):
+                    status = 'leave'
 
                 tooltip_html = f"<strong>{date_key}</strong><br>"
                 if status == 'present' or status == 'partial':
@@ -655,6 +658,8 @@ def custom_fingerprint_attendance_api():
                     tooltip_html += f"<span class='text-primary'>{record['status']}</span>"
                 elif status == 'weekly_off':
                     tooltip_html += f"<span class='text-secondary'>{record['status']}</span>"
+                elif status == 'leave':
+                    tooltip_html += f"<span class='text-info'>{record['status']}</span>"
                 else:
                     tooltip_html += "<span class='text-danger'>غائب</span>"
 
@@ -893,14 +898,19 @@ def custom_employees_report_api():
         
         # جلب الإجازات خلال الفترة لمعرفة تفاصيلها
         leaves_query = '''
-            SELECT employee_id as emp_id, start_date, end_date, COALESCE(is_paid_leave, 0) as is_paid
-            FROM leave_requests 
-            WHERE status = 'approved' AND start_date <= ? AND end_date >= ?
+            SELECT lr.employee_id as emp_id, lr.start_date, lr.end_date, COALESCE(lr.is_paid_leave, 0) as is_paid,
+                   COALESCE(lt.name, '') AS type_name
+            FROM leave_requests lr LEFT JOIN leave_types lt ON lt.id = lr.leave_type_id
+            WHERE lr.status = 'approved' AND lr.start_date <= ? AND lr.end_date >= ?
         '''
         leaves_rows = conn.execute(leaves_query, (end_date, start_date)).fetchall()
+        # العطلات الرسمية من جدولها مباشرةً — لا من نصّ حالة التقرير الذكي.
+        holidays_set = {r[0] for r in conn.execute(
+            'SELECT date FROM official_holidays WHERE date BETWEEN ? AND ?', (start_date, end_date)).fetchall()}
         pass # conn.close() removed to prevent leak in Flask g
         
         emp_leaves_map = {}
+        emp_sick_map = {}       # أيام الإجازات المرضية/الطارئة (عمود «مرضي/طارئ»)
         for r in leaves_rows:
             try:
                 s_d_leave = datetime.strptime(r['start_date'], '%Y-%m-%d').date()
@@ -915,10 +925,14 @@ def custom_employees_report_api():
             if emp_id not in emp_leaves_map:
                 emp_leaves_map[emp_id] = {}
             paid = bool(r['is_paid'])
+            _tn = (r['type_name'] or '').lower()
+            is_sick = any(w in _tn for w in ('مرض', 'طار', 'sick', 'emergen'))
             curr = s_d_leave
             while curr <= e_d_leave:
                 d_key = curr.strftime('%Y-%m-%d')
                 emp_leaves_map[emp_id][d_key] = paid or emp_leaves_map[emp_id].get(d_key, False)
+                if is_sick:
+                    emp_sick_map.setdefault(emp_id, set()).add(d_key)
                 curr += timedelta(days=1)
 
         # تشغيل تقرير البصمات الذكي للفترة المخصصة
@@ -947,6 +961,16 @@ def custom_employees_report_api():
             unpaid_leave_days = 0
             ot_weekend_mins = 0
             ot_holiday_mins = 0
+            leave_days = 0
+            working_days = 0          # أيام دوام مطلوبة (غير إجازة/عطلة/خارج الخدمة)
+            basic_hours = 0.0         # ساعات أيام الدوام بحدّ ساعات الشفت لليوم
+            hours_per_day = float(emp['shift_hours_per_day'] or 8)
+            eos_dt = None
+            if emp['end_of_service_date']:
+                try:
+                    eos_dt = datetime.strptime(str(emp['end_of_service_date'])[:10], '%Y-%m-%d').date()
+                except ValueError:
+                    eos_dt = None
 
             hire_dt = None
             if emp['hire_date']:
@@ -976,7 +1000,7 @@ def custom_employees_report_api():
 
                 day_records = monthly_daily_data.get(date_str, [])
                 emp_record = next((r for r in day_records if r['employee_id'] == emp_id), None)
-                
+
                 cell_data = {
                     'date': date_str,
                     'status': 'absent',
@@ -988,70 +1012,63 @@ def custom_employees_report_api():
                     'overtime_minutes': 0,
                     'is_leave': date_str in emp_leave_info
                 }
-                
+                status_text = (emp_record or {}).get('status') or ''
+                punched = bool(emp_record) and any(
+                    (emp_record.get(k) or '00:00') not in ('00:00', '--', '') for k in ('checkin_time', 'checkout_time'))
                 if emp_record:
-                    cell_data['check_in'] = emp_record.get('checkin_time', '--')
-                    cell_data['check_out'] = emp_record.get('checkout_time', '--')
-                    cell_data['work_hours'] = emp_record.get('work_hours', 0)
-                    cell_data['late_minutes'] = emp_record.get('late_minutes', 0)
-                    cell_data['early_leave_minutes'] = emp_record.get('early_leave_minutes', 0)
-                    
-                    status_text = emp_record['status']
-                    
-                    if cell_data['is_leave']:
-                        cell_data['status'] = 'leave'
-                        if not emp_leave_info.get(date_str, True) and current_date.weekday() not in weekly_off_set:
-                            unpaid_leave_days += 1
-                    elif status_text == 'حاضر':
-                        cell_data['status'] = 'present'
-                        present_days += 1
-                        total_work_hours += emp_record.get('work_hours', 0)
-                        total_late_mins += emp_record.get('late_minutes', 0)
-                        total_early_leave_mins += emp_record.get('early_leave_minutes', 0)
-                    elif 'دخول فقط' in status_text or 'خروج فقط' in status_text:
-                        cell_data['status'] = 'partial'
-                        present_days += 1
-                        total_work_hours += emp_record.get('work_hours', 0)
-                        total_late_mins += emp_record.get('late_minutes', 0)
-                        total_early_leave_mins += emp_record.get('early_leave_minutes', 0)
-                    elif 'عطلة أسبوعية' in status_text:
-                        cell_data['status'] = 'weekly_off'
-                        weekly_off_days += 1
-                        if emp_record.get('checkin_time') and emp_record.get('checkin_time') != '--' and emp_record.get('checkin_time') != '00:00':
-                            cell_data['overtime_minutes'] = int(emp_record.get('work_hours', 0) * 60)
-                            total_overtime_mins += cell_data['overtime_minutes']
-                            ot_weekend_mins += cell_data['overtime_minutes']
-                    elif 'عطلة رسمية' in status_text:
-                        cell_data['status'] = 'holiday'
+                    cell_data['check_in'] = emp_record.get('checkin_time') or '--'
+                    cell_data['check_out'] = emp_record.get('checkout_time') or '--'
+                    for k in ('check_in', 'check_out'):
+                        if cell_data[k] == '00:00':
+                            cell_data[k] = '--'
+                    cell_data['work_hours'] = emp_record.get('work_hours', 0) or 0
+
+                # نوعُ اليوم من بيانات الموظف وجدول العطلات — التقرير الذكي يكتب «إجازة أسبوعية»
+                # والكود القديم كان يبحث عن «عطلة أسبوعية»: فيومُ الراحة يُحسب غيابًا ويُخصم.
+                if eos_dt and current_date > eos_dt:
+                    cell_data['status'] = 'terminated'
+                    cell_data['work_hours'] = 0
+                elif cell_data['is_leave']:
+                    cell_data['status'] = 'leave'
+                    leave_days += 1
+                    if not emp_leave_info.get(date_str, True) and current_date.weekday() not in weekly_off_set:
+                        unpaid_leave_days += 1
+                elif date_str in holidays_set or current_date.weekday() in weekly_off_set:
+                    is_holiday = date_str in holidays_set
+                    cell_data['status'] = 'holiday' if is_holiday else 'weekly_off'
+                    if is_holiday:
                         holiday_days += 1
-                        if emp_record.get('checkin_time') and emp_record.get('checkin_time') != '--' and emp_record.get('checkin_time') != '00:00':
-                            cell_data['overtime_minutes'] = int(emp_record.get('work_hours', 0) * 60)
-                            total_overtime_mins += cell_data['overtime_minutes']
-                            ot_holiday_mins += cell_data['overtime_minutes']
                     else:
-                        if emp['end_of_service_date'] and current_date > datetime.strptime(emp['end_of_service_date'], '%Y-%m-%d').date():
-                            cell_data['status'] = 'terminated'
-                        else:
-                            cell_data['status'] = 'absent'
-                            absent_days += 1
-                else:
-                    if cell_data['is_leave']:
-                        cell_data['status'] = 'leave'
-                        if not emp_leave_info.get(date_str, True) and current_date.weekday() not in weekly_off_set:
-                            unpaid_leave_days += 1
-                    elif current_date.weekday() in weekly_off_set:
-                        cell_data['status'] = 'weekly_off'
                         weekly_off_days += 1
-                    else:
-                        if emp['end_of_service_date'] and current_date > datetime.strptime(emp['end_of_service_date'], '%Y-%m-%d').date():
-                            cell_data['status'] = 'terminated'
+                    # شغلُ يوم الراحة/العطلة كلُّه أوفرتايم (بلا تأخير ولا انصراف مبكر).
+                    if punched and cell_data['work_hours'] > 0:
+                        cell_data['overtime_minutes'] = int(round(cell_data['work_hours'] * 60))
+                        total_overtime_mins += cell_data['overtime_minutes']
+                        if is_holiday:
+                            ot_holiday_mins += cell_data['overtime_minutes']
                         else:
-                            cell_data['status'] = 'absent'
-                            absent_days += 1
-                        
+                            ot_weekend_mins += cell_data['overtime_minutes']
+                else:
+                    working_days += 1
+                    if status_text == 'حاضر' or (punched and status_text not in ('دخول فقط', 'خروج فقط')):
+                        cell_data['status'] = 'present'
+                    elif punched:
+                        cell_data['status'] = 'partial'
+                    else:
+                        cell_data['status'] = 'absent'
+                    if cell_data['status'] in ('present', 'partial'):
+                        present_days += 1
+                        cell_data['late_minutes'] = emp_record.get('late_minutes', 0) or 0
+                        cell_data['early_leave_minutes'] = emp_record.get('early_leave_minutes', 0) or 0
+                        total_work_hours += cell_data['work_hours']
+                        basic_hours += min(cell_data['work_hours'], hours_per_day)
+                        total_late_mins += cell_data['late_minutes']
+                        total_early_leave_mins += cell_data['early_leave_minutes']
+                    else:
+                        absent_days += 1
+
                 daily_cells.append(cell_data)
 
-            hours_per_day = float(emp['shift_hours_per_day'] or 8)
             daily_rate = float(emp['salary'] or 0) / 30.0
             hour_rate = (daily_rate / hours_per_day) if hours_per_day > 0 else 0
             absent_deduction = absent_days * daily_rate
@@ -1076,7 +1093,14 @@ def custom_employees_report_api():
                     'absent_days': absent_days,
                     'weekly_off_days': weekly_off_days,
                     'holiday_days': holiday_days,
-                    'total_work_hours': round(total_work_hours, 2),
+                    'total_work_hours': round(total_work_hours + total_overtime_mins / 60.0, 4),
+                    'work_days': present_days + absent_days + weekly_off_days + holiday_days + leave_days,
+                    'leave_days': leave_days,
+                    'sick_days': len(emp_sick_map.get(emp_id, set())),
+                    'required_hours': round(working_days * hours_per_day, 4),
+                    'basic_hours': round(basic_hours, 4),
+                    'missing_hours': round(max(0.0, working_days * hours_per_day - basic_hours), 4),
+                    'overtime_hours': round(total_overtime_mins / 60.0, 4),
                     'total_late_mins': total_late_mins,
                     'total_early_leave_mins': total_early_leave_mins,
                     'total_overtime_mins': total_overtime_mins,

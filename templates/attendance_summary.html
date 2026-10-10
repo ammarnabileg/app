@@ -251,9 +251,9 @@
         } else if (c.status === 'present') {
           symbol = '<span class="text-success">&#10003;</span>';
         } else if (c.status === 'leave') {
-          symbol = '<span class="text-primary">&#1F5C4A;</span>';
+          symbol = '<span class="text-primary">{{ _("symbol.leave") }}</span>';
         } else if (c.status === 'holiday') {
-          symbol = '<span class="text-warning">&#163F32;</span>';
+          symbol = '<span class="text-warning">{{ _("symbol.holiday") }}</span>';
         } else if (c.status === 'weekly_off') {
           symbol = '<span class="text-secondary">&#9200;</span>';
         } else { // absent
