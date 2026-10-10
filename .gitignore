@@ -94,3 +94,6 @@ logs/
 *.txt.log
 sync_log_universal.txt
 sync_agent.log
+
+# قواعد/لقطات رواتب عملاء حقيقيّة (tools/anonymize_db.py, tools/payroll_snapshot.py) — رواتب ناس، لا تُرفع أبدًا.
+tests/fixtures/payroll_private/
