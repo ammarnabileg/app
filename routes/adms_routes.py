@@ -328,6 +328,11 @@ def cdata():
             # 1a. Automatic Time Sync (Maintenance)
             device_row = resolve_device(conn, sn)
             device_id = device_row['id'] if device_row else None
+
+            # فرق ساعة الجهاز من أحداثه اللحظيّة (utils/device_clock) — يظهر في الإعدادات.
+            if device_id and _gate_ok and table in ('ATTLOG', 'OPERLOG') and raw_data:
+                from utils import device_clock
+                device_clock.record_skew(conn, device_id, raw_data)
             
             if device_id:
                 # Check if we sent a SET TIME command in the last 24 hours
@@ -914,7 +919,12 @@ def get_request():
                  # وساعته هي مصدر طوابع الحضور: انحرافها يزيح الأجر
                  # تأخيرًا وهميًّا أو عملًا إضافيًّا وهميًّا.
                  # Use standard ADMS format for time sync: SET OPTIONS DateTime=UnixTimestamp
-                 unix_time = int(datetime.now().timestamp())
+                 #
+                 # الرقم = الساعة الظاهرة على السيرفر − «المنطقة الزمنية على الأجهزة» (الإعدادات)،
+                 # لا `now().timestamp()`: ذاك يعتمد على منطقة ويندوز، والجهاز بيضيف منطقته هو —
+                 # فجهازٌ بيضيف غير المتوقّع كان يطلع ساعة قدّام وكلّ بصماته بساعة زيادة (utils/device_clock).
+                 from utils import device_clock
+                 unix_time = device_clock.device_epoch()
                  cmd_str = f"C:{cmd_id}:SET OPTIONS DateTime={unix_time}"
             
             elif cmd_type.startswith('DATA QUERY'):

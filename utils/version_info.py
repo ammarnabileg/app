@@ -33,16 +33,16 @@
 
 VERSION_MAJOR = 2
 VERSION_MINOR = 36
-VERSION_PATCH = 2
+VERSION_PATCH = 3
 VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
 
 # تاريخ البناء — يُحدَّث مع BUILD
-BUILD_DATE = "2026-10-10"
+BUILD_DATE = "2026-10-11"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "حسابات التقارير الشهرية"
+RELEASE_NAME = "ساعة أجهزة البصمة"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"

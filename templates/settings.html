@@ -700,6 +700,38 @@
     </script>
     <form id="msgGwRunForm" method="POST"
           action="{{ url_for('main.run_message_gateway_now') }}" class="d-none"></form>
+
+    {# ساعة أجهزة ADMS (utils/device_clock) — نموذجٌ مستقلّ خارج نموذج الإعدادات الكبير. #}
+    <form method="POST" action="{{ url_for('main.save_device_clock') }}" class="card mt-3" id="device-clock">
+        <div class="card-header"><i class="fas fa-clock me-2"></i>ساعة أجهزة البصمة (ADMS)</div>
+        <div class="card-body">
+            <p class="small text-muted mb-2">
+                البرنامج بيضبط ساعة الأجهزة كل ٢٤ ساعة. اختار المنطقة الزمنية <b>المتظبطة على الأجهزة نفسها</b>
+                — والجهاز هيطلع بنفس ساعة السيرفر بالظبط. الافتراضي منطقة الشركة ({{ device_clock.company_label }}).
+                لو جهاز طالع ساعة قدّام رغم إن كل حاجة +3، غالبًا عليه توقيت صيفي: اختار هنا +4.
+            </p>
+            <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                <select name="device_tz_offset_minutes" class="form-select form-select-sm" style="max-width: 160px" dir="ltr">
+                    {% for m, l in device_clock.choices %}<option value="{{ m }}" {% if m == device_clock.offset %}selected{% endif %}>{{ l }}</option>{% endfor %}
+                </select>
+                <label class="small"><input type="checkbox" name="sync_now" value="1" checked> ابعت ضبط الوقت للأجهزة دلوقتي</label>
+                <button class="btn btn-sm btn-primary">حفظ</button>
+            </div>
+            {% if device_clock.devices %}
+            <table class="table table-sm small mb-0">
+                <thead><tr><th>الجهاز</th><th>ساعة الجهاز</th><th>آخر قياس</th></tr></thead>
+                <tbody>
+                {% for d in device_clock.devices %}
+                <tr><td>{{ d.device_name }} <span class="text-muted" dir="ltr">{{ d.device_ip or '' }}</span></td>
+                    <td class="{{ 'text-danger fw-bold' if d.clock_skew_seconds and d.clock_skew_seconds > 120 else '' }}">{{ d.skew_label }}</td>
+                    <td dir="ltr">{{ d.clock_checked_at or '—' }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            <div class="small text-muted mt-1">بيتقاس من أول بصمة أو عملية لحظية بعد الضبط: حدث بوقت «في المستقبل» = ساعة الجهاز متقدّمة.</div>
+            {% endif %}
+        </div>
+    </form>
 </div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {

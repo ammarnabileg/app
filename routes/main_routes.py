@@ -83,7 +83,51 @@ def settings():
                            cloud=_cloud_sync_state(conn),
                            msggw=_message_gateway_state(conn),
                            field_on=_field.module_enabled(conn),
-                           field_data=_field.module_footprint(conn))
+                           field_data=_field.module_footprint(conn),
+                           device_clock=_device_clock_state(conn))
+
+
+def _device_clock_state(conn):
+    """إعداد منطقة الأجهزة الزمنية + فرق ساعة كلّ جهاز ADMS (utils/device_clock)."""
+    from utils import device_clock as dc
+    try:
+        dc.ensure_schema(conn)
+        devices = [dict(r) for r in conn.execute(
+            "SELECT id, device_name, device_ip, clock_skew_seconds, clock_checked_at FROM fingerprint_devices "
+            "WHERE is_active = 1 AND COALESCE(is_adms, 0) = 1 ORDER BY device_name").fetchall()]
+    except Exception:
+        devices = []
+    for d in devices:
+        d['skew_label'] = dc.skew_label(d.get('clock_skew_seconds'))
+    off = dc.offset_minutes(conn)
+    return {'offset': off, 'label': dc.label(off), 'company': dc.company_offset_minutes(conn),
+            'company_label': dc.label(dc.company_offset_minutes(conn)), 'devices': devices,
+            'choices': [(m, dc.label(m)) for m in range(-12 * 60, 14 * 60 + 1, 30)]}
+
+
+@main_bp.route('/settings/device-clock', methods=['POST'])
+@login_required
+@require_permission('page.settings')
+def save_device_clock():
+    from utils.db import set_setting
+    from utils import device_clock as dc
+    try:
+        v = int(request.form.get('device_tz_offset_minutes'))
+        if not -14 * 60 <= v <= 14 * 60:
+            raise ValueError
+    except (TypeError, ValueError):
+        flash('قيمة غير صحيحة', 'error')
+        return redirect(url_for('main.settings') + '#device-clock')
+    set_setting(dc.SETTING, str(v))
+    msg = f'اتحفظت منطقة الأجهزة: {dc.label(v)}'
+    if request.form.get('sync_now') == '1':
+        from utils.fingerprint_utils import queue_adms_set_time
+        n = sum(1 for r in get_db_connection().execute(
+            'SELECT id FROM fingerprint_devices WHERE is_active = 1 AND is_adms = 1').fetchall()
+            if queue_adms_set_time(r['id']))
+        msg += f' — واتبعت ضبط الوقت لـ {n} جهاز (بيوصل أول ما الجهاز يسأل السيرفر)'
+    flash(msg, 'success')
+    return redirect(url_for('main.settings') + '#device-clock')
 
 
 def _cloud_sync_state(conn):
