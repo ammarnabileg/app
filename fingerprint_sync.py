@@ -348,8 +348,9 @@ class FingerprintSyncManager:
                 from utils import device_access as _da
                 _da.ensure_schema(db_conn)
                 blocked = _da.blocked_map(db_conn)
+                restr = _da.restriction_map(db_conn)
             except Exception as _e:
-                _da, blocked = None, {}
+                _da, blocked, restr = None, {}, {}
                 self.log_message("WARNING", device_ip, "تعذّر فحص الموظفين الموقوفين", str(_e))
             blocked_count = 0
             saved_count = 0
@@ -372,6 +373,12 @@ class FingerprintSyncManager:
                                                log.timestamp.strftime('%Y-%m-%d %H:%M:%S'))
                             blocked_count += 1
                             employee_exists = None
+                            continue
+                        # محصورٌ في أجهزةٍ ليس هذا منها (utils/device_access).
+                        if employee_exists and restr and _da.is_wrong_device_punch(restr, log.user_id, device_id, log.timestamp):
+                            _da.record_ignored(db_conn, employee_exists['id'], device_id,
+                                               log.timestamp.strftime('%Y-%m-%d %H:%M:%S'), _da.WRONG_DEVICE_REASON)
+                            blocked_count += 1
                             continue
                         if employee_exists:
                             employee_id = employee_exists['id']

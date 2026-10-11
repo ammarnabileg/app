@@ -80,11 +80,14 @@ def adopt(conn=None, pins=None):
             from utils import device_access as da
             da.ensure_schema(conn)
             blocked = da.blocked_map(conn)
+            restr = da.restriction_map(conn)
         except Exception:
-            da, blocked = None, {}
+            da, blocked, restr = None, {}, {}
         for r in rows:
             if blocked and da.is_blocked_punch(blocked, r['pin'], r['check_time']):
                 da.record_ignored(conn, r['employee_id'], r['device_id'], r['check_time'])
+            elif restr and da.is_wrong_device_punch(restr, r['pin'], r['device_id'], r['check_time']):
+                da.record_ignored(conn, r['employee_id'], r['device_id'], r['check_time'], da.WRONG_DEVICE_REASON)
             elif not conn.execute('SELECT 1 FROM attendance_records WHERE employee_id = ? AND check_time = ?',
                                   (r['employee_id'], r['check_time'])).fetchone():
                 conn.execute('''INSERT INTO attendance_records

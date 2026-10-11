@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}مين يبصم فين{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <div>
+        <h1 class="h2"><i class="fas fa-user-lock me-2"></i>مين يبصم فين</h1>
+        <div class="report-desc">كل الموظفين بيتنزّلوا على كل الأجهزة ببصماتهم عادي، والموظف اللي تحدّد له أجهزة يبقى <b>متوقف</b> على باقي الأجهزة: الجهاز نفسه يرفض بصمته. ولو بصمة وصلت من جهاز مش مسموح له، مابتتحسبش في الحضور.</div>
+    </div>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('attendance.devices') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>رجوع للأجهزة
+        </a>
+    </div>
+</div>
+
+{% if not devices %}
+<div class="alert alert-warning">مفيش أجهزة شغالة.</div>
+{% else %}
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small">بحث</label>
+                <input type="text" id="f-q" class="form-control form-control-sm" placeholder="الاسم أو الرقم">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">الفرع / المكان</label>
+                <select id="f-branch" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    {% for b in branches %}<option>{{ b }}</option>{% endfor %}
+                    <option value="__none__">بدون فرع</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">القسم</label>
+                <select id="f-dept" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    {% for d in departments %}<option>{{ d }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">الحالة</label>
+                <select id="f-state" class="form-select form-select-sm">
+                    <option value="">الكل</option>
+                    <option value="all">بيبصم على كل الأجهزة</option>
+                    <option value="limited">محدّد له أجهزة</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3 border-primary">
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <b>للمحدّدين (<span id="sel-count">0</span>):</b>
+            <span class="small text-muted">يبصموا بس على:</span>
+            {% for d in devices %}
+            <label class="form-check form-check-inline mb-0">
+                <input class="form-check-input bulk-dev" type="checkbox" value="{{ d['id'] }}">
+                <span class="form-check-label small">{{ d['device_name'] }}</span>
+            </label>
+            {% endfor %}
+            <button class="btn btn-sm btn-primary" onclick="bulkSet()"><i class="fas fa-check me-1"></i>طبّق</button>
+            <button class="btn btn-sm btn-outline-success" onclick="bulkAll()"><i class="fas fa-globe me-1"></i>يبصموا على كل الأجهزة</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="bulkBranch()" title="الفرع المكتوب في بيانات الموظف = فرع الجهاز">
+                <i class="fas fa-code-branch me-1"></i>كل واحد على أجهزة فرعه
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-users me-2"></i>الموظفين النشطين <span class="badge bg-secondary" id="vis-count"></span></span>
+        <button class="btn btn-success btn-sm" id="save-btn" onclick="saveChanged()" disabled>
+            <i class="fas fa-save me-1"></i>حفظ التعديلات (<span id="dirty-count">0</span>)
+        </button>
+    </div>
+    <div class="table-responsive" style="max-height: 65vh;">
+        <table class="table table-sm table-hover align-middle mb-0" id="acc-table">
+            <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                <tr>
+                    <th><input type="checkbox" class="form-check-input" id="sel-all"></th>
+                    <th>الرقم</th>
+                    <th>الاسم</th>
+                    <th>القسم</th>
+                    <th>الفرع</th>
+                    <th>الحالة</th>
+                    {% for d in devices %}
+                    <th class="text-center small">{{ d['device_name'] }}<br><span class="text-muted fw-normal">{{ d['branch_name'] or '' }}</span></th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in employees %}
+                {% set num = e['employee_number']|string %}
+                {% set allowed = rules.get(num) %}
+                <tr data-num="{{ num }}" data-branch="{{ e['branch_location'] }}" data-dept="{{ e['department'] or '' }}"
+                    data-name="{{ e['name'] }}" data-orig="{{ (allowed|join(',')) if allowed is not none else '*' }}">
+                    <td><input type="checkbox" class="form-check-input row-sel"></td>
+                    <td>{{ num }}</td>
+                    <td>{{ e['name'] }}</td>
+                    <td class="small">{{ e['department'] or '' }}</td>
+                    <td class="small">{{ e['branch_location'] or '—' }}</td>
+                    <td class="state small"></td>
+                    {% for d in devices %}
+                    <td class="text-center">
+                        <input type="checkbox" class="form-check-input dev" value="{{ d['id'] }}"
+                               {% if allowed is none or d['id'] in allowed %}checked{% endif %}>
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if ignored %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white"><i class="fas fa-ban me-2 text-danger"></i>آخر بصمات وصلت من جهاز مش مسموح للموظف (مااتحسبتش)</div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead class="table-light"><tr><th>الموظف</th><th>الجهاز</th><th>وقت البصمة</th></tr></thead>
+            <tbody>
+                {% for r in ignored %}
+                <tr><td>{{ r['employee_number'] }} — {{ r['name'] }}</td><td>{{ r['device_name'] or '؟' }}</td><td>{{ r['check_time'] }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const table = document.getElementById('acc-table');
+    if (!table) return;
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+
+    function current(tr) {
+        const boxes = Array.from(tr.querySelectorAll('.dev'));
+        const on = boxes.filter(b => b.checked).map(b => b.value);
+        return on.length === boxes.length ? '*' : on.join(',');
+    }
+    function paint(tr) {
+        const cur = current(tr);
+        const cell = tr.querySelector('.state');
+        if (cur === '*') cell.innerHTML = '<span class="badge bg-success">كل الأجهزة</span>';
+        else if (cur === '') cell.innerHTML = '<span class="badge bg-danger">ولا جهاز!</span>';
+        else cell.innerHTML = '<span class="badge bg-primary">محدّد</span>';
+        tr.classList.toggle('table-warning', cur !== tr.dataset.orig);
+        tr.dataset.state = cur === '*' ? 'all' : 'limited';
+    }
+    function refreshCounts() {
+        const dirty = rows.filter(tr => current(tr) !== tr.dataset.orig).length;
+        document.getElementById('dirty-count').textContent = dirty;
+        document.getElementById('save-btn').disabled = dirty === 0;
+        document.getElementById('sel-count').textContent = selected().length;
+        document.getElementById('vis-count').textContent = rows.filter(tr => tr.style.display !== 'none').length;
+    }
+    function selected() {
+        return rows.filter(tr => tr.style.display !== 'none' && tr.querySelector('.row-sel').checked);
+    }
+    function filter() {
+        const q = document.getElementById('f-q').value.trim().toLowerCase();
+        const br = document.getElementById('f-branch').value;
+        const dp = document.getElementById('f-dept').value;
+        const st = document.getElementById('f-state').value;
+        rows.forEach(tr => {
+            let ok = true;
+            if (q && !(tr.dataset.name.toLowerCase().includes(q) || tr.dataset.num.includes(q))) ok = false;
+            if (br === '__none__' ? tr.dataset.branch !== '' : (br && tr.dataset.branch !== br)) ok = false;
+            if (dp && tr.dataset.dept !== dp) ok = false;
+            if (st && tr.dataset.state !== st) ok = false;
+            tr.style.display = ok ? '' : 'none';
+        });
+        refreshCounts();
+    }
+    rows.forEach(tr => {
+        paint(tr);
+        tr.querySelectorAll('.dev').forEach(b => b.addEventListener('change', () => { paint(tr); refreshCounts(); }));
+        tr.querySelector('.row-sel').addEventListener('change', refreshCounts);
+    });
+    ['f-q', 'f-branch', 'f-dept', 'f-state'].forEach(id =>
+        document.getElementById(id).addEventListener(id === 'f-q' ? 'input' : 'change', filter));
+    document.getElementById('sel-all').addEventListener('change', e => {
+        rows.forEach(tr => { if (tr.style.display !== 'none') tr.querySelector('.row-sel').checked = e.target.checked; });
+        refreshCounts();
+    });
+
+    async function post(body) {
+        const r = await fetch("{{ url_for('attendance.device_access_save') }}", {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+        });
+        const j = await r.json();
+        let msg = `اتحفظ: ${j.changed} موظف`;
+        if (j.commands) msg += ` — ${j.commands} أمر اتبعت لأجهزة ADMS`;
+        if (j.skipped && j.skipped.length) msg += `\n\nمااتغيّروش (${j.skipped.length}):\n` + j.skipped.slice(0, 20).join('\n');
+        alert(msg);
+        location.reload();
+    }
+    window.saveChanged = function () {
+        const changed = rows.filter(tr => current(tr) !== tr.dataset.orig);
+        const empty = changed.filter(tr => current(tr) === '');
+        if (empty.length) { alert('فيه موظفين مش مختار لهم ولا جهاز — اختار جهاز واحد على الأقل:\n' + empty.map(t => t.dataset.name).join('\n')); return; }
+        post({rows: changed.map(tr => ({num: tr.dataset.num, devices: current(tr) === '*' ? null : current(tr).split(',')}))});
+    };
+    window.bulkSet = function () {
+        const sel = selected();
+        const devs = Array.from(document.querySelectorAll('.bulk-dev:checked')).map(b => b.value);
+        if (!sel.length) return alert('حدّد موظفين الأول');
+        if (!devs.length) return alert('اختار جهاز واحد على الأقل');
+        const all = devs.length === document.querySelectorAll('.bulk-dev').length;
+        post({rows: sel.map(tr => ({num: tr.dataset.num, devices: all ? null : devs}))});
+    };
+    window.bulkAll = function () {
+        const sel = selected();
+        if (!sel.length) return alert('حدّد موظفين الأول');
+        post({rows: sel.map(tr => ({num: tr.dataset.num, devices: null}))});
+    };
+    window.bulkBranch = function () {
+        const sel = selected();
+        if (!sel.length) return alert('حدّد موظفين الأول');
+        if (!confirm(`كل واحد من الـ ${sel.length} موظف هيبصم بس على أجهزة الفرع المكتوب في بياناته. تكمل؟`)) return;
+        post({auto_branch: sel.map(tr => tr.dataset.num)});
+    };
+    filter();
+})();
+</script>
+{% endblock %}

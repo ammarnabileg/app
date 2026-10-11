@@ -80,6 +80,17 @@ def ensure_schema(conn):
         last_error TEXT,
         PRIMARY KEY (device_id, user_id)
     )''')
+    # موظّفٌ محصورٌ في أجهزةٍ بعينها (مكانُ عمله): موجودٌ على كلّ الأجهزة ببصماته،
+    # ومعطّلٌ على غيرها. مَن ليس له صفٌّ هنا يبصم على كلّ الأجهزة (كما كان).
+    conn.execute('''CREATE TABLE IF NOT EXISTS employee_device_rules (
+        employee_number TEXT PRIMARY KEY,
+        since TEXT NOT NULL
+    )''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS employee_allowed_devices (
+        employee_number TEXT NOT NULL,
+        device_id INTEGER NOT NULL,
+        PRIMARY KEY (employee_number, device_id)
+    )''')
 
 
 # ------------------------------------------------------------ مَن الموقوف
@@ -136,6 +147,137 @@ def is_blocked_punch(blocked, employee_number, at):
         return True
     t = at if isinstance(at, datetime) else _parse(at)
     return t is None or t >= cutoff
+
+
+# ------------------------------------------------------------ الأجهزة المسموحة لكلّ موظّف
+
+WRONG_DEVICE_REASON = 'بصم على جهاز غير مسموح له'
+
+
+def restriction_map(conn):
+    """{employee_number: (since, frozenset(device_ids))} للمحصورين في أجهزةٍ بعينها."""
+    ensure_schema(conn)
+    allowed = {}
+    for r in conn.execute('SELECT employee_number, device_id FROM employee_allowed_devices'):
+        allowed.setdefault(str(r['employee_number']).strip(), set()).add(int(r['device_id']))
+    out = {}
+    for r in conn.execute('SELECT employee_number, since FROM employee_device_rules'):
+        num = str(r['employee_number']).strip()
+        out[num] = (_parse(r['since']), frozenset(allowed.get(num, ())))
+    return out
+
+
+def denied_on(restr, employee_number, device_id):
+    """هل الموظّفُ ممنوعٌ من البصم على هذا الجهاز؟ (جهازٌ غير معروف: لا.)"""
+    key = str(employee_number or '').strip()
+    if key not in restr or not device_id:
+        return False
+    return int(device_id) not in restr[key][1]
+
+
+def is_wrong_device_punch(restr, employee_number, device_id, at):
+    """بصمةٌ من جهازٍ غير مسموحٍ له، بعد حصره — لا تدخل الحضور.
+    ما بصمه قبل الحصر يُحسب (جهازٌ لم يُزامَن من أسبوع لا يُسقط أسبوعَ عمل)."""
+    if not denied_on(restr, employee_number, device_id):
+        return False
+    since = restr[str(employee_number).strip()][0]
+    t = at if isinstance(at, datetime) else _parse(at)
+    return since is None or t is None or t >= since
+
+
+def adms_enable_payload(conn, employee_number):
+    import json
+    p = json.loads(adms_disable_payload(conn, employee_number))
+    p['Pri'] = int(p['Pri']) & ~DISABLED_BIT
+    p['Enabled'] = 1
+    return json.dumps(p)
+
+
+def _queue_userinfo(conn, device_id, payload):
+    if conn.execute("SELECT 1 FROM adms_commands WHERE device_id = ? AND command_type = 'DATA UPDATE USERINFO' "
+                    "AND payload = ? AND status = 'PENDING'", (device_id, payload)).fetchone():
+        return False
+    conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
+                 "VALUES (?, 'DATA UPDATE USERINFO', ?, 'PENDING')", (device_id, payload))
+    return True
+
+
+def _adms_devices(conn):
+    return conn.execute('SELECT id FROM fingerprint_devices WHERE is_active = 1 AND COALESCE(is_adms, 0) = 1').fetchall()
+
+
+def apply_rules_adms(conn, numbers):
+    """أوامرُ ADMS بعد تغيير الأجهزة المسموحة لموظّفين: يُعطَّل على الممنوعة،
+    ويُفعَّل على ما عُطّل عليه سابقًا وصار مسموحًا (لا يُنشأ موظّفٌ على جهازٍ لم يكن عليه).
+    الموقوفُ لا يُفعَّل على أيّ جهاز. يُرجع عددَ الأوامر."""
+    ensure_schema(conn)
+    restr = restriction_map(conn)
+    blocked = blocked_map(conn)
+    devices = [int(d['id']) for d in _adms_devices(conn)]
+    n = 0
+    for num in {str(x).strip() for x in numbers if str(x).strip()}:
+        for dev_id in devices:
+            was_off = conn.execute('SELECT 1 FROM device_removed_users WHERE device_id = ? AND user_id = ?',
+                                   (dev_id, num)).fetchone()
+            if denied_on(restr, num, dev_id):
+                if _queue_userinfo(conn, dev_id, adms_disable_payload(conn, num)):
+                    n += 1
+                conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
+                             (dev_id, num))
+            elif was_off:
+                if num not in blocked and _queue_userinfo(conn, dev_id, adms_enable_payload(conn, num)):
+                    n += 1
+                conn.execute('DELETE FROM device_removed_users WHERE device_id = ? AND user_id = ?', (dev_id, num))
+    return n
+
+
+def set_allowed_devices(conn, numbers, device_ids):
+    """يحصر الموظّفين في `device_ids` — أو None: يرجعون يبصمون على كلّ الأجهزة.
+
+    يُرجع أرقامَ من تغيّر فعلًا (لتُبعث لهم أوامرُ الأجهزة). وقتُ الحصر يتجدّد مع كلّ
+    تغيير: البصماتُ قبله تبقى محسوبة."""
+    ensure_schema(conn)
+    restr = restriction_map(conn)
+    new = None if device_ids is None else frozenset(int(x) for x in device_ids)
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    changed = []
+    for num in {str(x).strip() for x in numbers if str(x).strip()}:
+        old = restr.get(num)
+        if new is None:
+            if old is None:
+                continue
+            conn.execute('DELETE FROM employee_device_rules WHERE employee_number = ?', (num,))
+            conn.execute('DELETE FROM employee_allowed_devices WHERE employee_number = ?', (num,))
+        else:
+            if old is not None and old[1] == new:
+                continue
+            conn.execute('INSERT OR REPLACE INTO employee_device_rules (employee_number, since) VALUES (?, ?)',
+                         (num, now))
+            conn.execute('DELETE FROM employee_allowed_devices WHERE employee_number = ?', (num,))
+            conn.executemany('INSERT INTO employee_allowed_devices (employee_number, device_id) VALUES (?, ?)',
+                             [(num, d) for d in sorted(new)])
+        changed.append(num)
+    return changed
+
+
+def branch_devices(conn):
+    """{اسم الفرع: {device_ids}} — من فرع الجهاز (رقمه أو اسمه)."""
+    names = {}
+    try:
+        names = {int(r['id']): str(r['name'] or '').strip() for r in conn.execute('SELECT id, name FROM branches')}
+    except Exception:
+        pass
+    out = {}
+    for d in conn.execute('SELECT * FROM fingerprint_devices WHERE is_active = 1').fetchall():
+        keys = d.keys()
+        name = ''
+        if 'branch_id' in keys and d['branch_id'] and int(d['branch_id']) in names:
+            name = names[int(d['branch_id'])]
+        elif 'branch_name' in keys:
+            name = str(d['branch_name'] or '').strip()
+        if name:
+            out.setdefault(name, set()).add(int(d['id']))
+    return out
 
 
 def record_ignored(conn, employee_id, device_id, check_time, reason='موظف موقوف'):
@@ -298,13 +440,16 @@ def enforce_device(conn, device, blocked=None):
     """يُعطّل على جهازٍ مباشر كلَّ موظّفٍ موقوف — بعد حفظ بصماته. يُرجع عددَ من عُطّل."""
     ensure_schema(conn)
     blocked = blocked_map(conn) if blocked is None else blocked
-    if not blocked:
+    restr = restriction_map(conn)
+    # الموقوف، ومَن حُصر في أجهزةٍ ليس هذا منها.
+    off = set(blocked) | {n for n in restr if denied_on(restr, n, device['id'])}
+    if not off:
         return 0
     dev = _connect(device)
     removed = 0
     try:
         users = dev.get_users() or []
-        targets = [u for u in users if str(u.user_id).strip() in blocked
+        targets = [u for u in users if str(u.user_id).strip() in off
                    and not (int(u.privilege or 0) & DISABLED_BIT)]
         if not targets:
             return 0
@@ -341,6 +486,9 @@ def restore_device(conn, device):
                            JOIN employees e ON CAST(e.employee_number AS TEXT) = r.user_id
                            WHERE r.device_id = ? AND COALESCE(e.is_active, 1) = 1''',
                         (device['id'],)).fetchall()
+    # مَن حُصر في أجهزةٍ ليس هذا منها يبقى معطّلًا عليه.
+    restr = restriction_map(conn)
+    rows = [r for r in rows if not denied_on(restr, r['user_id'], device['id'])]
     if not rows:
         return 0
     from zk.finger import Finger

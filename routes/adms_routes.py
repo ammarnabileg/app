@@ -380,9 +380,10 @@ def cdata():
                 from utils import device_access as _da
                 _da.ensure_schema(conn)
                 _blocked = _da.blocked_map(conn)
+                _restr = _da.restriction_map(conn)
             except Exception as _e:
                 logger.warning(f'blocked map failed: {_e}')
-                _da, _blocked = None, {}
+                _da, _blocked, _restr = None, {}, {}
 
             for line in lines:
                 if not line.strip(): continue
@@ -400,6 +401,12 @@ def cdata():
                         _da.record_ignored(conn, emp_id, device_id, time_str)
                         if device_id:
                             _da.adms_block(conn, device_id, user_id)
+                        continue
+
+                    # محصورٌ في أجهزة فرعه: بصمتُه هنا لا تُحسب، ويُعاد تعطيلُه على الجهاز.
+                    if emp_id and _restr and _da.is_wrong_device_punch(_restr, user_id, device_id, time_str):
+                        _da.record_ignored(conn, emp_id, device_id, time_str, _da.WRONG_DEVICE_REASON)
+                        _da.adms_block(conn, device_id, user_id)
                         continue
 
                     if not emp_id:
@@ -856,6 +863,15 @@ def get_request():
             cmd_str = ""
             if cmd_type == 'DATA UPDATE USERINFO':
                 pin = payload.get('PIN')
+                # موظّفٌ محصورٌ في أجهزةٍ ليس هذا منها: يُرفع عليه ببصماته لكن معطّلًا —
+                # أيًّا كان مصدرُ الأمر (حفظ الموظّف، رفعٌ للجهاز، استرجاع...).
+                try:
+                    from utils import device_access as _da
+                    if _da.denied_on(_da.restriction_map(conn), pin, device['id']):
+                        payload['Pri'] = int(payload.get('Pri') or 0) | _da.DISABLED_BIT
+                        payload['Enabled'] = 0
+                except Exception as _e:
+                    logger.warning(f'device rules check failed: {_e}')
                 parts = [f"PIN={pin}"]
                 if 'Name' in payload: parts.append(f"Name={payload['Name']}")
                 if 'Pri' in payload: parts.append(f"Pri={payload['Pri']}")

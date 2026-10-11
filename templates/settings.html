@@ -736,6 +736,8 @@
             <div class="small text-muted mt-1">بيتقاس من أول بصمة أو عملية لحظية بعد الضبط: حدث بوقت «في المستقبل» = ساعة الجهاز متقدّمة،
                 فالبرنامج بيسجّل التعويض ويبعت ضبط جديد، وبعدها لازم يبان «مظبوط».</div>
             {% endif %}
+            <a href="{{ url_for('attendance.punch_shift_page') }}" class="btn btn-sm btn-outline-secondary mt-2">
+                <i class="fas fa-history me-1"></i>تصحيح وقت بصمات اتسجّلت بساعة غلط</a>
         </div>
     </form>
 </div>

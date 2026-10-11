@@ -81,6 +81,112 @@ def devices():
         
     return render_template('fingerprint_devices.html', devices=devices, max_devices=max_devices, current_active=current_active, branches=branches)
 
+@attendance_bp.route('/fingerprint/device-access')
+@login_required
+@require_permission('attendance.devices')
+def device_access_page():
+    """مين يبصم فين: كلّ موظّف على أجهزة مكانه بس، ومعطّل على الباقي (utils/device_access)."""
+    from utils import device_access as da
+    conn = get_db_connection()
+    da.ensure_schema(conn)
+    devices = conn.execute('SELECT * FROM fingerprint_devices WHERE is_active = 1 ORDER BY id').fetchall()
+    employees = conn.execute('''SELECT id, employee_number, name, department,
+                                     COALESCE(branch_location, '') AS branch_location
+                                FROM employees WHERE COALESCE(is_active, 1) = 1
+                                ORDER BY department, name''').fetchall()
+    restr = da.restriction_map(conn)
+    rules = {num: sorted(ids) for num, (_since, ids) in restr.items()}
+    branches = sorted({e['branch_location'] for e in employees if e['branch_location']})
+    departments = sorted({e['department'] for e in employees if e['department']})
+    ignored = conn.execute('''SELECT i.check_time, i.created_at, e.employee_number, e.name, d.device_name
+                               FROM ignored_punches i JOIN employees e ON e.id = i.employee_id
+                               LEFT JOIN fingerprint_devices d ON d.id = i.device_id
+                              WHERE i.reason = ? ORDER BY i.id DESC LIMIT 50''',
+                           (da.WRONG_DEVICE_REASON,)).fetchall()
+    return render_template('device_access.html', devices=devices, employees=employees, rules=rules,
+                           branches=branches, departments=departments, ignored=ignored,
+                           branch_devices={k: sorted(v) for k, v in da.branch_devices(conn).items()})
+
+
+@attendance_bp.route('/fingerprint/device-access/save', methods=['POST'])
+@login_required
+@require_permission('attendance.devices')
+def device_access_save():
+    """{rows: [{num, devices: [ids] أو null}]} — null: يبصم على كلّ الأجهزة.
+    أو {auto_branch: [nums]}: كلّ موظّف على أجهزة فرعه."""
+    from utils import device_access as da
+    data = request.get_json(silent=True) or {}
+    conn = get_db_connection()
+    da.ensure_schema(conn)
+    valid = {int(r['id']) for r in conn.execute('SELECT id FROM fingerprint_devices')}
+    changed, skipped = [], []
+    if 'auto_branch' in data:
+        by_branch = da.branch_devices(conn)
+        nums = [str(n) for n in data.get('auto_branch') or []]
+        rows = conn.execute('SELECT employee_number, name, COALESCE(branch_location, \'\') AS b FROM employees '
+                            f"WHERE CAST(employee_number AS TEXT) IN ({','.join('?' * len(nums))})",
+                            nums).fetchall() if nums else []
+        for r in rows:
+            ids = by_branch.get(str(r['b']).strip())
+            if not ids:
+                skipped.append(f"{r['name']} ({r['b'] or 'بدون فرع'})")
+                continue
+            changed += da.set_allowed_devices(conn, [r['employee_number']], ids)
+    else:
+        for row in data.get('rows') or []:
+            devs = row.get('devices')
+            if devs is not None:
+                devs = [int(x) for x in devs if int(x) in valid]
+                if not devs:
+                    skipped.append(str(row.get('num')))
+                    continue
+            changed += da.set_allowed_devices(conn, [row.get('num')], devs)
+    cmds = da.apply_rules_adms(conn, changed) if changed else 0
+    conn.commit()
+    if changed:
+        da.apply_now()      # الأجهزة المباشرة في الخلفيّة، والمقفول في المزامنة الجاية
+    return jsonify({'success': True, 'changed': len(changed), 'commands': cmds, 'skipped': skipped})
+
+
+@attendance_bp.route('/fingerprint/punch-shift', methods=['GET', 'POST'])
+@login_required
+@require_permission('attendance.devices')
+def punch_shift_page():
+    """تصحيح وقت بصمات اتسجّلت بساعة جهاز غلط (utils/punch_shift)."""
+    from flask import session
+    from utils import punch_shift as ps
+    conn = get_db_connection()
+    ps.ensure_schema(conn)
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        action = data.get('action')
+        try:
+            if action == 'undo':
+                n = ps.undo(conn, data.get('batch'))
+                return jsonify({'success': True, 'restored': n})
+            devs = [int(x) for x in data.get('devices') or []]
+            minutes = int(data.get('minutes') or 0)
+            if not devs or not minutes or not data.get('date_from') or not data.get('date_to'):
+                return jsonify({'success': False, 'message': 'اختار الأجهزة والفترة وعدد الدقائق'}), 400
+            if abs(minutes) > 24 * 60:
+                return jsonify({'success': False, 'message': 'أقصى تصحيح ٢٤ ساعة'}), 400
+            if action == 'apply':
+                res = ps.apply(conn, devs, data['date_from'], data['date_to'], minutes, session.get('user_id'))
+            else:
+                res = ps.preview(conn, devs, data['date_from'], data['date_to'], minutes)
+            return jsonify({'success': True, **res})
+        except ValueError:
+            return jsonify({'success': False, 'message': 'التاريخ مش مظبوط'}), 400
+    devices = conn.execute('SELECT id, device_name, device_ip FROM fingerprint_devices ORDER BY id').fetchall()
+    names = {int(d['id']): d['device_name'] for d in devices}
+    batches = []
+    for b in ps.history(conn):
+        b = dict(b)
+        b['device_names'] = '، '.join(names.get(int(x), x) for x in str(b['device_ids']).split(',') if x.isdigit())
+        batches.append(b)
+    return render_template('punch_shift.html', devices=devices, batches=batches)
+
+
 @attendance_bp.route('/fingerprint/branches/add', methods=['POST'])
 @login_required
 @require_permission('attendance.devices')

@@ -14,6 +14,12 @@
         <button class="btn btn-info text-white me-2" onclick="startNetworkScan()">
             <i class="fas fa-search me-2"></i>{{ _('fingerprint.scan_network') }}
         </button>
+        <a href="{{ url_for('attendance.punch_shift_page') }}" class="btn btn-outline-secondary me-2">
+            <i class="fas fa-history me-2"></i>تصحيح وقت البصمات
+        </a>
+        <a href="{{ url_for('attendance.device_access_page') }}" class="btn btn-outline-primary me-2">
+            <i class="fas fa-user-lock me-2"></i>مين يبصم فين
+        </a>
         <a href="{{ url_for('adms_mgr.adms_commands_view') }}" class="btn btn-dark me-2">
             <i class="fas fa-terminal me-2"></i>{{ _('x.adms_logs') }}
         </a>
