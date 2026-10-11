@@ -179,3 +179,36 @@ def test_ntp_setting_change_line_does_not_block_and_correction_learns_once(adms)
 def test_correction_is_capped():
     from utils import device_clock as dc
     assert dc.MAX_CORRECTION == 3 * 3600
+
+
+# ------------------------------------------------------------ الجهاز بيسأل عن الوقت بنفسه (Push 3.x)
+
+def test_rtdata_time_reply_is_kuwait_time_with_explicit_zone(adms):
+    """SpeedFace-V5L (PushVersion 3.1.6S): GET /iclock/rtdata?type=time ← DateTime=<UTC>,ServerTZ=+0300.
+    كانت الصفحة 404 — والأمر القديم كان بيقدّم الجهاز ساعة (السجلّ 2026-10-11 16:26:38 ← 16:26:56)."""
+    c, con = adms
+    wall = datetime.now()
+    r = c.get('/iclock/rtdata?SN=SNADMS1&type=time')
+    assert r.status_code == 200
+    m = re.fullmatch(r'DateTime=(\d+),ServerTZ=\+0300', r.get_data(as_text=True))
+    assert m, r.get_data(as_text=True)
+    # الجهاز: UTC + ServerTZ = ساعة السيرفر (توقيت الكويت).
+    assert abs((int(m.group(1)) + 3 * 3600) - calendar.timegm(wall.timetuple())) < 5
+    assert con.execute('SELECT clock_rtdata_at FROM fingerprint_devices WHERE id = 2').fetchone()[0]
+
+
+def test_a_self_syncing_device_never_gets_the_old_set_time(adms):
+    c, con = adms
+    c.get('/iclock/rtdata?SN=SNADMS1&type=time')
+    from utils.fingerprint_utils import queue_adms_set_time
+    queue_adms_set_time(2)
+    body = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
+    assert 'SET OPTIONS DateTime' not in body
+    assert {r[0] for r in con.execute("SELECT status FROM adms_commands WHERE command_type = 'SET TIME'")} == {'SKIPPED'}
+
+
+def test_unknown_device_gets_time_but_is_not_marked(adms):
+    c, con = adms
+    r = c.get('/iclock/rtdata?SN=UNKNOWN9&type=time')
+    assert r.get_data(as_text=True).startswith('DateTime=')
+    assert c.get('/iclock/rtdata?SN=SNADMS1&type=other').get_data(as_text=True) == 'OK'

@@ -314,7 +314,7 @@ def inject_version():
 from flask import request, redirect, url_for, flash, render_template
 ADMS_DEVICE_ENDPOINTS = frozenset(
     f'{bp}.{ep}' for bp in ('adms_mgr', 'adms_iclock')
-    for ep in ('cdata', 'get_request', 'device_cmd', 'registry'))
+    for ep in ('cdata', 'get_request', 'device_cmd', 'registry', 'rtdata'))
 
 
 @app.before_request

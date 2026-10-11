@@ -719,13 +719,14 @@
             </div>
             {% if device_clock.devices %}
             <table class="table table-sm small mb-0">
-                <thead><tr><th>الجهاز</th><th>ساعة الجهاز</th><th>تعويض تلقائي</th><th>آخر قياس</th><th></th></tr></thead>
+                <thead><tr><th>الجهاز</th><th>ساعة الجهاز</th><th>طريقة الضبط / تعويض</th><th>آخر قياس</th><th></th></tr></thead>
                 <tbody>
                 {% for d in device_clock.devices %}
                 <tr><td>{{ d.device_name }} <span class="text-muted" dir="ltr">{{ d.device_ip or '' }}</span></td>
                     <td class="{{ 'text-danger fw-bold' if d.clock_skew_seconds and d.clock_skew_seconds > 120 else '' }}">{{ d.skew_label }}
                         {% if d.clock_correction_seconds and d.clock_skew_seconds and d.clock_skew_seconds > 120 %}<div class="small text-warning fw-normal">لسه فيه فرق بعد التعويض — اتأكد إن NTP والتوقيت الصيفي مقفولين على الجهاز، وبعدها «إلغاء التعويض» عشان يتعلّم من جديد</div>{% endif %}</td>
-                    <td>{{ d.correction_label }}</td>
+                    <td>{% if d.clock_rtdata_at %}<span class="text-success">بياخد الوقت من السيرفر بنفسه</span>
+                        <div class="small text-muted" dir="ltr">{{ d.clock_rtdata_at }}</div>{% else %}{{ d.correction_label }}{% endif %}</td>
                     <td dir="ltr">{{ d.clock_checked_at or '—' }}</td>
                     <td>{% if d.clock_correction_seconds %}<button class="btn btn-sm btn-link p-0" name="reset_device" value="{{ d.id }}"
                         onclick="return confirm('تلغي تعويض الجهاز ده؟')">إلغاء التعويض</button>{% endif %}</td></tr>

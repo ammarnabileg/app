@@ -910,6 +910,13 @@ def get_request():
             elif cmd_type == 'DATA DELETE USERINFO':
                  cmd_str = f"C:{cmd_id}:DATA DELETE USERINFO PIN={payload.get('PIN')}"
             
+            elif cmd_type == 'SET TIME' and _clock_self_sync(conn, device['id']):
+                 # الجهاز بيسأل عن الوقت بنفسه (/iclock/rtdata) — الأمر القديم بيقدّمه ساعة: مايتبعتش.
+                 conn.execute("UPDATE adms_commands SET status = 'SKIPPED', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                              (cmd_id,))
+                 adms_protocol_logger.info(f"SET TIME skipped | SN: {sn} | الجهاز بياخد وقته من /iclock/rtdata")
+                 continue
+
             elif cmd_type == 'SET TIME':
                  # الوقت يُحسب لحظة الإرسال لا لحظة إضافة الأمر للطابور.
                  #
@@ -926,6 +933,10 @@ def get_request():
                  from utils import device_clock
                  unix_time = device_clock.device_epoch(device_id=device['id'], conn=conn)
                  cmd_str = f"C:{cmd_id}:SET OPTIONS DateTime={unix_time}"
+                 adms_protocol_logger.info(
+                     f"SET TIME sent | SN: {sn} | {cmd_str} | server={datetime.now():%Y-%m-%d %H:%M:%S} "
+                     f"zone={device_clock.label(device_clock.offset_minutes(conn))} "
+                     f"correction={device_clock.correction_seconds(conn, device['id'])}s")
             
             elif cmd_type.startswith('DATA QUERY'):
                 # Many DATA QUERY commands (USERINFO, FINGERTMP) can take PIN=... or other params
@@ -1018,6 +1029,36 @@ def device_cmd():
     except Exception as e:
         logger.error(f"CMD Error: {e}", exc_info=True)
         return "ERROR"
+
+def _clock_self_sync(conn, device_id):
+    from utils import device_clock
+    return device_clock.uses_rtdata(conn, device_id)
+
+
+@adms_bp.route('/rtdata', methods=['GET', 'POST'])
+def rtdata():
+    """Push 3.x: الجهاز بيسأل عن الوقت بنفسه — `?type=time` ← `DateTime=<UTC>,ServerTZ=+0300` (utils/device_clock).
+
+    كانت الصفحة دي مش موجودة (404)، فالأجهزة الأحدث كانت بتعتمد على أمر SET OPTIONS اللي فيرمويرها
+    بيفسّره بساعة زيادة.
+    """
+    from utils import device_clock
+    sn = request.args.get('SN')
+    kind = (request.args.get('type') or '').strip().lower()
+    adms_protocol_logger.info(f"RTDATA: {kind or '-'} | SN: {sn} | IP: {device_addr()} | args={dict(request.args)}")
+    if kind != 'time':
+        return 'OK'
+    conn = get_db_connection()
+    try:
+        ok, _reason, dev = device_gate(conn, sn)
+    except Exception:
+        ok, dev = False, None
+    reply = device_clock.time_reply(conn=conn)
+    if ok and dev is not None:
+        device_clock.mark_rtdata(conn, dev['id'])
+    adms_protocol_logger.info(f"RTDATA reply | SN: {sn} | {reply} | server={datetime.now():%Y-%m-%d %H:%M:%S}")
+    return reply
+
 
 @adms_bp.route('/registry', methods=['POST', 'GET'])
 def registry():

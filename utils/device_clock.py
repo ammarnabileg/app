@@ -25,7 +25,7 @@
 """
 import calendar
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 SETTING = 'device_tz_offset_minutes'
 SKEW_MIN_SECONDS = 120          # أقل من دقيقتين = تأخير شبكة/تقريب، مش ساعة غلط
@@ -102,7 +102,8 @@ def label(minutes):
 def ensure_schema(conn):
     cols = {r[1] for r in conn.execute('PRAGMA table_info(fingerprint_devices)')}
     for c, t in (('clock_skew_seconds', 'INTEGER'), ('clock_checked_at', 'TEXT'),
-                 ('clock_correction_seconds', 'INTEGER DEFAULT 0'), ('clock_ntp_at', 'TEXT')):
+                 ('clock_correction_seconds', 'INTEGER DEFAULT 0'), ('clock_ntp_at', 'TEXT'),
+                 ('clock_rtdata_at', 'TEXT')):
         if c not in cols:
             conn.execute(f'ALTER TABLE fingerprint_devices ADD COLUMN {c} {t}')
 
@@ -202,3 +203,58 @@ def skew_label(seconds):
     h, mm = divmod(m, 60)
     span = (f'{h} ساعة' + (f' و{mm} دقيقة' if mm else '')) if h else f'{m} دقيقة'
     return ('متقدّم ' if seconds > 0 else 'متأخر ') + span
+
+
+# ------------------------------------------------------------ الجهاز بيسأل عن الوقت (Push 3.x)
+#
+# الأجهزة الأحدث (SpeedFace-V5L، PushVersion 3.1.6) بتسأل السيرفر بنفسها:
+#     GET /iclock/rtdata?SN=…&type=time
+# والسيرفر بيرد بالوقت **ومعاه منطقته صراحة**:
+#     DateTime=<ثواني UTC>,ServerTZ=+0300
+# فمفيش تخمين: الجهاز عارف الوقت وعارف المنطقة. وكان البرنامج معندوش الصفحة دي (404)، وبيبعت
+# بدلها `SET OPTIONS DateTime=…` اللي الفيرموير ده بيفسّره بساعة زيادة — السجلّ (2026-10-11 16:26)
+# بيّن الجهاز مظبوط ثم استلم الأمر وقفز ساعة في ٢٠ ثانية من غير ما حد يلمسه.
+# فالجهاز اللي بيسأل بالطريقة دي **مابيتبعتلوش الأمر القديم خالص**.
+
+RTDATA_DAYS = 7
+
+
+def server_epoch(now=None, conn=None):
+    """ثواني UTC من ساعة السيرفر الظاهرة ومنطقة الشركة (من غير تعويض جهاز — الجهاز هنا عارف المنطقة)."""
+    now = now or datetime.now()
+    return calendar.timegm(now.timetuple()) - offset_minutes(conn) * 60
+
+
+def server_tz(conn=None):
+    """«+0300» — صيغة ServerTZ."""
+    m = offset_minutes(conn)
+    sign = '+' if m >= 0 else '-'
+    return f'{sign}{abs(m) // 60:02d}{abs(m) % 60:02d}'
+
+
+def time_reply(now=None, conn=None):
+    return f'DateTime={server_epoch(now, conn)},ServerTZ={server_tz(conn)}'
+
+
+def mark_rtdata(conn, device_id, now=None):
+    if not device_id:
+        return
+    ensure_schema(conn)
+    conn.execute('UPDATE fingerprint_devices SET clock_rtdata_at = ?, clock_correction_seconds = 0 WHERE id = ?',
+                 ((now or datetime.now()).strftime('%Y-%m-%d %H:%M:%S'), device_id))
+    conn.commit()
+
+
+def uses_rtdata(conn, device_id):
+    """الجهاز سأل عن الوقت بنفسه خلال آخر ٧ أيام؟ (يبقى الأمر القديم مايتبعتلوش)."""
+    if not device_id:
+        return False
+    try:
+        ensure_schema(conn)
+        r = conn.execute("SELECT 1 FROM fingerprint_devices WHERE id = ? AND clock_rtdata_at >= ?",
+                         (device_id, (datetime.now() - timedelta(days=RTDATA_DAYS)).strftime('%Y-%m-%d %H:%M:%S'))
+                         ).fetchone()
+        return bool(r)
+    except Exception:
+        return False
+
