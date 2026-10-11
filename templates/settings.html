@@ -724,7 +724,7 @@
                 {% for d in device_clock.devices %}
                 <tr><td>{{ d.device_name }} <span class="text-muted" dir="ltr">{{ d.device_ip or '' }}</span></td>
                     <td class="{{ 'text-danger fw-bold' if d.clock_skew_seconds and d.clock_skew_seconds > 120 else '' }}">{{ d.skew_label }}
-                        {% if d.clock_ntp_at %}<div class="small text-warning fw-normal">بياخد وقته من NTP لوحده{% if d.clock_skew_seconds and d.clock_skew_seconds > 120 %} — من الجهاز: اقفل التوقيت الصيفي (DLST) وخلي المنطقة GMT+3{% endif %}</div>{% endif %}</td>
+                        {% if d.clock_correction_seconds and d.clock_skew_seconds and d.clock_skew_seconds > 120 %}<div class="small text-warning fw-normal">لسه فيه فرق بعد التعويض — اتأكد إن NTP والتوقيت الصيفي مقفولين على الجهاز، وبعدها «إلغاء التعويض» عشان يتعلّم من جديد</div>{% endif %}</td>
                     <td>{{ d.correction_label }}</td>
                     <td dir="ltr">{{ d.clock_checked_at or '—' }}</td>
                     <td>{% if d.clock_correction_seconds %}<button class="btn btn-sm btn-link p-0" name="reset_device" value="{{ d.id }}"
