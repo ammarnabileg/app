@@ -102,7 +102,7 @@ def label(minutes):
 def ensure_schema(conn):
     cols = {r[1] for r in conn.execute('PRAGMA table_info(fingerprint_devices)')}
     for c, t in (('clock_skew_seconds', 'INTEGER'), ('clock_checked_at', 'TEXT'),
-                 ('clock_correction_seconds', 'INTEGER DEFAULT 0')):
+                 ('clock_correction_seconds', 'INTEGER DEFAULT 0'), ('clock_ntp_at', 'TEXT')):
         if c not in cols:
             conn.execute(f'ALTER TABLE fingerprint_devices ADD COLUMN {c} {t}')
 
@@ -130,7 +130,11 @@ def record_skew(conn, device_id, raw_body, now=None):
         ensure_schema(conn)
         conn.execute('UPDATE fingerprint_devices SET clock_skew_seconds = ?, clock_checked_at = ? WHERE id = ?',
                      (value, now.strftime('%Y-%m-%d %H:%M:%S'), device_id))
-        if value:
+        if NTP_MARK in raw_body:
+            # الجهاز بياخد وقته من NTP لوحده — أيّ تعويض مننا هيتخانق معاه ويتراكم. يتلغي ويتوقف.
+            conn.execute('UPDATE fingerprint_devices SET clock_ntp_at = ?, clock_correction_seconds = 0 WHERE id = ?',
+                         (now.strftime('%Y-%m-%d %H:%M:%S'), device_id))
+        elif value:
             learn_correction(conn, device_id, value)
         return value
     except Exception:
@@ -138,6 +142,8 @@ def record_skew(conn, device_id, raw_body, now=None):
 
 
 STEP = 900                      # التعويض بخطوات ربع ساعة (المناطق والتوقيت الصيفي كلها مضاعفاتها)
+MAX_CORRECTION = 3 * 3600       # سقف: أكتر من كده يبقى حاجة تانية غلط، مش فيرموير بيزوّد ساعة
+NTP_MARK = 'NTPService'         # سطر OPERLOG بيبعته الجهاز لما بياخد الوقت من سيرفر NTP
 
 
 def learn_correction(conn, device_id, skew):
@@ -157,7 +163,13 @@ def learn_correction(conn, device_id, skew):
         "AND status IN ('PENDING', 'SENT') AND created_at >= datetime('now', '-1 day')", (device_id,)).fetchone()
     if not confirmed or pending:
         return None
+    ntp = conn.execute("SELECT 1 FROM fingerprint_devices WHERE id = ? AND clock_ntp_at >= datetime('now', 'localtime', '-7 days')",
+                       (device_id,)).fetchone()
+    if ntp:
+        return None                     # NTP بيرجّع الساعة كل شوية: التعويض هيتراكم — الحل على الجهاز نفسه
     new = correction_seconds(conn, device_id) + step
+    if abs(new) > MAX_CORRECTION:
+        return None
     conn.execute('UPDATE fingerprint_devices SET clock_correction_seconds = ? WHERE id = ?', (new, device_id))
     import json
     conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'SET TIME', ?, 'PENDING')",

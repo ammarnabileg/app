@@ -151,3 +151,30 @@ def test_settings_page_saves_offset_and_queues_sync(env):
     assert not con.execute('SELECT clock_correction_seconds FROM fingerprint_devices WHERE id = 2').fetchone()[0]
     assert con.execute("SELECT COUNT(*) FROM adms_commands WHERE command_type = 'SET TIME' AND status = 'PENDING'"
                        ).fetchone()[0] >= 1
+
+
+def test_ntp_device_is_flagged_and_never_auto_corrected(adms):
+    """جهاز AJE1262000033: «OPLOG 108 … NTPService» — بياخد الوقت من NTP بمنطقته هو، فالتعويض
+    هيتخانق معاه ويتراكم كل مرة. بيتعلّم عليه ويتلغي تعويضه، والحل بيتقال على الجهاز."""
+    c, con = adms
+    from utils import device_clock as dc
+    dc.ensure_schema(con)
+    con.execute('UPDATE fingerprint_devices SET clock_correction_seconds = 3600 WHERE id = 2')
+    con.execute("INSERT INTO adms_commands (device_id, command_type, payload, status, updated_at) "
+                "VALUES (2, 'SET TIME', '\"x\"', 'OK', CURRENT_TIMESTAMP)")
+    con.commit()
+    ahead = (datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+    c.post('/iclock/cdata?SN=SNADMS1&table=OPERLOG&Stamp=1', data=f'OPLOG 108\t365\t{ahead}\tNTPService\t0\t0\t0\n',
+           content_type='text/plain')
+    row = con.execute('SELECT clock_skew_seconds, clock_correction_seconds, clock_ntp_at FROM fingerprint_devices '
+                      'WHERE id = 2').fetchone()
+    assert row[0] > 3000 and row[1] == 0 and row[2]
+    # عملية تانية متقدّمة من غير NTP في نفس السطر: برضه مفيش تعلّم (الجهاز معلَّم NTP).
+    c.post('/iclock/cdata?SN=SNADMS1&table=OPERLOG&Stamp=1', data=f'OPLOG 4\t365\t{ahead}\t365\t0\t0\t0\n',
+           content_type='text/plain')
+    assert con.execute('SELECT clock_correction_seconds FROM fingerprint_devices WHERE id = 2').fetchone()[0] == 0
+
+
+def test_correction_is_capped():
+    from utils import device_clock as dc
+    assert dc.MAX_CORRECTION == 3 * 3600

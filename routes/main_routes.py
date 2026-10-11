@@ -93,7 +93,7 @@ def _device_clock_state(conn):
     try:
         dc.ensure_schema(conn)
         devices = [dict(r) for r in conn.execute(
-            "SELECT id, device_name, device_ip, clock_skew_seconds, clock_checked_at, clock_correction_seconds FROM fingerprint_devices "
+            "SELECT id, device_name, device_ip, clock_skew_seconds, clock_checked_at, clock_correction_seconds, clock_ntp_at FROM fingerprint_devices "
             "WHERE is_active = 1 AND COALESCE(is_adms, 0) = 1 ORDER BY device_name").fetchall()]
     except Exception:
         devices = []
