@@ -189,3 +189,65 @@ def test_punch_shift_preview_apply_undo(env):
     times = sorted(r[0] for r in con.execute('SELECT check_time FROM attendance_records WHERE employee_id = 1'))
     assert times == ['2026-10-05 09:00:00', '2026-10-05 10:00:00', '2026-10-06 09:00:00']
     assert ps.undo(con, res['batch']) == 0, 'مرة واحدة'
+
+
+# ------------------------------------------------------------ بصمته تنفع على الجهاز؟
+
+def test_readiness_by_version_and_origin(env):
+    db, da, con = env
+    con.execute("UPDATE fingerprint_devices SET bio_versions = '{\"1\": \"10\"}' WHERE id = 1")
+    con.execute("UPDATE fingerprint_devices SET bio_versions = '{\"1\": \"12\", \"9\": \"7\"}', "
+                "serial_number = 'AJE1' WHERE id = 2")
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, major_ver, template_data, device_sn)"
+                " VALUES ('201', 0, 1, '10', 'x', '192.168.1.201')")
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, major_ver, template_data, device_sn)"
+                " VALUES ('202', 0, 9, '7', 'y', 'OTHER')")
+    con.commit()
+    devs = con.execute('SELECT * FROM fingerprint_devices').fetchall()
+    cells, labels = da.bio_readiness(con, devs)
+    assert cells[('201', 1)] == 'ok' and cells[('201', 2)] == 'none', 'بصمة K40 (10) ماتنفعش على SpeedFace (12)'
+    assert cells[('202', 2)] == 'ok' and cells[('202', 1)] == 'none', 'وشّه بإصدار SpeedFace'
+    assert cells[('203', 1)] == 'empty'
+    assert 'بصمة 12' in labels[2]
+    con.execute("UPDATE fingerprint_devices SET bio_versions = NULL WHERE id = 2")
+    cells, _ = da.bio_readiness(con, con.execute('SELECT * FROM fingerprint_devices').fetchall())
+    assert cells[('201', 2)] == 'unknown'
+
+
+def test_save_warns_when_he_cannot_punch_anywhere_allowed(env, monkeypatch):
+    db, _da, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    import utils.device_access as da2
+    monkeypatch.setattr(da2, 'apply_now', lambda: None)
+    con.execute("UPDATE fingerprint_devices SET bio_versions = '{\"1\": \"12\"}' WHERE id = 2")
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, major_ver, template_data)"
+                " VALUES ('201', 0, 1, '10', 'x')")
+    con.commit()
+    client = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with client.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    j = client.post('/fingerprint/device-access/save', json={'rows': [{'num': '201', 'devices': [2]}]}).get_json()
+    assert j['changed'] == 1 and j['warnings'] == ['موظف 201'], j
+    page = client.get('/fingerprint/device-access').get_data(as_text=True)
+    assert 'fa-exclamation-triangle text-warning small' in page and 'data-ready="none"' in page
+
+
+def test_pushing_to_a_denied_direct_device_lands_disabled(env, monkeypatch):
+    db, da, con = env
+    k40 = FakeK40(users=[], templates=[])
+    monkeypatch.setattr(da, '_connect', lambda device: k40)
+    da.set_allowed_devices(con, ['201'], [2])
+    con.commit()
+    dev = con.execute('SELECT * FROM fingerprint_devices WHERE id = 1').fetchone()
+    emp = con.execute("SELECT * FROM employees WHERE employee_number = '201'").fetchone()
+    da.push_direct(con, dev, [emp])
+    assert _user(k40, '201').privilege & da.DISABLED_BIT, 'اترفع ببياناته بس متوقف'
+    assert '"1": "10"' in con.execute('SELECT bio_versions FROM fingerprint_devices WHERE id = 1').fetchone()[0], \
+        'إصدار الجهاز المباشر اتحفظ'

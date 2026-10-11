@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <div>
         <h1 class="h2"><i class="fas fa-user-lock me-2"></i>مين يبصم فين</h1>
-        <div class="report-desc">كل الموظفين بيتنزّلوا على كل الأجهزة ببصماتهم عادي، والموظف اللي تحدّد له أجهزة يبقى <b>متوقف</b> على باقي الأجهزة: الجهاز نفسه يرفض بصمته. ولو بصمة وصلت من جهاز مش مسموح له، مابتتحسبش في الحضور.</div>
+        <div class="report-desc">كل الموظفين بيتنزّلوا على كل الأجهزة ببصماتهم عادي، والموظف اللي تحدّد له أجهزة يبقى <b>متوقف</b> على باقي الأجهزة: الجهاز نفسه يرفض بصمته. ده بيشتغل على أجهزة ADMS وعلى الأجهزة القديمة اللي بتتوصل بالـIP. ولو بصمة وصلت من جهاز مش مسموح له، مابتتحسبش في الحضور.</div>
     </div>
     <div class="btn-toolbar mb-2 mb-md-0">
         <a href="{{ url_for('attendance.devices') }}" class="btn btn-outline-secondary">
@@ -18,6 +18,16 @@
 {% if not devices %}
 <div class="alert alert-warning">مفيش أجهزة شغالة.</div>
 {% else %}
+
+<div class="alert alert-light border small mb-3">
+    <div class="fw-bold mb-1"><i class="fas fa-info-circle me-1 text-primary"></i>قبل ما تحدّد: بصمة الموظف لازم تنفع على الجهاز</div>
+    كل جهاز بيقرا البصمة بإصدار معيّن، والبصمة اللي اتسجّلت على جهاز بإصدار تاني مابتشتغلش عليه. عشان كده جنب كل خانة علامة:
+    <span class="ms-2"><i class="fas fa-check-circle text-success"></i> بصمته تنفع على الجهاز</span>
+    <span class="ms-2"><i class="fas fa-exclamation-triangle text-warning"></i> مالوش بصمة تنفع عليه: لازم يبصم عليه مرة الأول</span>
+    <span class="ms-2"><i class="fas fa-question-circle text-secondary"></i> إصدار الجهاز لسه مش معروف (بيتعرف بعد أول مزامنة)</span>
+    <span class="ms-2"><i class="fas fa-times-circle text-danger"></i> مالوش بصمات محفوظة خالص</span>
+    <div class="mt-1">ولو حدّدت لموظف أجهزة مفيش ولا واحد فيها بصمته تنفع عليه، البرنامج هينبّهك قبل الحفظ، عشان مايتحبسش من غير ما يعرف يبصم في أي حتة.</div>
+</div>
 
 <div class="card shadow-sm mb-3">
     <div class="card-body">
@@ -91,7 +101,10 @@
                     <th>الفرع</th>
                     <th>الحالة</th>
                     {% for d in devices %}
-                    <th class="text-center small">{{ d['device_name'] }}<br><span class="text-muted fw-normal">{{ d['branch_name'] or '' }}</span></th>
+                    <th class="text-center small">{{ d['device_name'] }}
+                        <span class="badge {{ 'bg-dark' if d['is_adms'] else 'bg-secondary' }} fw-normal">{{ 'ADMS' if d['is_adms'] else 'IP' }}</span>
+                        <br><span class="text-muted fw-normal">{{ d['branch_name'] or '' }}</span>
+                        <br><span class="text-muted fw-normal" dir="ltr">{{ dev_labels.get(d['id']) or 'الإصدار مش معروف' }}</span></th>
                     {% endfor %}
                 </tr>
             </thead>
@@ -108,9 +121,14 @@
                     <td class="small">{{ e['branch_location'] or '—' }}</td>
                     <td class="state small"></td>
                     {% for d in devices %}
-                    <td class="text-center">
-                        <input type="checkbox" class="form-check-input dev" value="{{ d['id'] }}"
+                    {% set rd = readiness.get(num ~ '|' ~ d['id'], 'unknown') %}
+                    <td class="text-center text-nowrap">
+                        <input type="checkbox" class="form-check-input dev" value="{{ d['id'] }}" data-ready="{{ rd }}"
                                {% if allowed is none or d['id'] in allowed %}checked{% endif %}>
+                        {% if rd == 'ok' %}<i class="fas fa-check-circle text-success small" title="بصمته تنفع على الجهاز ده"></i>
+                        {% elif rd == 'none' %}<i class="fas fa-exclamation-triangle text-warning small" title="مالوش بصمة بإصدار الجهاز ده — لازم يبصم عليه مرة"></i>
+                        {% elif rd == 'empty' %}<i class="fas fa-times-circle text-danger small" title="مالوش بصمات محفوظة"></i>
+                        {% else %}<i class="fas fa-question-circle text-secondary small" title="إصدار الجهاز لسه مش معروف"></i>{% endif %}
                     </td>
                     {% endfor %}
                 </tr>
@@ -150,11 +168,17 @@
         const on = boxes.filter(b => b.checked).map(b => b.value);
         return on.length === boxes.length ? '*' : on.join(',');
     }
+    // يقدر يبصم على جهاز واحد على الأقل من المسموح له؟
+    function canPunch(tr, ids) {
+        return Array.from(tr.querySelectorAll('.dev'))
+            .some(b => ids.includes(b.value) && ['ok', 'unknown'].includes(b.dataset.ready));
+    }
     function paint(tr) {
         const cur = current(tr);
         const cell = tr.querySelector('.state');
         if (cur === '*') cell.innerHTML = '<span class="badge bg-success">كل الأجهزة</span>';
         else if (cur === '') cell.innerHTML = '<span class="badge bg-danger">ولا جهاز!</span>';
+        else if (!canPunch(tr, cur.split(','))) cell.innerHTML = '<span class="badge bg-warning text-dark" title="مفيش ولا جهاز مسموح له بصمته تنفع عليه">مش هيعرف يبصم!</span>';
         else cell.innerHTML = '<span class="badge bg-primary">محدّد</span>';
         tr.classList.toggle('table-warning', cur !== tr.dataset.orig);
         tr.dataset.state = cur === '*' ? 'all' : 'limited';
@@ -204,13 +228,22 @@
         let msg = `اتحفظ: ${j.changed} موظف`;
         if (j.commands) msg += ` — ${j.commands} أمر اتبعت لأجهزة ADMS`;
         if (j.skipped && j.skipped.length) msg += `\n\nمااتغيّروش (${j.skipped.length}):\n` + j.skipped.slice(0, 20).join('\n');
+        if (j.warnings && j.warnings.length) msg += `\n\n⚠ دول اتحفظوا بس مالهمش بصمة تنفع على الأجهزة المسموحة لهم — لازم يبصموا عليها مرة (${j.warnings.length}):\n` + j.warnings.slice(0, 20).join('\n');
         alert(msg);
         location.reload();
+    }
+    function confirmStuck(list) {
+        if (!list.length) return true;
+        return confirm(`⚠ الموظفين دول مالهمش بصمة تنفع على ولا جهاز من اللي اخترته، يعني مش هيعرفوا يبصموا خالص لحد ما يبصموا على الجهاز ده مرة:\n\n`
+            + list.slice(0, 25).join('\n') + (list.length > 25 ? `\n… و${list.length - 25} كمان` : '')
+            + '\n\nتكمل برضه؟');
     }
     window.saveChanged = function () {
         const changed = rows.filter(tr => current(tr) !== tr.dataset.orig);
         const empty = changed.filter(tr => current(tr) === '');
         if (empty.length) { alert('فيه موظفين مش مختار لهم ولا جهاز — اختار جهاز واحد على الأقل:\n' + empty.map(t => t.dataset.name).join('\n')); return; }
+        const stuck = changed.filter(tr => current(tr) !== '*' && !canPunch(tr, current(tr).split(','))).map(t => t.dataset.name);
+        if (!confirmStuck(stuck)) return;
         post({rows: changed.map(tr => ({num: tr.dataset.num, devices: current(tr) === '*' ? null : current(tr).split(',')}))});
     };
     window.bulkSet = function () {
@@ -219,6 +252,7 @@
         if (!sel.length) return alert('حدّد موظفين الأول');
         if (!devs.length) return alert('اختار جهاز واحد على الأقل');
         const all = devs.length === document.querySelectorAll('.bulk-dev').length;
+        if (!all && !confirmStuck(sel.filter(tr => !canPunch(tr, devs)).map(t => t.dataset.name))) return;
         post({rows: sel.map(tr => ({num: tr.dataset.num, devices: all ? null : devs}))});
     };
     window.bulkAll = function () {
@@ -230,6 +264,10 @@
         const sel = selected();
         if (!sel.length) return alert('حدّد موظفين الأول');
         if (!confirm(`كل واحد من الـ ${sel.length} موظف هيبصم بس على أجهزة الفرع المكتوب في بياناته. تكمل؟`)) return;
+        const byBranch = {{ branch_devices|tojson }};
+        const stuck = sel.filter(tr => byBranch[tr.dataset.branch] && !canPunch(tr, byBranch[tr.dataset.branch].map(String)))
+                         .map(t => `${t.dataset.name} (${t.dataset.branch})`);
+        if (!confirmStuck(stuck)) return;
         post({auto_branch: sel.map(tr => tr.dataset.num)});
     };
     filter();

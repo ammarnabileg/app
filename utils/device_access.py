@@ -280,6 +280,51 @@ def branch_devices(conn):
     return out
 
 
+def bio_readiness(conn, devices):
+    """هل بصمةُ الموظّف تنفع على كلّ جهاز؟ — عشان المستخدم مايحبسش موظّف في أجهزة
+    مايعرفش يبصم عليها (البصمة بإصدار خوارزمية، ومابتتقريش على جهاز بإصدار تاني).
+
+    يُرجع (cells, labels):
+      cells[(pin, device_id)]: 'ok' بصمته من الجهاز ده أو بإصداره · 'none' الجهاز إصداره
+        معروف ومفيش عنده نسخة بيه · 'unknown' إصدار الجهاز لسه مش معروف · 'empty' مالوش
+        بصمات محفوظة خالص.
+      labels[device_id]: إصدارات الجهاز للعرض («بصمة 10 · وجه 7»).
+    """
+    from utils import biometric_templates as bio
+    have = {}          # pin -> list of (type, ver, sn)
+    for r in conn.execute('''SELECT pin, COALESCE(template_type, 1) t, COALESCE(major_ver, '') v,
+                                    COALESCE(device_sn, '') sn
+                             FROM fingerprint_templates GROUP BY 1, 2, 3, 4'''):
+        have.setdefault(str(r['pin']).strip(), []).append((int(r['t']), bio.norm_ver(r['v']), str(r['sn'])))
+    try:
+        for r in conn.execute("SELECT DISTINCT pin, COALESCE(device_sn, '') sn FROM fingerprint_faces"):
+            have.setdefault(str(r['pin']).strip(), []).append((9, '', str(r['sn'])))
+    except Exception:
+        pass
+    cells, labels = {}, {}
+    info = []
+    for d in devices:
+        keys = d.keys()
+        ids = {str(d[k]).strip() for k in ('serial_number', 'device_ip') if k in keys and d[k]}
+        vers = bio.device_versions(d)
+        labels[int(d['id'])] = ' · '.join(f"{bio.TYPE_LABELS.get(t, t)} {v}" for t, v in sorted(vers.items()))
+        info.append((int(d['id']), ids, vers))
+    pins = {str(r[0]).strip() for r in conn.execute('SELECT employee_number FROM employees')}
+    for pin in pins:
+        rows = have.get(pin, [])
+        for dev_id, ids, vers in info:
+            if not rows:
+                cells[(pin, dev_id)] = 'empty'
+            elif any(sn in ids for _t, _v, sn in rows) or \
+                    any(vers.get(t) and v == vers[t] for t, v, _sn in rows):
+                cells[(pin, dev_id)] = 'ok'
+            elif vers:
+                cells[(pin, dev_id)] = 'none'
+            else:
+                cells[(pin, dev_id)] = 'unknown'
+    return cells, labels
+
+
 def record_ignored(conn, employee_id, device_id, check_time, reason='موظف موقوف'):
     ensure_schema(conn)
     conn.execute('INSERT OR IGNORE INTO ignored_punches (employee_id, device_id, check_time, reason) '
@@ -406,11 +451,23 @@ def _direct_devices(conn):
                         "AND COALESCE(is_adms, 0) = 0 AND COALESCE(device_ip, '') != ''").fetchall()
 
 
-def _fp_version(dev):
+def _fp_version(dev, conn=None, device=None):
+    """إصدارُ خوارزمية البصمة على الجهاز — ويُحفظ له (لتعرف صفحةُ «مين يبصم فين»
+    أيُّ بصمات الموظّف تنفع عليه)."""
     try:
-        return str(dev.get_fp_version())
+        v = str(dev.get_fp_version())
     except Exception:
         return None
+    if conn is not None and device is not None:
+        try:
+            from utils import biometric_templates as bio
+            bio.remember_version(conn, device['id'], bio.FINGER, v)
+            sn = dev.get_serialnumber()
+            if sn and not (device['serial_number'] if 'serial_number' in device.keys() else None):
+                conn.execute('UPDATE fingerprint_devices SET serial_number = ? WHERE id = ?', (str(sn), device['id']))
+        except Exception:
+            pass
+    return v
 
 
 def backup_templates(conn, dev, device, user, fp_ver=None):
@@ -454,7 +511,7 @@ def enforce_device(conn, device, blocked=None):
         if not targets:
             return 0
         dev.disable_device()
-        fp_ver = _fp_version(dev)
+        fp_ver = _fp_version(dev, conn, device)
         try:
             for u in targets:
                 # احتياطًا: بصماتُه عندنا قبل أيّ تغيير على الجهاز.
@@ -497,7 +554,7 @@ def restore_device(conn, device):
     try:
         dev.disable_device()
         try:
-            fp_ver = _fp_version(dev)
+            fp_ver = _fp_version(dev, conn, device)
             users = dev.get_users() or []
             used = {u.uid for u in users}
             by_id = {str(u.user_id): u for u in users}
@@ -705,7 +762,7 @@ def pull_direct(conn, device, pins=None):
     try:
         dev.disable_device()
         try:
-            fp_ver = _fp_version(dev)
+            fp_ver = _fp_version(dev, conn, device)
             try:
                 sn = dev.get_serialnumber()
             except Exception:
@@ -772,9 +829,10 @@ def push_direct(conn, device, employees):
     try:
         dev.disable_device()
         try:
-            fp_ver = _fp_version(dev)
+            fp_ver = _fp_version(dev, conn, device)
             users = dev.get_users() or []
             by_id = {str(u.user_id).strip(): u for u in users}
+            restr = restriction_map(conn)
             used = {u.uid for u in users}
             for emp in employees:
                 pin = str(emp['employee_number']).strip()
@@ -798,6 +856,11 @@ def push_direct(conn, device, employees):
                                  group_id='', user_id=pin, card=card)
                     used.add(uid)
                     user = User(uid, name, priv, password, '', pin, card)
+                    if denied_on(restr, pin, device['id']):
+                        # محصورٌ في أجهزةٍ ليس هذا منها: يُرفع ببصماته لكن متوقّفًا عليه.
+                        write_user(dev, user, priv | DISABLED_BIT)
+                        conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
+                                     (device['id'], pin))
                     # لكلّ إصبع نسختُه بإصدار هذا الجهاز (utils/biometric_templates).
                     from utils import biometric_templates as bio
                     rows, skipped = bio.pick(conn, pin, {1: bio.norm_ver(fp_ver)} if fp_ver else {}, types={1})

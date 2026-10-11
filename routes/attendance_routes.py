@@ -103,8 +103,11 @@ def device_access_page():
                                LEFT JOIN fingerprint_devices d ON d.id = i.device_id
                               WHERE i.reason = ? ORDER BY i.id DESC LIMIT 50''',
                            (da.WRONG_DEVICE_REASON,)).fetchall()
+    cells, labels = da.bio_readiness(conn, devices)
+    readiness = {f"{pin}|{dev}": v for (pin, dev), v in cells.items()}
     return render_template('device_access.html', devices=devices, employees=employees, rules=rules,
                            branches=branches, departments=departments, ignored=ignored,
+                           readiness=readiness, dev_labels=labels,
                            branch_devices={k: sorted(v) for k, v in da.branch_devices(conn).items()})
 
 
@@ -142,10 +145,22 @@ def device_access_save():
                     continue
             changed += da.set_allowed_devices(conn, [row.get('num')], devs)
     cmds = da.apply_rules_adms(conn, changed) if changed else 0
+    # تحذير: موظّف اتحصر في أجهزة مفيش عليها بصمة تنفع له — مش هيعرف يبصم في أيّ حتّة.
+    warnings = []
+    if changed:
+        devs_rows = conn.execute('SELECT * FROM fingerprint_devices WHERE is_active = 1').fetchall()
+        cells, _labels = da.bio_readiness(conn, devs_rows)
+        restr = da.restriction_map(conn)
+        names = {str(r['employee_number']).strip(): r['name'] for r in conn.execute(
+            'SELECT employee_number, name FROM employees')}
+        for num in changed:
+            if num in restr and not any(cells.get((num, d)) in ('ok', 'unknown') for d in restr[num][1]):
+                warnings.append(names.get(num, num))
     conn.commit()
     if changed:
         da.apply_now()      # الأجهزة المباشرة في الخلفيّة، والمقفول في المزامنة الجاية
-    return jsonify({'success': True, 'changed': len(changed), 'commands': cmds, 'skipped': skipped})
+    return jsonify({'success': True, 'changed': len(changed), 'commands': cmds, 'skipped': skipped,
+                    'warnings': warnings})
 
 
 @attendance_bp.route('/fingerprint/punch-shift', methods=['GET', 'POST'])

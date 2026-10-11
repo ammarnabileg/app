@@ -268,6 +268,12 @@ class FingerprintSyncManager:
             # حفظ المستخدمين في قاعدة البيانات
             db_conn = self.get_db_connection()
             saved_count = 0
+            # إصدارُ بصمة الجهاز: صفحة «مين يبصم فين» تعرف منه أيُّ بصمات الموظّف تنفع عليه.
+            try:
+                from utils import biometric_templates as _bio
+                _bio.remember_version(db_conn, device_id, _bio.FINGER, conn_dev.get_fp_version())
+            except Exception:
+                pass
             
             for user in users:
                 try:
