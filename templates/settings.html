@@ -706,9 +706,9 @@
         <div class="card-header"><i class="fas fa-clock me-2"></i>ساعة أجهزة البصمة (ADMS)</div>
         <div class="card-body">
             <p class="small text-muted mb-2">
-                البرنامج بيضبط ساعة الأجهزة كل ٢٤ ساعة. اختار المنطقة الزمنية <b>المتظبطة على الأجهزة نفسها</b>
-                — والجهاز هيطلع بنفس ساعة السيرفر بالظبط. الافتراضي منطقة الشركة ({{ device_clock.company_label }}).
-                لو جهاز طالع ساعة قدّام رغم إن كل حاجة +3، غالبًا عليه توقيت صيفي: اختار هنا +4.
+                البرنامج بيضبط ساعة الأجهزة كل ٢٤ ساعة على <b>توقيت الشركة</b> (الكويت {{ device_clock.company_label }}).
+                ولو جهاز فيرمويره بيزوّد من عنده (توقيت صيفي مثلًا) وطلع متقدّم بعد الضبط، البرنامج بيكتشف ده من
+                بصماته ويعوّضه <b>للجهاز ده بس</b> ويبعتله ضبط جديد — من غير ما تغيّر حاجة هنا.
             </p>
             <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
                 <select name="device_tz_offset_minutes" class="form-select form-select-sm" style="max-width: 160px" dir="ltr">
@@ -719,16 +719,20 @@
             </div>
             {% if device_clock.devices %}
             <table class="table table-sm small mb-0">
-                <thead><tr><th>الجهاز</th><th>ساعة الجهاز</th><th>آخر قياس</th></tr></thead>
+                <thead><tr><th>الجهاز</th><th>ساعة الجهاز</th><th>تعويض تلقائي</th><th>آخر قياس</th><th></th></tr></thead>
                 <tbody>
                 {% for d in device_clock.devices %}
                 <tr><td>{{ d.device_name }} <span class="text-muted" dir="ltr">{{ d.device_ip or '' }}</span></td>
                     <td class="{{ 'text-danger fw-bold' if d.clock_skew_seconds and d.clock_skew_seconds > 120 else '' }}">{{ d.skew_label }}</td>
-                    <td dir="ltr">{{ d.clock_checked_at or '—' }}</td></tr>
+                    <td>{{ d.correction_label }}</td>
+                    <td dir="ltr">{{ d.clock_checked_at or '—' }}</td>
+                    <td>{% if d.clock_correction_seconds %}<button class="btn btn-sm btn-link p-0" name="reset_device" value="{{ d.id }}"
+                        onclick="return confirm('تلغي تعويض الجهاز ده؟')">إلغاء التعويض</button>{% endif %}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
-            <div class="small text-muted mt-1">بيتقاس من أول بصمة أو عملية لحظية بعد الضبط: حدث بوقت «في المستقبل» = ساعة الجهاز متقدّمة.</div>
+            <div class="small text-muted mt-1">بيتقاس من أول بصمة أو عملية لحظية بعد الضبط: حدث بوقت «في المستقبل» = ساعة الجهاز متقدّمة،
+                فالبرنامج بيسجّل التعويض ويبعت ضبط جديد، وبعدها لازم يبان «مظبوط».</div>
             {% endif %}
         </div>
     </form>

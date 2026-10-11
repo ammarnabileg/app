@@ -73,20 +73,48 @@ def _sent_epoch(c, con):
     raise AssertionError('مفيش أمر ضبط وقت')
 
 
-def test_set_time_command_follows_the_setting(adms):
+def test_a_device_that_adds_an_hour_is_corrected_automatically_with_the_setting_on_plus3(adms):
+    """السيناريو بالظبط: الإعداد +3 (الكويت)، والجهاز بعد كل ضبط بيطلع ساعة قدّام."""
     c, con = adms
-    from utils.db import set_setting
     from utils import device_clock as dc
-    set_setting(dc.SETTING, '240')                   # الجهاز بيضيف +4 (أو توقيت صيفي)
     from utils.fingerprint_utils import queue_adms_set_time
+    assert dc.offset_minutes() == 180
     queue_adms_set_time(2)
-    before = datetime.now()
+    wall = datetime.now()
     sent = _sent_epoch(c, con)
-    shown = datetime(1970, 1, 1) + timedelta(seconds=sent + 240 * 60)
-    assert abs((shown - before).total_seconds()) < 5, 'الجهاز اللي بيضيف +4 هيطلع بساعة السيرفر'
-    # والفرق القديم (+3) كان هيطلع الجهاز ساعة قدّام:
-    assert sent == calendar.timegm(before.timetuple()) - 240 * 60 or abs(
-        sent - (calendar.timegm(before.timetuple()) - 240 * 60)) < 5
+    assert abs(sent - (calendar.timegm(wall.timetuple()) - 3 * 3600)) < 5, 'التعويض صفر في الأول'
+    # الجهاز بيأكّد كل أوامر الضبط اللي استلمها (اليومي + اللي من الزرار).
+    for (cmd,) in con.execute("SELECT id FROM adms_commands WHERE command_type = 'SET TIME'").fetchall():
+        c.post('/iclock/devicecmd?SN=SNADMS1', data=f'ID={cmd}&Return=0&CMD=SET OPTIONS', content_type='text/plain')
+    assert {r[0] for r in con.execute("SELECT status FROM adms_commands WHERE command_type = 'SET TIME'")} == {'OK'}
+    # الجهاز (فيرمويره +1) بيبعت بصمة بساعة زيادة:
+    ahead = (datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+    c.post('/iclock/cdata?SN=SNADMS1&table=ATTLOG&Stamp=1', data=f'101\t{ahead}\t0\t1\t0\t0\n',
+           content_type='text/plain')
+    assert con.execute('SELECT clock_correction_seconds FROM fingerprint_devices WHERE id = 2').fetchone()[0] == 3600
+    wall = datetime.now()
+    sent = _sent_epoch(c, con)
+    # الجهاز: الرقم + 3 + ساعته الزيادة = ساعة السيرفر.
+    assert abs((sent + 3 * 3600 + 3600) - calendar.timegm(wall.timetuple())) < 5
+    # بعد الضبط: بصمة مظبوطة ← «مظبوط»، والتعويض ما يزيدش.
+    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    c.post('/iclock/cdata?SN=SNADMS1&table=ATTLOG&Stamp=1', data=f'101\t{now_s}\t0\t1\t0\t0\n',
+           content_type='text/plain')
+    row = con.execute('SELECT clock_skew_seconds, clock_correction_seconds FROM fingerprint_devices WHERE id = 2').fetchone()
+    assert tuple(row) == (0, 3600)
+    assert dc.offset_minutes() == 180, 'الإعداد فضل +3'
+
+
+def test_no_learning_without_a_confirmed_sync(adms):
+    """ساعة متقدّمة من غير ضبط اتأكّد (ممكن حد ظبطها بإيده) ← بتتعرض بس، مفيش تعويض."""
+    c, con = adms
+    ahead = (datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+    con.execute("DELETE FROM adms_commands")
+    con.commit()
+    c.post('/iclock/cdata?SN=SNADMS1&table=ATTLOG&Stamp=1', data=f'101\t{ahead}\t0\t1\t0\t0\n',
+           content_type='text/plain')
+    row = con.execute('SELECT clock_skew_seconds, clock_correction_seconds FROM fingerprint_devices WHERE id = 2').fetchone()
+    assert row[0] > 3000 and not row[1]
 
 
 def test_attlog_from_a_fast_device_shows_up_as_skew(adms):
@@ -113,8 +141,13 @@ def test_settings_page_saves_offset_and_queues_sync(env):
         s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
     page = c.get('/settings').get_data(as_text=True)
     assert 'ساعة أجهزة البصمة' in page and 'GMT+3' in page
-    c.post('/settings/device-clock', data={'device_tz_offset_minutes': '240', 'sync_now': '1'})
+    c.post('/settings/device-clock', data={'device_tz_offset_minutes': '180', 'sync_now': '1'})
     from utils import device_clock as dc
-    assert dc.offset_minutes() == 240
+    assert dc.offset_minutes() == 180
+    con.execute('UPDATE fingerprint_devices SET clock_correction_seconds = 3600 WHERE id = 2')
+    con.commit()
+    assert 'إلغاء التعويض' in c.get('/settings').get_data(as_text=True)
+    c.post('/settings/device-clock', data={'reset_device': '2'})
+    assert not con.execute('SELECT clock_correction_seconds FROM fingerprint_devices WHERE id = 2').fetchone()[0]
     assert con.execute("SELECT COUNT(*) FROM adms_commands WHERE command_type = 'SET TIME' AND status = 'PENDING'"
                        ).fetchone()[0] >= 1

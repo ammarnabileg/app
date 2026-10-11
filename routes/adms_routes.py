@@ -924,7 +924,7 @@ def get_request():
                  # لا `now().timestamp()`: ذاك يعتمد على منطقة ويندوز، والجهاز بيضيف منطقته هو —
                  # فجهازٌ بيضيف غير المتوقّع كان يطلع ساعة قدّام وكلّ بصماته بساعة زيادة (utils/device_clock).
                  from utils import device_clock
-                 unix_time = device_clock.device_epoch()
+                 unix_time = device_clock.device_epoch(device_id=device['id'], conn=conn)
                  cmd_str = f"C:{cmd_id}:SET OPTIONS DateTime={unix_time}"
             
             elif cmd_type.startswith('DATA QUERY'):

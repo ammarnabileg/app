@@ -10,9 +10,15 @@
 
 ## الحل
 
-إعداد «المنطقة الزمنية على الأجهزة» (`device_tz_offset_minutes`، الافتراضي من منطقة الشركة = +3 للكويت).
-الرقم المبعوث = **الساعة الظاهرة على السيرفر** − المنطقة دي. فالجهاز (ساعة الجهاز = الرقم + منطقته) بيطلع
-بنفس ساعة السيرفر بالظبط، وده مستقل عن إعداد ويندوز. ولو جهاز بيضيف +4 فعلًا: الإعداد يبقى +4.
+إعداد «المنطقة الزمنية» (`device_tz_offset_minutes`، الافتراضي منطقة الشركة = +3 للكويت) — وهو توقيت
+الشركة، مش حاجة بنلفّ بيها على جهاز.
+الرقم المبعوث = **الساعة الظاهرة على السيرفر** − المنطقة − **تعويض الجهاز**. فالجهاز بيطلع بنفس ساعة
+السيرفر، مستقلًّا عن إعداد ويندوز.
+
+**تعويض كل جهاز لوحده (تلقائي):** جهاز فيرمويره بيضيف أكتر من المتوقّع (توقيت صيفي مثلًا) بيفضل ساعة
+قدّام بعد كل ضبط. فلو جه منه حدث «في المستقبل» **بعد** ضبط وقت أكّده الجهاز (فمش ضبط يدوي)، الفرق
+يتحفظ تعويضًا للجهاز ده بس (`clock_correction_seconds`) ويتبعتله ضبط جديد على طول. الإعداد يفضل +3،
+والأجهزة السليمة ما تتأثرش.
 
 ومع كل حدث لحظي بيبعته الجهاز (بصمة/عملية) بنقيس الفرق بين وقت الحدث ووقت وصوله. حدث «في المستقبل»
 = ساعة الجهاز متقدّمة أكيد (مفيش حدث بيحصل قبل ما يحصل)، فبيتسجّل ويظهر في الإعدادات.
@@ -60,11 +66,29 @@ def offset_minutes(conn=None):
     return company_offset_minutes(conn)
 
 
-def device_epoch(now=None, offset=None):
+def correction_seconds(conn, device_id):
+    if not device_id:
+        return 0
+    try:
+        ensure_schema(conn)
+        r = conn.execute('SELECT clock_correction_seconds FROM fingerprint_devices WHERE id = ?',
+                         (device_id,)).fetchone()
+        return int(r[0] or 0) if r else 0
+    except Exception:
+        return 0
+
+
+def device_epoch(now=None, offset=None, device_id=None, conn=None):
     """الرقم اللي بيتبعت في `SET OPTIONS DateTime=` — بحيث ساعة الجهاز = ساعة السيرفر الظاهرة."""
     now = now or datetime.now()
-    offset = offset_minutes() if offset is None else offset
-    return calendar.timegm(now.timetuple()) - offset * 60
+    offset = offset_minutes(conn) if offset is None else offset
+    corr = 0
+    if device_id:
+        if conn is None:
+            from utils.db import get_db_connection
+            conn = get_db_connection()
+        corr = correction_seconds(conn, device_id)
+    return calendar.timegm(now.timetuple()) - offset * 60 - corr
 
 
 def label(minutes):
@@ -77,7 +101,8 @@ def label(minutes):
 
 def ensure_schema(conn):
     cols = {r[1] for r in conn.execute('PRAGMA table_info(fingerprint_devices)')}
-    for c, t in (('clock_skew_seconds', 'INTEGER'), ('clock_checked_at', 'TEXT')):
+    for c, t in (('clock_skew_seconds', 'INTEGER'), ('clock_checked_at', 'TEXT'),
+                 ('clock_correction_seconds', 'INTEGER DEFAULT 0')):
         if c not in cols:
             conn.execute(f'ALTER TABLE fingerprint_devices ADD COLUMN {c} {t}')
 
@@ -105,9 +130,57 @@ def record_skew(conn, device_id, raw_body, now=None):
         ensure_schema(conn)
         conn.execute('UPDATE fingerprint_devices SET clock_skew_seconds = ?, clock_checked_at = ? WHERE id = ?',
                      (value, now.strftime('%Y-%m-%d %H:%M:%S'), device_id))
+        if value:
+            learn_correction(conn, device_id, value)
         return value
     except Exception:
         return None
+
+
+STEP = 900                      # التعويض بخطوات ربع ساعة (المناطق والتوقيت الصيفي كلها مضاعفاتها)
+
+
+def learn_correction(conn, device_id, skew):
+    """الجهاز متقدّم بعد ضبطٍ أكّده ← الفرق تعويضٌ له، وضبطٌ جديد على طول. يُرجع التعويض الجديد أو None.
+
+    مش بيتعلّم لو: مفيش ضبط وقت اتأكّد خلال ٢٤ ساعة (يبقى الفرق ممكن ضبط يدوي)، أو فيه ضبط لسه
+    منتظر (التعويض اللي قبله لسه ما اتطبّقش).
+    """
+    step = int(round(skew / STEP)) * STEP
+    if not step:
+        return None
+    confirmed = conn.execute(
+        "SELECT 1 FROM adms_commands WHERE device_id = ? AND command_type = 'SET TIME' AND status = 'OK' "
+        "AND updated_at >= datetime('now', '-1 day')", (device_id,)).fetchone()
+    pending = conn.execute(
+        "SELECT 1 FROM adms_commands WHERE device_id = ? AND command_type = 'SET TIME' "
+        "AND status IN ('PENDING', 'SENT') AND created_at >= datetime('now', '-1 day')", (device_id,)).fetchone()
+    if not confirmed or pending:
+        return None
+    new = correction_seconds(conn, device_id) + step
+    conn.execute('UPDATE fingerprint_devices SET clock_correction_seconds = ? WHERE id = ?', (new, device_id))
+    import json
+    conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'SET TIME', ?, 'PENDING')",
+                 (device_id, json.dumps(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))))
+    return new
+
+
+def reset_correction(conn, device_id=None):
+    ensure_schema(conn)
+    if device_id:
+        conn.execute('UPDATE fingerprint_devices SET clock_correction_seconds = 0 WHERE id = ?', (device_id,))
+    else:
+        conn.execute('UPDATE fingerprint_devices SET clock_correction_seconds = 0')
+    conn.commit()
+
+
+def correction_label(seconds):
+    if not seconds:
+        return '—'
+    m = round(abs(seconds) / 60)
+    h, mm = divmod(m, 60)
+    span = (f'{h} ساعة' + (f' و{mm} دقيقة' if mm else '')) if h else f'{m} دقيقة'
+    return ('−' if seconds > 0 else '+') + span
 
 
 def skew_label(seconds):

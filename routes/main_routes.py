@@ -93,12 +93,13 @@ def _device_clock_state(conn):
     try:
         dc.ensure_schema(conn)
         devices = [dict(r) for r in conn.execute(
-            "SELECT id, device_name, device_ip, clock_skew_seconds, clock_checked_at FROM fingerprint_devices "
+            "SELECT id, device_name, device_ip, clock_skew_seconds, clock_checked_at, clock_correction_seconds FROM fingerprint_devices "
             "WHERE is_active = 1 AND COALESCE(is_adms, 0) = 1 ORDER BY device_name").fetchall()]
     except Exception:
         devices = []
     for d in devices:
         d['skew_label'] = dc.skew_label(d.get('clock_skew_seconds'))
+        d['correction_label'] = dc.correction_label(d.get('clock_correction_seconds'))
     off = dc.offset_minutes(conn)
     return {'offset': off, 'label': dc.label(off), 'company': dc.company_offset_minutes(conn),
             'company_label': dc.label(dc.company_offset_minutes(conn)), 'devices': devices,
@@ -111,6 +112,13 @@ def _device_clock_state(conn):
 def save_device_clock():
     from utils.db import set_setting
     from utils import device_clock as dc
+    if request.form.get('reset_device'):
+        conn = get_db_connection()
+        dc.reset_correction(conn, int(request.form['reset_device']))
+        from utils.fingerprint_utils import queue_adms_set_time
+        queue_adms_set_time(int(request.form['reset_device']))
+        flash('اتلغى تعويض الجهاز واتبعتله ضبط وقت', 'success')
+        return redirect(url_for('main.settings') + '#device-clock')
     try:
         v = int(request.form.get('device_tz_offset_minutes'))
         if not -14 * 60 <= v <= 14 * 60:
