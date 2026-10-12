@@ -321,8 +321,14 @@ def add_employee():
         SELECT DISTINCT position as name FROM employees WHERE position IS NOT NULL AND position != '' 
         ORDER BY name
     ''').fetchall()
-    pass # conn.close() removed to prevent leak in Flask g
-    return render_template('add_employee.html', shift_types=shift_types, managers=managers, departments=departments, positions=positions)
+    try:
+        branch_names = [r[0] for r in conn.execute(
+            "SELECT name FROM branches WHERE COALESCE(is_active, 1) = 1 UNION "
+            "SELECT DISTINCT branch_location FROM employees WHERE COALESCE(branch_location, '') != '' ORDER BY 1")]
+    except Exception:
+        branch_names = []
+    return render_template('add_employee.html', shift_types=shift_types, managers=managers, departments=departments, positions=positions,
+                           branch_names=branch_names)
 
 @employee_bp.route('/employees/edit/<int:id>', methods=['GET', 'POST'])
 @login_required
@@ -594,8 +600,14 @@ def edit_employee(id):
                               'ORDER BY effective_from DESC, id DESC', (id,)).fetchall()
     salary_hist = conn.execute('SELECT * FROM employee_salary_history WHERE employee_id = ? '
                                'ORDER BY effective_from DESC, id DESC', (id,)).fetchall()
+    try:
+        branch_names = [r[0] for r in conn.execute(
+            "SELECT name FROM branches WHERE COALESCE(is_active, 1) = 1 UNION "
+            "SELECT DISTINCT branch_location FROM employees WHERE COALESCE(branch_location, '') != '' ORDER BY 1")]
+    except Exception:
+        branch_names = []
     return render_template('edit_employee.html', 
-                           employee=employee, 
+                           employee=employee, branch_names=branch_names,
                            shift_hist=shift_hist, salary_hist=salary_hist,
                            today=datetime.now().strftime('%Y-%m-%d'),
                            shift_types=shift_types,

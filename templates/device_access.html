@@ -29,6 +29,22 @@
     <div class="mt-1">ولو حدّدت لموظف أجهزة مفيش ولا واحد فيها بصمته تنفع عليه، البرنامج هينبّهك قبل الحفظ، عشان مايتحبسش من غير ما يعرف يبصم في أي حتة.</div>
 </div>
 
+{% set no_branch = branch_counts.get('', 0) %}
+{% if no_branch %}
+<div class="alert alert-warning small">
+    <i class="fas fa-exclamation-triangle me-1"></i>
+    <b>{{ no_branch }}</b> موظف مالهمش فرع في بياناتهم. الفروع اللي في صفحة الفروع بتظهر هنا، بس الموظف لازم يتحدّد له فرعه
+    عشان «كل واحد على أجهزة فرعه» تشتغل: اختار «بدون فرع» من الفلتر، حدّد الموظفين، واختار فرعهم من «حطّهم في فرع».
+</div>
+{% endif %}
+{% set nob = devices|selectattr('branch_name', 'none')|list + devices|selectattr('branch_name', 'equalto', '')|list %}
+{% if nob %}
+<div class="alert alert-warning small">
+    <i class="fas fa-microchip me-1"></i>أجهزة مالهاش فرع: <b>{{ nob|map(attribute='device_name')|join('، ') }}</b> —
+    حدّد فرع كل جهاز من صفحة الأجهزة (تعديل الجهاز).
+</div>
+{% endif %}
+
 <div class="card shadow-sm mb-3">
     <div class="card-body">
         <div class="row g-2 align-items-end">
@@ -40,8 +56,8 @@
                 <label class="form-label small">الفرع / المكان</label>
                 <select id="f-branch" class="form-select form-select-sm">
                     <option value="">الكل</option>
-                    {% for b in branches %}<option>{{ b }}</option>{% endfor %}
-                    <option value="__none__">بدون فرع</option>
+                    {% for b in branches %}<option value="{{ b }}">{{ b }} ({{ branch_counts.get(b, 0) }})</option>{% endfor %}
+                    <option value="__none__">بدون فرع ({{ branch_counts.get('', 0) }})</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -79,6 +95,12 @@
             <button class="btn btn-sm btn-outline-primary" onclick="bulkBranch()" title="الفرع المكتوب في بيانات الموظف = فرع الجهاز">
                 <i class="fas fa-code-branch me-1"></i>كل واحد على أجهزة فرعه
             </button>
+            <span class="vr mx-1"></span>
+            <select id="move-branch" class="form-select form-select-sm" style="max-width: 180px">
+                <option value="">— حطّهم في فرع —</option>
+                {% for b in branches %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-sm btn-outline-dark" onclick="moveBranch()"><i class="fas fa-people-arrows me-1"></i>حطّهم</button>
         </div>
     </div>
 </div>
@@ -259,6 +281,20 @@
         const sel = selected();
         if (!sel.length) return alert('حدّد موظفين الأول');
         post({rows: sel.map(tr => ({num: tr.dataset.num, devices: null}))});
+    };
+    window.moveBranch = async function () {
+        const sel = selected();
+        const b = document.getElementById('move-branch').value;
+        if (!sel.length) return alert('حدّد موظفين الأول');
+        if (!b) return alert('اختار الفرع');
+        if (!confirm(`الـ ${sel.length} موظف هيتكتب فرعهم «${b}» في بياناتهم. تكمل؟`)) return;
+        const r = await fetch("{{ url_for('attendance.device_access_save') }}", {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({set_branch: b, nums: sel.map(tr => tr.dataset.num)})
+        });
+        const j = await r.json();
+        alert(`اتنقل ${j.moved} موظف لفرع «${b}». لسه ماتحدّدش هيبصموا فين — دوس «كل واحد على أجهزة فرعه» لو عاوز.`);
+        location.reload();
     };
     window.bulkBranch = function () {
         const sel = selected();

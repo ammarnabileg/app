@@ -96,7 +96,17 @@ def device_access_page():
                                 ORDER BY department, name''').fetchall()
     restr = da.restriction_map(conn)
     rules = {num: sorted(ids) for num, (_since, ids) in restr.items()}
-    branches = sorted({e['branch_location'] for e in employees if e['branch_location']})
+    try:
+        branch_rows = [str(r['name']).strip() for r in conn.execute(
+            'SELECT name FROM branches WHERE COALESCE(is_active, 1) = 1 ORDER BY name')]
+    except Exception:
+        branch_rows = []
+    # الفروع من صفحة الفروع، ومعاها أيّ فرع مكتوب في بيانات موظّف ومش موجود هناك.
+    branches = branch_rows + sorted({e['branch_location'] for e in employees
+                                     if e['branch_location'] and e['branch_location'] not in branch_rows})
+    branch_counts = {}
+    for e in employees:
+        branch_counts[e['branch_location'] or ''] = branch_counts.get(e['branch_location'] or '', 0) + 1
     departments = sorted({e['department'] for e in employees if e['department']})
     ignored = conn.execute('''SELECT i.check_time, i.created_at, e.employee_number, e.name, d.device_name
                                FROM ignored_punches i JOIN employees e ON e.id = i.employee_id
@@ -107,7 +117,7 @@ def device_access_page():
     readiness = {f"{pin}|{dev}": v for (pin, dev), v in cells.items()}
     return render_template('device_access.html', devices=devices, employees=employees, rules=rules,
                            branches=branches, departments=departments, ignored=ignored,
-                           readiness=readiness, dev_labels=labels,
+                           readiness=readiness, dev_labels=labels, branch_counts=branch_counts,
                            branch_devices={k: sorted(v) for k, v in da.branch_devices(conn).items()})
 
 
@@ -123,6 +133,15 @@ def device_access_save():
     da.ensure_schema(conn)
     valid = {int(r['id']) for r in conn.execute('SELECT id FROM fingerprint_devices')}
     changed, skipped = [], []
+    if 'set_branch' in data:
+        # فرعُ الموظّفين في بياناتهم (نفس خانة «الفرع» في تعديل الموظّف).
+        nums = [str(n) for n in data.get('nums') or []]
+        name = str(data.get('set_branch') or '').strip()
+        if nums:
+            conn.execute(f"UPDATE employees SET branch_location = ? WHERE CAST(employee_number AS TEXT) "
+                         f"IN ({','.join('?' * len(nums))})", [name] + nums)
+            conn.commit()
+        return jsonify({'success': True, 'moved': len(nums)})
     if 'auto_branch' in data:
         by_branch = da.branch_devices(conn)
         nums = [str(n) for n in data.get('auto_branch') or []]

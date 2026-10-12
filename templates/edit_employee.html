@@ -367,7 +367,8 @@
                                 </div>
                                 <div class="col-md-4 mb-3">
                                     <label class="form-label">{{ _('x.branch') }}</label>
-                                    <input type="text" class="form-control" name="branch_location" value="{{ employee.branch_location or '' }}">
+                                    <input type="text" class="form-control" name="branch_location" list="branchNames" value="{{ employee.branch_location or '' }}" placeholder="اختار من الفروع">
+                                    <datalist id="branchNames">{% for b in branch_names or [] %}<option value="{{ b }}">{% endfor %}</datalist>
                                 </div>
                                 {# نمط العمل: هو ما يقرّر ما يراه الموظف في بوابته. #}
                                 <div class="col-md-4 mb-3">

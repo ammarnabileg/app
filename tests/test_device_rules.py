@@ -251,3 +251,30 @@ def test_pushing_to_a_denied_direct_device_lands_disabled(env, monkeypatch):
     assert _user(k40, '201').privilege & da.DISABLED_BIT, 'اترفع ببياناته بس متوقف'
     assert '"1": "10"' in con.execute('SELECT bio_versions FROM fingerprint_devices WHERE id = 1').fetchone()[0], \
         'إصدار الجهاز المباشر اتحفظ'
+
+
+def test_branches_come_from_the_branches_page_and_can_be_assigned(env, monkeypatch):
+    db, _da, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    import utils.device_access as da2
+    monkeypatch.setattr(da2, 'apply_now', lambda: None)
+    con.execute("INSERT OR IGNORE INTO branches (name, is_active) VALUES ('فرع حولي', 1)")
+    con.commit()
+    client = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with client.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    page = client.get('/fingerprint/device-access').get_data(as_text=True)
+    assert 'value="فرع حولي"' in page, 'فرع من صفحة الفروع، حتى لو مفيش موظف فيه لسه'
+    assert 'موظف مالهمش فرع' in page
+    j = client.post('/fingerprint/device-access/save', json={'set_branch': 'فرع حولي', 'nums': ['203']}).get_json()
+    assert j['moved'] == 1
+    assert con.execute("SELECT branch_location FROM employees WHERE employee_number = '203'").fetchone()[0] == 'فرع حولي'
+    page = client.get('/employees/edit/3').get_data(as_text=True)
+    assert 'list="branchNames"' in page and '<option value="فرع حولي">' in page, 'خانة الفرع بتقترح الفروع'
