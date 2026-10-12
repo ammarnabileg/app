@@ -99,14 +99,14 @@ def _oracle_conf(key, env_key, default):
     return v if v else os.environ.get(env_key, default)
 
 # Configure a specific logger for Oracle Sync
-from logging import FileHandler as RotatingFileHandler
+from utils.safe_log import SafeRotatingHandler as RotatingFileHandler
 oracle_log_file = os.path.join(DATA_DIR, 'oracle_sync.log')
 oracle_logger = logging.getLogger('oracle_sync')
 oracle_logger.setLevel(logging.INFO)
 
 # Create rotating file handler (10MB per file, 5 backups)
 if not oracle_logger.handlers:
-    fh = RotatingFileHandler(oracle_log_file, encoding='utf-8')
+    fh = RotatingFileHandler(oracle_log_file, max_bytes=20 * 1024 * 1024, backups=3)
     fh.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)

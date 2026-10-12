@@ -196,9 +196,9 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
 
 # Configure Logging
-from logging import FileHandler as RotatingFileHandler
+from utils.safe_log import SafeRotatingHandler
 log_file = os.path.join(DATA_DIR, 'error.log')
-handler = RotatingFileHandler(log_file)
+handler = SafeRotatingHandler(log_file, max_bytes=20 * 1024 * 1024, backups=3)
 handler.setLevel(logging.ERROR)
 formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]')
 handler.setFormatter(formatter)

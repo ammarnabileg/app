@@ -18,12 +18,13 @@ except ImportError:
     print(" [ADMS] oracledb module not found. Oracle sync disabled.")
 
 # Configure logging to shared log file
-from logging import FileHandler as RotatingFileHandler
+# لوج ليه حدّ ويشتغل على ويندوز (utils/safe_log) — كان FileHandler عادي ووصل مئات الميجات.
+from utils.safe_log import SafeRotatingHandler as RotatingFileHandler, shrink as _shrink
 LOG_FILE = os.path.join(DATA_DIR, 'fingerprint_sync.log')
 logger = logging.getLogger('adms')
 if not logger.handlers:
     # 10MB per file, 5 backups
-    fh = RotatingFileHandler(LOG_FILE, encoding='utf-8')
+    fh = RotatingFileHandler(LOG_FILE, max_bytes=20 * 1024 * 1024, backups=3)
     fh.setFormatter(logging.Formatter('%(asctime)s - [ADMS] - %(levelname)s - %(message)s'))
     logger.addHandler(fh)
     logger.setLevel(logging.INFO)
@@ -33,7 +34,7 @@ adms_protocol_logger = logging.getLogger('adms_protocol')
 if not adms_protocol_logger.handlers:
     # Dedicated log for raw protocol data
     PROTO_LOG = os.path.join(DATA_DIR, 'adms_protocol.log')
-    pfh = RotatingFileHandler(PROTO_LOG, encoding='utf-8')
+    pfh = RotatingFileHandler(PROTO_LOG, max_bytes=50 * 1024 * 1024, backups=3)
     pfh.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
     adms_protocol_logger.addHandler(pfh)
     adms_protocol_logger.setLevel(logging.INFO)
@@ -251,7 +252,7 @@ def cdata():
     
     # Record raw data to a separate file for investigation
     if raw_data:
-        adms_protocol_logger.info(f"Table: {table} | SN: {sn} | IP: {device_addr()}\n{raw_data}")
+        adms_protocol_logger.info(f"Table: {table} | SN: {sn} | IP: {device_addr()}\n{_shrink(raw_data)}")
         # Print to console for real-time debugging as requested
         print(f"\n[ADMS DATA] Received from {sn} (Table: {table}, IP: {device_addr()}):\n{raw_data[:200]}...\n")
 
@@ -757,7 +758,7 @@ def querydata():
     table = (request.args.get('tablename') or request.args.get('table') or '').strip().lower()
     raw = request.get_data(as_text=True) or ''
     if raw:
-        adms_protocol_logger.info(f"QUERYDATA: {table} | SN: {sn} | IP: {device_addr()}\n{raw}")
+        adms_protocol_logger.info(f"QUERYDATA: {table} | SN: {sn} | IP: {device_addr()}\n{_shrink(raw)}")
     conn = get_db_connection()
     try:
         ok, _reason, _dev = device_gate(conn, sn)
