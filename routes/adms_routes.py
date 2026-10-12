@@ -406,7 +406,8 @@ def cdata():
                     # محصورٌ في أجهزة فرعه: بصمتُه هنا لا تُحسب، ويُعاد تعطيلُه على الجهاز.
                     if emp_id and _restr and _da.is_wrong_device_punch(_restr, user_id, device_id, time_str):
                         _da.record_ignored(conn, emp_id, device_id, time_str, _da.WRONG_DEVICE_REASON)
-                        _da.adms_block(conn, device_id, user_id)
+                        if device_id:
+                            _da.adms_restrict(conn, device_id, user_id)
                         continue
 
                     if not emp_id:
@@ -846,6 +847,12 @@ def get_request():
 
     commands = []
     if device:
+        # ممنوعين طلبنا بصماتهم قبل المسح: لو وصلت يتمسحوا دلوقتي (utils/device_access).
+        try:
+            from utils import device_access as _da_w
+            _da_w.adms_restrict_pending(conn, device['id'])
+        except Exception as _e:
+            logger.warning(f'restrict pending failed: {_e}')
         # Fetch pending commands
         rows = conn.execute('''
             SELECT id, command_type, payload FROM adms_commands 
@@ -861,17 +868,25 @@ def get_request():
             # Construct ZK protocol string
             # DATA UPDATE USER PIN=...
             cmd_str = ""
-            if cmd_type == 'DATA UPDATE USERINFO':
-                pin = payload.get('PIN')
-                # موظّفٌ محصورٌ في أجهزةٍ ليس هذا منها: يُرفع عليه ببصماته لكن معطّلًا —
-                # أيًّا كان مصدرُ الأمر (حفظ الموظّف، رفعٌ للجهاز، استرجاع...).
+            # موظّفٌ ممنوعٌ على الجهاز ده («مين يبصم فين»): مايترفعش عليه — أيًّا كان مصدرُ الأمر
+            # (حفظ الموظّف، رفعٌ للجهاز، استرجاع...). أجهزة ADMS بتتجاهل Enabled=0، فبيتمسح منها.
+            if cmd_type in ('DATA UPDATE USERINFO', 'DATA UPDATE FINGERTMP', 'DATA UPDATE FACE',
+                            'DATA UPDATE BIODATA', 'ADD_USER') and isinstance(payload, dict):
                 try:
                     from utils import device_access as _da
-                    if _da.denied_on(_da.restriction_map(conn), pin, device['id']):
-                        payload['Pri'] = int(payload.get('Pri') or 0) | _da.DISABLED_BIT
-                        payload['Enabled'] = 0
+                    _pin = payload.get('PIN') or payload.get('Pin')
+                    if _pin and _da.denied_on(_da.restriction_map(conn), _pin, device['id']):
+                        conn.execute("UPDATE adms_commands SET status = 'SKIPPED', updated_at = CURRENT_TIMESTAMP "
+                                     "WHERE id = ?", (cmd_id,))
+                        if cmd_type in ('DATA UPDATE USERINFO', 'ADD_USER'):
+                            _da.adms_restrict(conn, device['id'], _pin)
+                        adms_protocol_logger.info(f"{cmd_type} skipped | SN: {sn} | PIN {_pin} ممنوع على الجهاز ده")
+                        continue
                 except Exception as _e:
                     logger.warning(f'device rules check failed: {_e}')
+
+            if cmd_type == 'DATA UPDATE USERINFO':
+                pin = payload.get('PIN')
                 parts = [f"PIN={pin}"]
                 if 'Name' in payload: parts.append(f"Name={payload['Name']}")
                 if 'Pri' in payload: parts.append(f"Pri={payload['Pri']}")

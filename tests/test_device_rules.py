@@ -59,18 +59,36 @@ def test_limit_to_one_device_and_back(env):
     assert da.restriction_map(con) == {}
 
 
-def test_adms_device_gets_disable_then_enable(env):
+def test_adms_denied_device_backs_up_then_deletes_and_restores(env):
+    """SpeedFace بيتجاهل Enabled=0 — فالممنوع بيتمسح من جهاز ADMS، وبصماته محفوظة عندنا الأول."""
     db, da, con = env
     da.set_allowed_devices(con, ['201'], [1])
     assert da.apply_rules_adms(con, ['201']) == 1
-    p = json.loads(con.execute("SELECT payload FROM adms_commands WHERE device_id = 2").fetchone()[0])
-    assert p['PIN'] == '201' and p['Enabled'] == 0 and p['Pri'] & 1, 'متوقف ببصماته — مش متمسح'
+    cmds = [r[0] for r in con.execute("SELECT command_type FROM adms_commands WHERE device_id = 2")]
+    assert 'DATA DELETE USERINFO' not in cmds and 'DATA QUERY BIODATA' in cmds, 'بصماته مش عندنا: نطلبها الأول'
+    # البصمات وصلت من الجهاز (BIODATA بالـSN بتاعه)
+    con.execute("UPDATE fingerprint_devices SET serial_number = 'SNADMS1' WHERE id = 2")
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, major_ver, template_data, device_sn)"
+                " VALUES ('201', 0, 1, '12', 'TPL', 'SNADMS1')")
+    assert da.adms_restrict_pending(con, 2) == 1
+    p = json.loads(con.execute("SELECT payload FROM adms_commands WHERE command_type = 'DATA DELETE USERINFO'").fetchone()[0])
+    assert p == {'PIN': '201'}
+    # اتسمح له تاني: يترفع ببياناته وبصماته
     da.set_allowed_devices(con, ['201'], None)
     assert da.apply_rules_adms(con, ['201']) == 1
-    p = json.loads(con.execute("SELECT payload FROM adms_commands WHERE device_id = 2 ORDER BY id DESC").fetchone()[0])
-    assert p['Enabled'] == 1 and not p['Pri'] & 1, 'رجع يبصم'
-    # موظف تاني ماكانش متوقف على الجهاز: مايتبعتلوش حاجة (مايتعملش على جهاز ماكانش عليه).
-    assert da.apply_rules_adms(con, ['202']) == 0
+    rows = con.execute("SELECT command_type, payload FROM adms_commands WHERE device_id = 2 ORDER BY id").fetchall()
+    up = [json.loads(r[1]) for r in rows if r[0] == 'DATA UPDATE USERINFO']
+    assert up and up[-1]['Enabled'] == 1 and not up[-1]['Pri'] & 1
+    assert any(r[0] in ('DATA UPDATE BIODATA', 'DATA UPDATE FINGERTMP') and 'TPL' in r[1] for r in rows), 'ببصماته'
+    assert da.apply_rules_adms(con, ['202']) == 0, 'موظف ماكانش ممنوع: مفيش أوامر'
+
+
+def test_adms_delete_after_waiting_if_device_sends_nothing(env):
+    db, da, con = env
+    da.set_allowed_devices(con, ['202'], [1])
+    da.apply_rules_adms(con, ['202'])
+    later = datetime.now() + timedelta(hours=da.RESTRICT_WAIT_HOURS, minutes=1)
+    assert da.adms_restrict(con, 2, '202', now=later) == 'deleted'
 
 
 def test_direct_device_disables_restricted_and_restores(env, monkeypatch):
@@ -104,6 +122,9 @@ def adms(env):
 def test_adms_punch_on_a_wrong_device_is_not_counted(adms):
     c, con, da = adms
     c.get('/iclock/cdata?SN=SNADMS1&options=all')
+    con.execute("UPDATE fingerprint_devices SET serial_number = 'SNADMS1' WHERE id = 2")
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, template_data, device_sn)"
+                " VALUES ('201', 0, 1, 'T', 'SNADMS1')")
     before = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
     da.set_allowed_devices(con, ['201'], [1])
     con.commit()
@@ -117,20 +138,28 @@ def test_adms_punch_on_a_wrong_device_is_not_counted(adms):
     ign = con.execute('SELECT reason FROM ignored_punches').fetchall()
     assert [r[0] for r in ign] == [da.WRONG_DEVICE_REASON]
     r = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
-    assert 'PIN=201' in r and 'Enabled=0' in r
+    assert 'DATA DELETE USERINFO PIN=201' in r, r
 
 
-def test_any_userinfo_to_a_denied_device_goes_out_disabled(adms):
-    """حفظ الموظف بيبعته لكل الأجهزة مفعّل — على الجهاز الممنوع بيوصل متوقف."""
+def test_any_upload_to_a_denied_adms_device_is_skipped(adms):
+    """حفظ الموظف بيبعته لكل الأجهزة — على الجهاز الممنوع مايترفعش."""
     c, con, da = adms
     c.get('/iclock/cdata?SN=SNADMS1&options=all')
     da.set_allowed_devices(con, ['201'], [1])
     con.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES "
                 "(2, 'DATA UPDATE USERINFO', ?, 'PENDING')",
                 (json.dumps({'PIN': '201', 'Name': 'x', 'Pri': 0, 'Enabled': 1}),))
+    con.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES "
+                "(2, 'DATA UPDATE BIODATA', ?, 'PENDING')", (json.dumps({'PIN': '201', 'TMP': 'x'}),))
+    con.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES "
+                "(2, 'DATA UPDATE USERINFO', ?, 'PENDING')", (json.dumps({'PIN': '202', 'Name': 'y'}),))
     con.commit()
     r = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
-    assert 'PIN=201' in r and 'Enabled=0' in r and 'Pri=1' in r, r
+    assert 'UPDATE USERINFO\tPIN=201' not in r and 'BIODATA\tPin=201' not in r, r
+    assert 'PIN=202' in r
+    st = [x[0] for x in con.execute("SELECT status FROM adms_commands WHERE payload LIKE '%\"201\"%' "
+                                     "AND command_type LIKE 'DATA UPDATE%'")]
+    assert st == ['SKIPPED', 'SKIPPED']
 
 
 def test_auto_branch_and_page(env, monkeypatch):

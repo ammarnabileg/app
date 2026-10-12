@@ -86,6 +86,12 @@ def ensure_schema(conn):
         employee_number TEXT PRIMARY KEY,
         since TEXT NOT NULL
     )''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS adms_restrict_waits (
+        device_id INTEGER NOT NULL,
+        user_id TEXT NOT NULL,
+        asked_at TEXT NOT NULL,
+        PRIMARY KEY (device_id, user_id)
+    )''')
     conn.execute('''CREATE TABLE IF NOT EXISTS employee_allowed_devices (
         employee_number TEXT NOT NULL,
         device_id INTEGER NOT NULL,
@@ -193,23 +199,103 @@ def adms_enable_payload(conn, employee_number):
     return json.dumps(p)
 
 
-def _queue_userinfo(conn, device_id, payload):
-    if conn.execute("SELECT 1 FROM adms_commands WHERE device_id = ? AND command_type = 'DATA UPDATE USERINFO' "
-                    "AND payload = ? AND status = 'PENDING'", (device_id, payload)).fetchone():
-        return False
-    conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
-                 "VALUES (?, 'DATA UPDATE USERINFO', ?, 'PENDING')", (device_id, payload))
-    return True
-
-
 def _adms_devices(conn):
     return conn.execute('SELECT id FROM fingerprint_devices WHERE is_active = 1 AND COALESCE(is_adms, 0) = 1').fetchall()
 
 
+# أجهزة ADMS (SpeedFace وأمثاله) بتتجاهل Enabled=0 وبتّ «معطّل» في Pri: الموظّف بيفضل يبصم.
+# فالممنوعُ على جهاز ADMS **بيتمسح منه**، بعد ما نتأكّد إن بصماته عندنا بإصدار الجهاز ده —
+# ولو اتسمح له تاني بيترفع عليه ببصماته من عندنا. ولو بصماته مش عندنا: نطلبها من الجهاز
+# الأوّل، والمسح بيتم لما توصل (أو بعد RESTRICT_WAIT_HOURS لو الجهاز مارجّعش حاجة).
+RESTRICT_WAIT_HOURS = 6
+
+
+def _restorable(conn, device, pin):
+    """بصماتُ الموظّف عندنا وتنفع على الجهاز ده؟ (ممكن نمسحه ونرجّعه زي ما كان)."""
+    from utils import biometric_templates as bio
+    ids = {str(device[k]).strip() for k in ('serial_number', 'device_ip') if k in device.keys() and device[k]}
+    vers = bio.device_versions(device)
+    for r in conn.execute("SELECT COALESCE(template_type, 1) t, COALESCE(major_ver, '') v, COALESCE(device_sn, '') sn "
+                          "FROM fingerprint_templates WHERE pin = ?", (str(pin).strip(),)):
+        if str(r['sn']) in ids or (vers.get(int(r['t'])) and bio.norm_ver(r['v']) == vers[int(r['t'])]):
+            return True
+    try:
+        if ids and conn.execute(f"SELECT 1 FROM fingerprint_faces WHERE pin = ? AND device_sn IN "
+                                f"({','.join('?' * len(ids))})", [str(pin).strip()] + list(ids)).fetchone():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _queue_once(conn, device_id, ctype, payload):
+    if conn.execute("SELECT 1 FROM adms_commands WHERE device_id = ? AND command_type = ? AND payload = ? "
+                    "AND status = 'PENDING'", (device_id, ctype, payload)).fetchone():
+        return False
+    conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, ?, ?, 'PENDING')",
+                 (device_id, ctype, payload))
+    return True
+
+
+def adms_restrict(conn, device_id, pin, now=None):
+    """الموظّف ممنوع على جهاز ADMS ده: يتمسح منه (بعد ما بصماته تبقى عندنا).
+    يُرجع 'deleted' أو 'backup' (طلبنا بصماته من الجهاز الأوّل) أو None."""
+    import json
+    ensure_schema(conn)
+    pin = str(pin).strip()
+    device = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (int(device_id),)).fetchone()
+    if not device or not pin:
+        return None
+    now = now or datetime.now()
+    wait = conn.execute('SELECT asked_at FROM adms_restrict_waits WHERE device_id = ? AND user_id = ?',
+                        (int(device_id), pin)).fetchone()
+    timed_out = wait is not None and (_parse(wait['asked_at']) or now) <= now - timedelta(hours=RESTRICT_WAIT_HOURS)
+    if _restorable(conn, device, pin) or timed_out:
+        _queue_once(conn, int(device_id), 'DATA DELETE USERINFO', json.dumps({'PIN': pin}))
+        conn.execute('DELETE FROM adms_restrict_waits WHERE device_id = ? AND user_id = ?', (int(device_id), pin))
+        conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
+                     (int(device_id), pin))
+        return 'deleted'
+    if wait is None:
+        for bt in (1, 9):
+            _queue_once(conn, int(device_id), 'DATA QUERY BIODATA', json.dumps({'Type': bt, 'PIN': pin}))
+        _queue_once(conn, int(device_id), 'DATA QUERY FINGERTMP', json.dumps({'PIN': pin}))
+        conn.execute('INSERT INTO adms_restrict_waits (device_id, user_id, asked_at) VALUES (?, ?, ?)',
+                     (int(device_id), pin, now.strftime('%Y-%m-%d %H:%M:%S')))
+    return 'backup'
+
+
+def adms_restrict_pending(conn, device_id):
+    """كل ما الجهاز يسأل عن أوامر: اللي طلبنا بصماتهم ووصلت (أو عدّى وقت الانتظار) يتمسحوا."""
+    ensure_schema(conn)
+    rows = conn.execute('SELECT user_id FROM adms_restrict_waits WHERE device_id = ?', (int(device_id),)).fetchall()
+    if not rows:
+        return 0
+    restr = restriction_map(conn)
+    n = 0
+    for r in rows:
+        if not denied_on(restr, r['user_id'], device_id):
+            conn.execute('DELETE FROM adms_restrict_waits WHERE device_id = ? AND user_id = ?',
+                         (int(device_id), r['user_id']))
+            continue
+        if adms_restrict(conn, device_id, r['user_id']) == 'deleted':
+            n += 1
+    return n
+
+
+def adms_full_upload(conn, device_id, pin):
+    """يرجّع الموظّف على جهاز ADMS ببياناته وبصماته المحفوظة (بعد ما اتمسح منه)."""
+    from utils.fingerprint_utils import adms_template_commands
+    device = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (int(device_id),)).fetchone()
+    n = int(_queue_once(conn, int(device_id), 'DATA UPDATE USERINFO', adms_enable_payload(conn, pin)))
+    for ctype, payload in adms_template_commands(conn, pin, device):
+        n += int(_queue_once(conn, int(device_id), ctype, payload))
+    return n
+
+
 def apply_rules_adms(conn, numbers):
-    """أوامرُ ADMS بعد تغيير الأجهزة المسموحة لموظّفين: يُعطَّل على الممنوعة،
-    ويُفعَّل على ما عُطّل عليه سابقًا وصار مسموحًا (لا يُنشأ موظّفٌ على جهازٍ لم يكن عليه).
-    الموقوفُ لا يُفعَّل على أيّ جهاز. يُرجع عددَ الأوامر."""
+    """أوامرُ ADMS بعد تغيير الأجهزة المسموحة لموظّفين: يتمسح من الممنوعة (ببصماته محفوظة
+    عندنا)، ويترفع ببصماته على اللي اتمسح منه وبقى مسموح. الموقوفُ مايترفعش. يُرجع عددَ الأجهزة."""
     ensure_schema(conn)
     restr = restriction_map(conn)
     blocked = blocked_map(conn)
@@ -217,15 +303,15 @@ def apply_rules_adms(conn, numbers):
     n = 0
     for num in {str(x).strip() for x in numbers if str(x).strip()}:
         for dev_id in devices:
-            was_off = conn.execute('SELECT 1 FROM device_removed_users WHERE device_id = ? AND user_id = ?',
-                                   (dev_id, num)).fetchone()
             if denied_on(restr, num, dev_id):
-                if _queue_userinfo(conn, dev_id, adms_disable_payload(conn, num)):
+                if adms_restrict(conn, dev_id, num):
                     n += 1
-                conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
-                             (dev_id, num))
-            elif was_off:
-                if num not in blocked and _queue_userinfo(conn, dev_id, adms_enable_payload(conn, num)):
+                continue
+            conn.execute('DELETE FROM adms_restrict_waits WHERE device_id = ? AND user_id = ?', (dev_id, num))
+            if conn.execute('SELECT 1 FROM device_removed_users WHERE device_id = ? AND user_id = ?',
+                            (dev_id, num)).fetchone():
+                if num not in blocked:
+                    adms_full_upload(conn, dev_id, num)
                     n += 1
                 conn.execute('DELETE FROM device_removed_users WHERE device_id = ? AND user_id = ?', (dev_id, num))
     return n
