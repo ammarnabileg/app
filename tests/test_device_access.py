@@ -85,8 +85,12 @@ def adms(env):
 
 
 def test_adms_punch_of_a_stopped_employee_is_ignored_and_the_device_told_to_disable_him(adms):
+    """الموقوف بصم على جهاز ADMS: البصمة مابتتحسبش. والجهاز كان بيتبعتله Enabled=0، وأجهزة
+    SpeedFace بتتجاهله فيفضل يبصم — دلوقتي بيتمسح من الجهاز بعد ما بصماته تتحفظ عندنا."""
     c, con = adms
     c.get('/iclock/cdata?SN=SNADMS1&options=all')
+    con.execute("UPDATE fingerprint_devices SET serial_number = 'SNADMS1' WHERE id = 2")
+    con.commit()
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     r = c.post('/iclock/cdata?SN=SNADMS1&table=ATTLOG&Stamp=1',
                data=f'101\t{now}\t0\t1\t0\t0\n102\t{now}\t0\t1\t0\t0\n', content_type='text/plain')
@@ -95,12 +99,41 @@ def test_adms_punch_of_a_stopped_employee_is_ignored_and_the_device_told_to_disa
                                       'JOIN employees e ON e.id = a.employee_id')]
     assert rows == ['101'], 'بصمةُ الموقوف لا تدخل الحضور ولا التقرير'
     assert con.execute('SELECT COUNT(*) FROM ignored_punches WHERE employee_id = 2').fetchone()[0] == 1
-    assert not con.execute("SELECT 1 FROM adms_commands WHERE command_type = 'DATA DELETE USERINFO'").fetchone()
-    cmd = con.execute("SELECT id, payload FROM adms_commands WHERE command_type = 'DATA UPDATE USERINFO'").fetchone()
-    p = json.loads(cmd[1])
-    assert p['PIN'] == '102' and p['Enabled'] == 0 and p['Pri'] & 1, 'يُعطَّل ببياناته، لا يُحذف'
-    r = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
-    assert 'DATA UPDATE USERINFO' in r and 'PIN=102' in r and 'Enabled=0' in r and 'Pri=1' in r, r
+    # بصماته مش عندنا: نطلبها من الجهاز الأول — مفيش مسح لسه
+    cmds = [x[0] for x in con.execute("SELECT command_type FROM adms_commands WHERE device_id = 2")]
+    assert 'DATA QUERY BIODATA' in cmds and 'DATA DELETE USERINFO' not in cmds, cmds
+    # وصلت بصماته من الجهاز → يتمسح منه في السؤال الجاي
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, template_data, device_sn)"
+                " VALUES ('102', 0, 1, 'T', 'SNADMS1')")
+    con.commit()
+    out = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
+    out += c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
+    assert 'DATA DELETE USERINFO PIN=102' in out, out
+    assert 'Enabled=0' not in out
+
+
+def test_reactivated_employee_goes_back_to_adms_with_his_fingers(adms):
+    c, con = adms
+    import importlib
+    import utils.fingerprint_utils as fu
+    importlib.reload(fu)
+    import utils.device_access as da
+    da.ensure_schema(con)
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, major_ver, template_data, device_sn)"
+                " VALUES ('102', 0, 1, '10', 'TPL102', 'x')")
+    con.execute("INSERT INTO device_removed_users (device_id, user_id) VALUES (2, '102')")
+    con.execute("INSERT INTO fingerprint_users (user_id, device_id, name) VALUES ('102', 2, 'b')")
+    con.execute('UPDATE employees SET is_active = 1 WHERE id = 2')
+    con.commit()
+    fu.queue_adms_user_update({'employee_number': '102', 'name': 'b'}, templates='missing')
+    rows = con.execute("SELECT command_type, payload FROM adms_commands WHERE device_id = 2").fetchall()
+    assert any('TPL102' in r[1] for r in rows), 'اتمسح من الجهاز: يرجع ببصماته'
+    assert not con.execute("SELECT 1 FROM device_removed_users WHERE device_id = 2 AND user_id = '102'").fetchone()
+    con.execute('DELETE FROM adms_commands')
+    con.commit()
+    fu.queue_adms_user_update({'employee_number': '102', 'name': 'b2'}, templates='missing')
+    rows = con.execute("SELECT command_type FROM adms_commands WHERE device_id = 2").fetchall()
+    assert [r[0] for r in rows] == ['DATA UPDATE USERINFO'], 'عليه بصماته: البيانات بس'
 
 
 # ------------------------------------------------------------ الجهاز المباشر (K40) — وهميّ بواجهة pyzk

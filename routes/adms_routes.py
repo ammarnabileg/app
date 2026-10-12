@@ -335,7 +335,10 @@ def cdata():
                 from utils import device_clock
                 device_clock.record_skew(conn, device_id, raw_data)
             
-            if device_id:
+            from utils import device_clock as _dc
+            # جهاز بيسأل عن الوقت بنفسه (/iclock/rtdata): مالوش لازمة أمر ضبط يومي — كان بيتحط
+            # كل يوم ويتلغي (SKIPPED) أول ما يتبعت.
+            if device_id and not _dc.uses_rtdata(conn, device_id):
                 # Check if we sent a SET TIME command in the last 24 hours
                 last_time_cmd = conn.execute('''
                     SELECT 1 FROM adms_commands 
@@ -351,13 +354,10 @@ def cdata():
                         VALUES (?, 'SET TIME', ?, 'PENDING')
                     ''', (device_id, json.dumps(now_str)))
 
-            # 1b. Command Cleanup (Maintenance)
-            # Delete OK/FAILED commands older than 7 days
-            conn.execute('''
-                DELETE FROM adms_commands 
-                WHERE status IN ('OK', 'FAILED') 
-                AND created_at < datetime('now', '-7 days')
-            ''')
+            # 1b. Command Cleanup (Maintenance) — كل أمر خلصان (أيًّا كانت حالته) عدّى عليه أسبوع،
+            # مرة كل ١٠ دقايق. كان «OK» و«FAILED» بالظبط بس، فالباقي بيتراكم (utils/adms_queue).
+            from utils import adms_queue
+            adms_queue.cleanup(conn)
 
             conn.commit()
             pass # conn.close() removed to prevent leak in Flask g
@@ -874,6 +874,7 @@ def get_request():
             ORDER BY id ASC LIMIT ?
         ''', (device['id'], _commands_per_poll())).fetchall()
         _reply_bytes = 0
+        _off = None
         
         for row in rows:
             cmd_id = row['id']
@@ -890,12 +891,17 @@ def get_request():
                 try:
                     from utils import device_access as _da
                     _pin = payload.get('PIN') or payload.get('Pin')
-                    if _pin and _da.denied_on(_da.restriction_map(conn), _pin, device['id']):
+                    if _off is None:
+                        # مرة واحدة في الطلب: الممنوعين على الجهاز ده، والموقوفين.
+                        _off = (_da.restriction_map(conn), _da.blocked_map(conn))
+                    _blocked_now = str(_pin or '').strip() in _off[1]
+                    if _pin and (_da.denied_on(_off[0], _pin, device['id']) or _blocked_now):
                         conn.execute("UPDATE adms_commands SET status = 'SKIPPED', updated_at = CURRENT_TIMESTAMP "
                                      "WHERE id = ?", (cmd_id,))
                         if cmd_type in ('DATA UPDATE USERINFO', 'ADD_USER'):
                             _da.adms_restrict(conn, device['id'], _pin)
-                        adms_protocol_logger.info(f"{cmd_type} skipped | SN: {sn} | PIN {_pin} ممنوع على الجهاز ده")
+                        adms_protocol_logger.info(f"{cmd_type} skipped | SN: {sn} | PIN {_pin} "
+                                                  f"{'موقوف' if _blocked_now else 'ممنوع على الجهاز ده'} — بيتمسح بدل كده")
                         continue
                 except Exception as _e:
                     logger.warning(f'device rules check failed: {_e}')

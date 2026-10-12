@@ -114,15 +114,21 @@ def test_repeated_adms_user_sync_does_not_pile_up_commands(env):
     count = lambda: conn.execute("SELECT COUNT(*) FROM adms_commands WHERE status = 'PENDING' AND command_type IN "
                                  "('DATA QUERY USERINFO', 'DATA QUERY FINGERTMP')").fetchone()[0]
     m.sync_users_to_employees()
-    first = count()
-    assert first == 6, first                  # أمران لكلّ موظّف
-    for _ in range(3):                        # ثلاث ساعات والجهازُ لم يأخذها
+    # كان أمرين لكل موظف كل ساعة (٣٠٠٠ موظف = ٦٠٠٠ أمر لكل جهاز). دلوقتي سحب احتياطي واحد
+    # للكل (USERINFO، و FINGERTMP لجهاز مابيبعتش BIODATA) — مرة في اليوم (utils/adms_queue).
+    assert count() == 2, count()
+    for _ in range(3):                        # ثلاث ساعات
         m.sync_users_to_employees()
-    assert count() == first, 'تراكمت الأوامرُ المعلّقة'
-    conn.execute("UPDATE adms_commands SET status = 'DONE'")
+        m.sync_all_devices()
+    assert count() == 2, 'مفيش أوامر زيادة في نفس اليوم'
+    conn.execute("UPDATE adms_commands SET status = 'OK'")
     conn.commit()
     m.sync_users_to_employees()
-    assert count() == 6, 'بعد أن أخذها الجهاز تُرسَل من جديد'
+    assert count() == 0, 'الجهاز أخدها: مفيش تاني لحد بكرة'
+    conn.execute("UPDATE adms_query_log SET last_at = datetime('now', 'localtime', '-25 hours')")
+    conn.commit()
+    m.sync_users_to_employees()
+    assert count() == 2, 'بعد يوم: سحب احتياطي جديد'
     conn.close()
 
 

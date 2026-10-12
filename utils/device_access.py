@@ -272,9 +272,11 @@ def adms_restrict_pending(conn, device_id):
     if not rows:
         return 0
     restr = restriction_map(conn)
+    blocked = blocked_map(conn)
     n = 0
     for r in rows:
-        if not denied_on(restr, r['user_id'], device_id):
+        # لسه لازم يتشال من الجهاز؟ (ممنوع عليه، أو موقوف)
+        if not denied_on(restr, r['user_id'], device_id) and str(r['user_id']).strip() not in blocked:
             conn.execute('DELETE FROM adms_restrict_waits WHERE device_id = ? AND user_id = ?',
                          (int(device_id), r['user_id']))
             continue
@@ -508,14 +510,9 @@ def adms_disable_payload(conn, employee_number):
 
 
 def adms_block(conn, device_id, employee_number):
-    """أمرُ تعطيلٍ لجهاز ADMS بصم عليه موقوف — مرّةً واحدة ما دام معلّقًا."""
-    payload = adms_disable_payload(conn, employee_number)
-    if conn.execute("SELECT 1 FROM adms_commands WHERE device_id = ? AND command_type = 'DATA UPDATE USERINFO' "
-                    "AND payload = ? AND status = 'PENDING'", (device_id, payload)).fetchone():
-        return False
-    conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) "
-                 "VALUES (?, 'DATA UPDATE USERINFO', ?, 'PENDING')", (device_id, payload))
-    return True
+    """موقوف بصم على جهاز ADMS: يتمسح منه بعد ما بصماته تتحفظ عندنا (adms_restrict).
+    كان بيتبعتله Enabled=0، وأجهزة SpeedFace بتتجاهله فيفضل يبصم."""
+    return bool(adms_restrict(conn, device_id, employee_number))
 
 
 # ------------------------------------------------------------ الأجهزة المباشرة (pyzk)
@@ -921,12 +918,14 @@ def _free_uid(pin, used):
     return uid
 
 
-def push_direct(conn, device, employees):
+def push_direct(conn, device, employees, templates='all'):
     """يرفع موظّفين لجهازٍ مباشر **ببصماتهم** المحفوظة عندنا.
 
     - المكانُ (uid) على الجهاز: مكانُه إن كان عليه، وإلّا مكانٌ فارغ — كان يُرفع
       برقمه في الجدول فيكتب فوق موظّفٍ آخر يشغل الرقمَ نفسه على الجهاز.
     - البصماتُ التي بإصدار خوارزميةٍ غير إصدار الجهاز لا تُرسَل (لا تنفع)، ويُقال ذلك.
+    - `templates='missing'`: البصمات بس للموظف اللي ماكانش على الجهاز (تعديل بيانات) — اللي
+      عليه بصماته باقية على الجهاز.
     يُرجع (details, fp_version) — details: [{user, status, message}].
     """
     from zk.finger import Finger
@@ -970,6 +969,9 @@ def push_direct(conn, device, employees):
                                      (device['id'], pin))
                     # لكلّ إصبع نسختُه بإصدار هذا الجهاز (utils/biometric_templates).
                     from utils import biometric_templates as bio
+                    if templates == 'missing' and old is not None:
+                        details.append({'user': emp['name'], 'status': 'success', 'message': 'اتحدّثت بياناته'})
+                        continue
                     rows, skipped = bio.pick(conn, pin, {1: bio.norm_ver(fp_ver)} if fp_ver else {}, types={1})
                     any_saved = conn.execute("SELECT 1 FROM fingerprint_templates WHERE pin = ? "
                                              "AND COALESCE(template_type, 1) = 1", (pin,)).fetchone()
@@ -1022,7 +1024,7 @@ def apply_now():
     threading.Thread(target=enforce_all, daemon=True).start()
 
 
-def push_employee(employee_number, conn=None):
+def push_employee(employee_number, conn=None, templates='all'):
     """تعديل موظّف أو إضافته: يتبعت لكل الأجهزة المباشرة (IP) دلوقتي — زي ما بيتبعت لأجهزة ADMS.
     كان مابيوصلهاش غير برفعٍ يدوي، فالاسم أو الكارت الجديد مايظهرش على الجهاز.
     الممنوعُ على جهاز بيترفع عليه متوقّف (push_direct)، والموقوفُ مابيترفعش. جهازٌ مقفول بيتساب."""
@@ -1039,7 +1041,7 @@ def push_employee(employee_number, conn=None):
             return out
         for d in _direct_devices(conn):
             try:
-                details, _ver = push_direct(conn, d, [emp])
+                details, _ver = push_direct(conn, d, [emp], templates=templates)
                 if details and details[0]['status'] != 'error':
                     out['pushed'] += 1
                 else:
@@ -1058,5 +1060,6 @@ def push_employee(employee_number, conn=None):
     return out
 
 
-def push_employee_now(employee_number):
-    threading.Thread(target=push_employee, args=(str(employee_number),), daemon=True).start()
+def push_employee_now(employee_number, templates='all'):
+    threading.Thread(target=push_employee, args=(str(employee_number),),
+                     kwargs={'templates': templates}, daemon=True).start()

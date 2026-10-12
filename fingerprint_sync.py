@@ -228,20 +228,13 @@ class FingerprintSyncManager:
         
         # ADMS CHECK
         if device_info.get('is_adms'):
-            self.log_message("INFO", device_ip, "جهاز ADMS: إرسال أمر تحديث المستخدمين...")
+            # جهاز ADMS بيبعت الموظف وبصماته لوحده أول ما يتسجّل عليه. كان بيتطلب منه كل
+            # الموظفين وكل البصمات كل ساعة — دلوقتي سحب احتياطي مرة في اليوم بس (utils/adms_queue).
             try:
                 db_conn = self.get_db_connection()
-                # Queue Query Command
-                db_conn.execute('''
-                    INSERT INTO adms_commands (device_id, command_type, payload, status)
-                    VALUES (?, 'DATA QUERY USERINFO', '{}', 'PENDING')
-                ''', (device_id,))
-                # Also request templates
-                db_conn.execute('''
-                    INSERT INTO adms_commands (device_id, command_type, payload, status)
-                    VALUES (?, 'DATA QUERY FINGERTMP', '{}', 'PENDING')
-                ''', (device_id,))
-                
+                from utils import adms_queue
+                if adms_queue.queue_device_refresh(db_conn, device_info):
+                    self.log_message("INFO", device_ip, "جهاز ADMS: سحب احتياطي يومي للموظفين")
                 db_conn.commit()
                 pass # conn.close() removed to prevent leak in Flask g
                 self.log_message("INFO", device_ip, "تم إدراج أوامر التحديث في قائمة الانتظار")
@@ -535,8 +528,13 @@ class FingerprintSyncManager:
                 users_count = self.sync_device_users(device)
                 total_users += users_count
                 
-                # مزامنة الحضور
-                attendance_count = self.sync_device_attendance(device)
+                # مزامنة الحضور — من أجهزة IP بس. جهاز ADMS بيبعت بصماته لوحده لحظة بلحظة،
+                # وكان البرنامج كمان بيتصل بيه مباشرة كل ساعة ويقفله ثواني من غير داعي.
+                if device.get('is_adms'):
+                    attendance_count = 0
+                    self.log_message("INFO", device_ip, "جهاز ADMS: البصمات بتوصل منه لوحدها لحظة بلحظة")
+                else:
+                    attendance_count = self.sync_device_attendance(device)
                 total_attendance += attendance_count
                 
                 if users_count > 0 or attendance_count > 0:
@@ -670,26 +668,11 @@ class FingerprintSyncManager:
                     self.log_message("INFO", device_ip, "جهاز ADMS: قراءة البيانات المحلية وإرسال أمر تحديث")
                     # Queue Command
                     try:
-                        import json
                         cmd_conn = self.get_db_connection()
-                        # أوامرُ معلّقةٌ من قبل لم يأخذها الجهاز بعد (مُطفأ أو منقطع)؟
-                        # لا يُضاف غيرُها: أمران لكلّ موظّفٍ في كلّ تشغيل — والتشغيلُ
-                        # صار كلَّ ساعة — تتراكم آلافًا في اليوم ويغرق بها الجهازُ حين يعود.
-                        pending = cmd_conn.execute(
-                            "SELECT COUNT(*) FROM adms_commands WHERE device_id = ? AND status = 'PENDING' "
-                            "AND command_type IN ('DATA QUERY USERINFO', 'DATA QUERY FINGERTMP')",
-                            (device_id,)).fetchone()[0]
-                        employees = [] if pending else cmd_conn.execute('SELECT employee_number FROM employees WHERE is_active = 1').fetchall()
-                        if employees:
-                            for emp in employees:
-                                pin = str(emp['employee_number'])
-                                payload = json.dumps({"PIN": pin})
-                                cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY USERINFO', ?, 'PENDING')", (device_id, payload))
-                                cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY FINGERTMP', ?, 'PENDING')", (device_id, payload))
-                        elif not pending:
-                            cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY USERINFO', '{}', 'PENDING')", (device_id,))
-                            cmd_conn.execute("INSERT INTO adms_commands (device_id, command_type, payload, status) VALUES (?, 'DATA QUERY FINGERTMP', '{}', 'PENDING')", (device_id,))
-                        
+                        # كان بيحط أمرين لكل موظف نشط كل ساعة (٣٠٠٠ موظف = ٦٠٠٠ أمر لكل جهاز).
+                        # دلوقتي سحب احتياطي واحد مرة في اليوم — الجهاز بيبعت الجديد لوحده.
+                        from utils import adms_queue
+                        adms_queue.queue_device_refresh(cmd_conn, device)
                         cmd_conn.commit()
                         pass  # الاتصال من g — لا يُغلق هنا. (كان سطرًا يسمّي متغيّرًا غير معرَّف فيرمي NameError.)
                     except Exception as e:

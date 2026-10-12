@@ -538,8 +538,15 @@ def edit_employee(id):
             except Exception as _e:
                 print(f'new device employee: {_e}')
             
-            # ADMS SYNC
-            if is_active == 1:
+            # ADMS SYNC — بس لو حاجة تخص الجهاز اتغيّرت (الاسم، الكارت، الباسورد، الصلاحية،
+            # المجموعة، أو التفعيل). كان أيّ حفظ (ولو رقم تليفون) بيبعت الموظف وكل بصماته لكل جهاز.
+            _dev_fields = {'name': name, 'card_number': card_number, 'privilege': privilege,
+                           'password': password, 'group_id': group_id}
+            _was_active = bool(_before['is_active']) if _before is not None else False
+            _dev_changed = (_before is None or not _was_active
+                            or any(str(_before[k] if _before[k] is not None else '') != str(v if v is not None else '')
+                                   for k, v in _dev_fields.items()))
+            if is_active == 1 and _dev_changed:
                 # Update/Add on device
                 employee_data = {
                     'employee_number': employee['employee_number'],
@@ -549,15 +556,17 @@ def edit_employee(id):
                     'password': password,
                     'group_id': group_id
                 }
-                queue_adms_user_update(employee_data)
+                # البصمات بس للجهاز اللي ماعندوش الموظف (أو اتمسح منه) — اللي عليه بصماته باقية.
+                queue_adms_user_update(employee_data, templates='missing')
                 # والأجهزة المباشرة (IP) دلوقتي في الخلفيّة — كانت مابتوصلهاش التعديلات.
                 try:
                     from utils import device_access
-                    device_access.push_employee_now(employee['employee_number'])
+                    device_access.push_employee_now(employee['employee_number'], templates='missing')
                 except Exception as _e:
                     print(f'direct push failed: {_e}')
-            else:
-                # موقوف: يُعطَّل على الجهاز ولا يُحذف — يبقى ببصماته والجهازُ يرفض بصمتَه.
+            elif is_active != 1 and (_was_active or _before is None):
+                # اتوقف دلوقتي (مش كل حفظ لموظف موقوف): على أجهزة ADMS بيتمسح بعد ما بصماته
+                # تتحفظ عندنا، وبيرجع ببصماته لو اتفعّل (utils/device_access.adms_restrict).
                 from utils.fingerprint_utils import queue_adms_user_disable
                 queue_adms_user_disable(employee['employee_number'])
 

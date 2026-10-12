@@ -309,10 +309,13 @@ def adms_template_commands(conn, pin, device=None, stats=None):
     return out
 
 
-def queue_adms_user_update(employee_data):
+def queue_adms_user_update(employee_data, templates='all'):
     """
     Queue ADD_USER command for all active ADMS devices.
     Also syncs fingerprints and face templates if available.
+
+    `templates`: 'all' كل البصمات لكل جهاز (إضافة موظف)، أو 'missing' للجهاز اللي مالوش عليه
+    الموظف أو اتمسح منه بس (تعديل) — الجهاز اللي عليه الموظف بصماته باقية عليه.
 
     `employee_data`: قاموسُ الموظّف، أو رقمُه في الجدول — استيرادُ Excel كان يمرّر
     الرقم فيسقط `.get` بصمت ولا يصل الموظّفُ المستورد لأيّ جهاز.
@@ -353,12 +356,13 @@ def queue_adms_user_update(employee_data):
         for device in devices:
             device_id = device['id']
             # 2. البصماتُ بإصدار هذا الجهاز (لكلّ جهازٍ ما يقرؤه).
-            templates = adms_template_commands(conn, pin, device)
+            send_tpl = templates != 'missing' or _adms_lacks_user(conn, device_id, pin)
+            tpl_cmds = adms_template_commands(conn, pin, device) if send_tpl else []
             # Queue User Info — بلا تكرار.
             # كان كل حفظٍ للموظف يضيف أمرًا جديدًا ولو كان أمرٌ بالمحتوى
             # نفسه ما زال معلّقًا، فيتراكم الطابور ويُرسَل الأمر مرارًا.
             # وبروتوكول ZKTeco يخصّص للأمر المكرّر رمز خطأ (-7).
-            for cmd_type, payload in [('DATA UPDATE USERINFO', user_json)] + templates:
+            for cmd_type, payload in [('DATA UPDATE USERINFO', user_json)] + tpl_cmds:
                 dup = cursor.execute('''
                     SELECT id FROM adms_commands
                     WHERE device_id = ? AND command_type = ?
@@ -369,6 +373,13 @@ def queue_adms_user_update(employee_data):
                         INSERT INTO adms_commands (device_id, command_type, payload, status)
                         VALUES (?, ?, ?, 'PENDING')
                     ''', (device_id, cmd_type, payload))
+            # اترفع ببصماته: مابقاش «متمسوح من الجهاز».
+            if send_tpl:
+                try:
+                    conn.execute('DELETE FROM device_removed_users WHERE device_id = ? AND user_id = ?',
+                                 (device_id, pin))
+                except Exception:
+                    pass
             count += 1
             
         conn.commit()
@@ -379,16 +390,28 @@ def queue_adms_user_update(employee_data):
     finally:
         pass # conn.close() removed to prevent leak in Flask g
 
+def _adms_lacks_user(conn, device_id, pin):
+    """الجهاز ده مش عليه الموظف (ماأبلغش بيه) أو اتمسح منه؟ — يبقى محتاج بصماته."""
+    try:
+        if conn.execute('SELECT 1 FROM device_removed_users WHERE device_id = ? AND user_id = ?',
+                        (device_id, str(pin))).fetchone():
+            return True
+    except Exception:
+        pass
+    return not conn.execute('SELECT 1 FROM fingerprint_users WHERE device_id = ? AND CAST(user_id AS TEXT) = ?',
+                            (device_id, str(pin))).fetchone()
+
+
 def queue_adms_user_disable(employee_number):
-    """تعطيلُ الموظّف على كلّ أجهزة ADMS — يبقى ببصماته والجهازُ يرفض بصمتَه.
-    (للإيقاف وإنهاء الخدمة؛ الحذفُ لموظّفٍ حُذف من البرنامج.)"""
+    """الموظّف اتوقف: على كل أجهزة ADMS بيتمسح — بعد ما بصماته تتحفظ عندنا — وبيرجع ببصماته
+    لو اتفعّل. (كان بيتبعتله Enabled=0، وأجهزة SpeedFace بتتجاهله فيفضل يبصم.)"""
     from utils import device_access
     conn = get_db_connection()
     try:
         devices = conn.execute('SELECT id FROM fingerprint_devices WHERE is_active = 1 AND is_adms = 1').fetchall()
         n = 0
         for d in devices:
-            if device_access.adms_block(conn, d['id'], employee_number):
+            if device_access.adms_restrict(conn, d['id'], employee_number):
                 n += 1
         conn.commit()
         return n
