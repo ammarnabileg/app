@@ -66,3 +66,10 @@ def test_no_plain_filehandler_disguised_as_rotating():
     for rel in ('app.py', 'routes/adms_routes.py', 'utils/oracle_db.py'):
         src = open(os.path.join(ROOT, rel), encoding='utf-8').read()
         assert 'FileHandler as RotatingFileHandler' not in src, rel
+
+
+def test_adms_server_closes_db_connections_after_each_request():
+    """سيرفر ADMS المستقل كان بيسيب اتصال مفتوح مع كل طلب: تحت ضغط ٢٠ جهاز الملفات المفتوحة
+    عدّت الألف في ثواني ووقع («filedescriptor out of range in select()»)."""
+    import adms_server
+    assert 'close_db_connection' in [f.__name__ for f in adms_server.app.teardown_appcontext_funcs]
