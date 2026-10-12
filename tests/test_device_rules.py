@@ -355,9 +355,49 @@ def test_print_report_groups_by_branch_and_filters(env, monkeypatch):
     assert 'تقرير مين يبصم فين' in page and 'الفرع: الإدارة' in page and 'الفرع: السوق' in page
     assert 'كل الأجهزة' in page and 'موظف 202' in page
     row = page[page.index('موظف 202'):page.index('موظف 202') + 600]
-    assert 'SNADMS1' in row and 'K40' in row, 'يبصم على SNADMS1 ومتوقف على K40'
+    assert 'السوق' in row and 'الإدارة' in row and 'SNADMS1' not in row, 'بأسماء الفروع مش الأجهزة'
     page = client.get('/fingerprint/device-access/print?state=limited').get_data(as_text=True)
     assert 'موظف 202' in page and 'موظف 201' not in page
     page = client.get('/fingerprint/device-access/print?branch=__none__').get_data(as_text=True)
     assert 'موظف 203' in page and 'موظف 201' not in page
     assert 'printReport()' in client.get('/fingerprint/device-access').get_data(as_text=True)
+
+
+def test_place_labels_use_branch_names(env):
+    db, da, con = env
+    con.execute("INSERT INTO fingerprint_devices (id, device_name, device_ip, is_active, is_adms, branch_name)"
+                " VALUES (3, 'K40-2', '192.168.1.202', 1, 0, 'الإدارة')")
+    con.execute("INSERT INTO fingerprint_devices (id, device_name, device_ip, is_active, is_adms)"
+                " VALUES (4, 'NOBR', '192.168.1.203', 1, 0)")
+    con.commit()
+    assert da.place_labels(con, [1, 3]) == ['الإدارة']
+    assert da.place_labels(con, [1]) == ['الإدارة (K40)']
+    assert da.place_labels(con, [2, 4]) == ['السوق', 'NOBR']
+
+
+def test_move_to_branch_and_restrict_in_one_step(env, monkeypatch):
+    db, _da, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    import utils.device_access as da2
+    monkeypatch.setattr(da2, 'apply_now', lambda: None)
+    client = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with client.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    j = client.post('/fingerprint/device-access/save',
+                    json={'set_branch': 'السوق', 'nums': ['201', '203'], 'restrict': True}).get_json()
+    assert j['moved'] == 2 and j['changed'] == 2, j
+    m = da2.restriction_map(con)
+    assert m['201'][1] == {2} and m['203'][1] == {2}
+    assert con.execute("SELECT branch_location FROM employees WHERE employee_number = '203'").fetchone()[0] == 'السوق'
+    j = client.post('/fingerprint/device-access/save',
+                    json={'set_branch': 'فرع مفيهوش أجهزة', 'nums': ['202'], 'restrict': True}).get_json()
+    assert j['no_devices'] and j['changed'] == 0
+    page = client.get('/fingerprint/device-access').get_data(as_text=True)
+    assert 'id="move-restrict"' in page and 'value="1"' in page or 'value="1' in page

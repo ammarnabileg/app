@@ -411,6 +411,27 @@ def bio_readiness(conn, devices):
     return cells, labels
 
 
+def place_labels(conn, device_ids, names=None):
+    """أسماء الأماكن بدل أسماء الأجهزة: كل أجهزة الفرع ← اسم الفرع، وجزء منها ← «الفرع (الجهاز)»،
+    وجهاز مالوش فرع ← اسمه."""
+    ids = {int(x) for x in device_ids}
+    if names is None:
+        names = {int(r['id']): r['device_name'] for r in conn.execute('SELECT id, device_name FROM fingerprint_devices')}
+    by_branch = branch_devices(conn)
+    out, used = [], set()
+    for b in sorted(by_branch):
+        mine = by_branch[b] & ids
+        if not mine:
+            continue
+        used |= mine
+        if mine == by_branch[b]:
+            out.append(b)
+        else:
+            out.append(f"{b} ({'، '.join(names.get(i, str(i)) for i in sorted(mine))})")
+    out += [names.get(i, str(i)) for i in sorted(ids - used)]
+    return out
+
+
 def record_ignored(conn, employee_id, device_id, check_time, reason='موظف موقوف'):
     ensure_schema(conn)
     conn.execute('INSERT OR IGNORE INTO ignored_punches (employee_id, device_id, check_time, reason) '

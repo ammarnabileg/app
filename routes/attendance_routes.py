@@ -159,7 +159,7 @@ def device_access_print():
             continue
         allowed = sorted(rule[1]) if rule else [int(d['id']) for d in devices]
         ok = [i for i in allowed if cells.get((num, i)) in ('ok', 'unknown')]
-        no_bio = [names[i] for i in allowed if i in names and cells.get((num, i)) in ('none', 'empty')]
+        no_bio = [i for i in allowed if i in names and cells.get((num, i)) in ('none', 'empty')]
         for i in allowed:
             if i in totals:
                 totals[i] += 1
@@ -170,9 +170,10 @@ def device_access_print():
         groups.setdefault(b, []).append({
             'num': num, 'name': e['name'], 'department': e['department'] or '', 'position': e['position'] or '',
             'all': rule is None,
-            'allowed': [names[i] for i in allowed if i in names],
-            'denied': [names[i] for i in names if rule is not None and i not in rule[1]],
-            'no_bio': no_bio, 'stuck': stuck,
+            # بأسماء الفروع (كل أجهزة الفرع = اسم الفرع)، مش أسماء الأجهزة.
+            'allowed': da.place_labels(conn, [i for i in allowed if i in names], names),
+            'denied': da.place_labels(conn, [i for i in names if rule is not None and i not in rule[1]], names),
+            'no_bio': da.place_labels(conn, no_bio, names), 'stuck': stuck,
             'since': (rule[0].strftime('%Y-%m-%d') if rule and rule[0] else ''),
         })
     header = ''
@@ -211,8 +212,20 @@ def device_access_save():
         if nums:
             conn.execute(f"UPDATE employees SET branch_location = ? WHERE CAST(employee_number AS TEXT) "
                          f"IN ({','.join('?' * len(nums))})", [name] + nums)
-            conn.commit()
-        return jsonify({'success': True, 'moved': len(nums)})
+        cmds, changed, no_devices = 0, [], False
+        if nums and data.get('restrict'):
+            # ويبصموا على أجهزة الفرع ده بس — خطوة واحدة.
+            ids = da.branch_devices(conn).get(name)
+            if ids:
+                changed = da.set_allowed_devices(conn, nums, ids)
+                cmds = da.apply_rules_adms(conn, changed) if changed else 0
+            else:
+                no_devices = True
+        conn.commit()
+        if changed:
+            da.apply_now()
+        return jsonify({'success': True, 'moved': len(nums), 'changed': len(changed), 'commands': cmds,
+                        'no_devices': no_devices})
     if 'auto_branch' in data:
         by_branch = da.branch_devices(conn)
         nums = [str(n) for n in data.get('auto_branch') or []]

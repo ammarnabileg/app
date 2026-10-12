@@ -83,27 +83,43 @@
 </div>
 
 <div class="card shadow-sm mb-3 border-primary">
+    <div class="card-header bg-white py-2"><b>للموظفين المحدّدين (<span id="sel-count">0</span>)</b>
+        <span class="small text-muted ms-2">حدّد الموظفين من الجدول تحت (أو «تحديد الكل» بعد الفلتر)، وبعدين:</span></div>
     <div class="card-body py-2">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+            <span class="badge bg-primary">1</span>
+            <span class="small fw-bold">حطّهم في فرع:</span>
+            <select id="move-branch" class="form-select form-select-sm" style="max-width: 200px">
+                <option value="">— اختار الفرع —</option>
+                {% for b in branches %}<option value="{{ b }}">{{ b }}{% if branch_devices.get(b) %} ({{ branch_devices[b]|length }} جهاز){% else %} (مالوش أجهزة){% endif %}</option>{% endfor %}
+            </select>
+            <label class="form-check form-check-inline mb-0 small">
+                <input class="form-check-input" type="checkbox" id="move-restrict" checked>
+                <span class="form-check-label">ويبصموا على أجهزة الفرع ده بس</span>
+            </label>
+            <button class="btn btn-sm btn-primary" onclick="moveBranch()"><i class="fas fa-people-arrows me-1"></i>حطّهم</button>
+        </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
-            <b>للمحدّدين (<span id="sel-count">0</span>):</b>
-            <span class="small text-muted">يبصموا بس على:</span>
-            {% for d in devices %}
-            <label class="form-check form-check-inline mb-0">
-                <input class="form-check-input bulk-dev" type="checkbox" value="{{ d['id'] }}">
-                <span class="form-check-label small">{{ d['device_name'] }}</span>
+            <span class="badge bg-secondary">2</span>
+            <span class="small fw-bold">أو اختار يبصموا فين من غير ما تغيّر فرعهم:</span>
+            {% for b, ids in branch_devices|dictsort %}
+            <label class="form-check form-check-inline mb-0" title="{% for d in devices if d['id'] in ids %}{{ d['device_name'] }} {% endfor %}">
+                <input class="form-check-input bulk-dev" type="checkbox" value="{{ ids|join(',') }}">
+                <span class="form-check-label small"><i class="fas fa-code-branch text-muted"></i> {{ b }}</span>
             </label>
             {% endfor %}
-            <button class="btn btn-sm btn-primary" onclick="bulkSet()"><i class="fas fa-check me-1"></i>طبّق</button>
-            <button class="btn btn-sm btn-outline-success" onclick="bulkAll()"><i class="fas fa-globe me-1"></i>يبصموا على كل الأجهزة</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="bulkBranch()" title="الفرع المكتوب في بيانات الموظف = فرع الجهاز">
-                <i class="fas fa-code-branch me-1"></i>كل واحد على أجهزة فرعه
+            {% set placed = [] %}{% for ids in branch_devices.values() %}{% for i in ids %}{% set _ = placed.append(i) %}{% endfor %}{% endfor %}
+            {% for d in devices if d['id'] not in placed %}
+            <label class="form-check form-check-inline mb-0">
+                <input class="form-check-input bulk-dev" type="checkbox" value="{{ d['id'] }}">
+                <span class="form-check-label small">{{ d['device_name'] }} <span class="text-muted">(جهاز من غير فرع)</span></span>
+            </label>
+            {% endfor %}
+            <button class="btn btn-sm btn-outline-primary" onclick="bulkSet()"><i class="fas fa-check me-1"></i>طبّق</button>
+            <button class="btn btn-sm btn-outline-success" onclick="bulkAll()"><i class="fas fa-globe me-1"></i>يبصموا في كل الفروع</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="bulkBranch()" title="الفرع المكتوب في بيانات الموظف">
+                <i class="fas fa-code-branch me-1"></i>كل واحد في فرعه المكتوب في بياناته
             </button>
-            <span class="vr mx-1"></span>
-            <select id="move-branch" class="form-select form-select-sm" style="max-width: 180px">
-                <option value="">— حطّهم في فرع —</option>
-                {% for b in branches %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
-            </select>
-            <button class="btn btn-sm btn-outline-dark" onclick="moveBranch()"><i class="fas fa-people-arrows me-1"></i>حطّهم</button>
         </div>
     </div>
 </div>
@@ -126,9 +142,9 @@
                     <th>الفرع</th>
                     <th>الحالة</th>
                     {% for d in devices %}
-                    <th class="text-center small">{{ d['device_name'] }}
+                    <th class="text-center small"><span class="fw-bold">{{ d['branch_name'] or 'من غير فرع' }}</span>
+                        <br><span class="fw-normal">{{ d['device_name'] }}</span>
                         <span class="badge {{ 'bg-dark' if d['is_adms'] else 'bg-secondary' }} fw-normal">{{ 'ADMS' if d['is_adms'] else 'IP' }}</span>
-                        <br><span class="text-muted fw-normal">{{ d['branch_name'] or '' }}</span>
                         <br><span class="text-muted fw-normal" dir="ltr">{{ dev_labels.get(d['id']) or 'الإصدار مش معروف' }}</span></th>
                     {% endfor %}
                 </tr>
@@ -273,10 +289,10 @@
     };
     window.bulkSet = function () {
         const sel = selected();
-        const devs = Array.from(document.querySelectorAll('.bulk-dev:checked')).map(b => b.value);
+        const devs = Array.from(document.querySelectorAll('.bulk-dev:checked')).flatMap(b => b.value.split(','));
         if (!sel.length) return alert('حدّد موظفين الأول');
-        if (!devs.length) return alert('اختار جهاز واحد على الأقل');
-        const all = devs.length === document.querySelectorAll('.bulk-dev').length;
+        if (!devs.length) return alert('اختار فرع واحد على الأقل');
+        const all = document.querySelectorAll('.bulk-dev:not(:checked)').length === 0;
         if (!all && !confirmStuck(sel.filter(tr => !canPunch(tr, devs)).map(t => t.dataset.name))) return;
         post({rows: sel.map(tr => ({num: tr.dataset.num, devices: all ? null : devs}))});
     };
@@ -288,15 +304,24 @@
     window.moveBranch = async function () {
         const sel = selected();
         const b = document.getElementById('move-branch').value;
+        const restrict = document.getElementById('move-restrict').checked;
         if (!sel.length) return alert('حدّد موظفين الأول');
         if (!b) return alert('اختار الفرع');
-        if (!confirm(`الـ ${sel.length} موظف هيتكتب فرعهم «${b}» في بياناتهم. تكمل؟`)) return;
+        const byBranch = {{ branch_devices|tojson }};
+        if (restrict && !byBranch[b]) return alert(`فرع «${b}» مالوش أجهزة. حدّد فرع الجهاز من صفحة الأجهزة (تعديل الجهاز) الأول، أو شيل علامة «ويبصموا على أجهزة الفرع ده بس».`);
+        let msg = `الـ ${sel.length} موظف هيتكتب فرعهم «${b}» في بياناتهم`;
+        if (restrict) msg += ` ويبصموا على أجهزته بس، ويتوقفوا على باقي الفروع`;
+        if (!confirm(msg + '. تكمل؟')) return;
+        if (restrict && !confirmStuck(sel.filter(tr => !canPunch(tr, byBranch[b].map(String))).map(t => t.dataset.name))) return;
         const r = await fetch("{{ url_for('attendance.device_access_save') }}", {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({set_branch: b, nums: sel.map(tr => tr.dataset.num)})
+            body: JSON.stringify({set_branch: b, nums: sel.map(tr => tr.dataset.num), restrict: restrict})
         });
         const j = await r.json();
-        alert(`اتنقل ${j.moved} موظف لفرع «${b}». لسه ماتحدّدش هيبصموا فين — دوس «كل واحد على أجهزة فرعه» لو عاوز.`);
+        let out = `اتنقل ${j.moved} موظف لفرع «${b}».`;
+        if (restrict) out += ` واتحدّد لـ ${j.changed} منهم يبصموا على أجهزته بس.`;
+        if (j.commands) out += ` (${j.commands} أمر لأجهزة ADMS)`;
+        alert(out);
         location.reload();
     };
     window.printReport = function () {
