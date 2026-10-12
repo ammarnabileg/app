@@ -307,3 +307,29 @@ def test_branches_come_from_the_branches_page_and_can_be_assigned(env, monkeypat
     assert con.execute("SELECT branch_location FROM employees WHERE employee_number = '203'").fetchone()[0] == 'فرع حولي'
     page = client.get('/employees/edit/3').get_data(as_text=True)
     assert 'list="branchNames"' in page and '<option value="فرع حولي">' in page, 'خانة الفرع بتقترح الفروع'
+
+
+def test_editing_an_employee_reaches_direct_devices_now(env, monkeypatch):
+    """تعديل الموظف كان بيتبعت لأجهزة ADMS بس — الأجهزة المباشرة كانت مستنية رفع يدوي."""
+    db, da, con = env
+    k40 = FakeK40(users=[(5, '201', 'old name')], templates=[])
+    monkeypatch.setattr(da, '_connect', lambda device: k40)
+    con.execute("UPDATE employees SET name = 'الاسم الجديد', card_number = '777' WHERE employee_number = '201'")
+    con.commit()
+    res = da.push_employee('201', con)
+    assert res['pushed'] == 1 and not res['errors'], res
+    u = [x for x in k40.users if x.user_id == '201']
+    assert u[-1].name == 'الاسم الجديد' and u[-1].uid == 5, 'نفس مكانه على الجهاز'
+    # ممنوع على الجهاز ده: بيوصل متوقف
+    da.set_allowed_devices(con, ['202'], [2])
+    da.push_employee('202', con)
+    assert _user(k40, '202').privilege & da.DISABLED_BIT
+    # موقوف: مايترفعش
+    con.execute("UPDATE employees SET is_active = 0 WHERE employee_number = '203'")
+    con.commit()
+    assert da.push_employee('203', con)['pushed'] == 0
+
+
+def test_employee_edit_route_pushes_to_direct_devices():
+    src = open(os.path.join(ROOT, 'routes', 'employee_routes.py'), encoding='utf-8').read()
+    assert src.count('device_access.push_employee_now(') == 2, 'الإضافة والتعديل'

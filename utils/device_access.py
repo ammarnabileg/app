@@ -999,3 +999,43 @@ def apply_now():
     """بعد إيقاف موظّف أو تفعيله: الأجهزةُ المباشرة تُعالَج الآن في الخلفيّة —
     والجهازُ المقفول تُعالجه المزامنةُ التالية."""
     threading.Thread(target=enforce_all, daemon=True).start()
+
+
+def push_employee(employee_number, conn=None):
+    """تعديل موظّف أو إضافته: يتبعت لكل الأجهزة المباشرة (IP) دلوقتي — زي ما بيتبعت لأجهزة ADMS.
+    كان مابيوصلهاش غير برفعٍ يدوي، فالاسم أو الكارت الجديد مايظهرش على الجهاز.
+    الممنوعُ على جهاز بيترفع عليه متوقّف (push_direct)، والموقوفُ مابيترفعش. جهازٌ مقفول بيتساب."""
+    owned = conn is None
+    if owned:
+        from utils.db import get_db_connection
+        conn = get_db_connection()
+    out = {'pushed': 0, 'errors': []}
+    try:
+        ensure_schema(conn)
+        emp = conn.execute('SELECT * FROM employees WHERE CAST(employee_number AS TEXT) = ?',
+                           (str(employee_number).strip(),)).fetchone()
+        if not emp or str(emp['employee_number']).strip() in blocked_map(conn):
+            return out
+        for d in _direct_devices(conn):
+            try:
+                details, _ver = push_direct(conn, d, [emp])
+                if details and details[0]['status'] != 'error':
+                    out['pushed'] += 1
+                else:
+                    out['errors'].append(f"{d['device_ip']}: {details[0]['message'] if details else '?'}")
+            except Exception as e:              # noqa: BLE001 — جهازٌ مقفول لا يوقف البقيّة
+                out['errors'].append(f"{d['device_ip']}: {str(e)[:120]}")
+        conn.commit()
+    finally:
+        if owned:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    if out['errors']:
+        logger.warning(f'push employee {employee_number}: {out["errors"]}')
+    return out
+
+
+def push_employee_now(employee_number):
+    threading.Thread(target=push_employee, args=(str(employee_number),), daemon=True).start()

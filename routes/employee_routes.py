@@ -269,6 +269,11 @@ def add_employee():
                     'group_id': group_id
                 }
                 queue_adms_user_update(employee_data)
+                try:
+                    from utils import device_access
+                    device_access.push_employee_now(employee_number)
+                except Exception as _e:
+                    print(f'direct push failed: {_e}')
             
             # Portal User Auto-creation
             create_portal = request.form.get('create_portal_account')
@@ -545,6 +550,12 @@ def edit_employee(id):
                     'group_id': group_id
                 }
                 queue_adms_user_update(employee_data)
+                # والأجهزة المباشرة (IP) دلوقتي في الخلفيّة — كانت مابتوصلهاش التعديلات.
+                try:
+                    from utils import device_access
+                    device_access.push_employee_now(employee['employee_number'])
+                except Exception as _e:
+                    print(f'direct push failed: {_e}')
             else:
                 # موقوف: يُعطَّل على الجهاز ولا يُحذف — يبقى ببصماته والجهازُ يرفض بصمتَه.
                 from utils.fingerprint_utils import queue_adms_user_disable
