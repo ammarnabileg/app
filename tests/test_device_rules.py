@@ -306,6 +306,7 @@ def test_branches_come_from_the_branches_page_and_can_be_assigned(env, monkeypat
     assert j['moved'] == 1
     assert con.execute("SELECT branch_location FROM employees WHERE employee_number = '203'").fetchone()[0] == 'فرع حولي'
     page = client.get('/employees/edit/3').get_data(as_text=True)
+    assert 'بصمة الكف' in page
     assert 'list="branchNames"' in page and '<option value="فرع حولي">' in page, 'خانة الفرع بتقترح الفروع'
 
 
@@ -401,3 +402,30 @@ def test_move_to_branch_and_restrict_in_one_step(env, monkeypatch):
     assert j['no_devices'] and j['changed'] == 0
     page = client.get('/fingerprint/device-access').get_data(as_text=True)
     assert 'id="move-restrict"' in page and 'value="1"' in page or 'value="1' in page
+
+
+# ------------------------------------------------------------ صفحة الموظف: صوابع ووجه وكف كلٌّ لوحده
+
+def test_breakdown_counts_fingers_face_and_palm_separately(env):
+    db, da, con = env
+    from utils import biometric_templates as bio
+    for fid, t, v in ((0, 1, '10'), (0, 1, '12'), (5, 1, '12'), (0, 9, '7'), (0, 8, '1')):
+        con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, major_ver, template_data)"
+                    " VALUES ('201', ?, ?, ?, 'x')", (fid, t, v))
+    con.commit()
+    b = bio.employee_breakdown(con, '201')
+    assert b['fingers'] == 2, 'إصبعين — مش 5 صفوف'
+    assert b['face'] and b['palm'] == 1
+    assert b['finger_versions'] == ['10', '12'] and b['face_versions'] == ['7']
+    assert bio.employee_breakdown(con, '202') == {'fingers': 0, 'finger_versions': [], 'face': False,
+                                                  'face_versions': [], 'palm': 0, 'palm_versions': []}
+
+
+def test_speedface_photo_inside_operlog_is_saved(adms):
+    c, con, da = adms
+    c.get('/iclock/cdata?SN=SNADMS1&options=all')
+    c.post('/iclock/cdata?SN=SNADMS1&table=OPERLOG&Stamp=1',
+           data='BIOPHOTO PIN=201\tFileName=201.jpg\tType=9\tSize=8\tContent=QUJDREVGR0g=\n',
+           content_type='text/plain')
+    row = con.execute("SELECT photo_data FROM user_photos WHERE pin = '201'").fetchone()
+    assert row and row[0] == 'QUJDREVGR0g='

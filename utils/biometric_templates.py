@@ -194,3 +194,39 @@ def summary(conn, pins=None):
             continue
         out.setdefault(str(r[0]), []).append((int(r[1]), r[2], int(r[3])))
     return out
+
+
+def employee_breakdown(conn, pin):
+    """ما عند الموظّف: صوابع (عدد الأصابع المختلفة)، ووجه، وكفّ — مع الإصدارات.
+
+    صفحة الموظّف كانت تعدّ كلَّ صفوف الجدول «بصمات»: الوجهُ والكفُّ من SpeedFace (BIODATA
+    نوع 9 و8) ونسخُ الإصبع نفسه بإصداراتٍ مختلفة كانت تُحسب صوابع، والوجهُ يظهر «غير مسجّل»
+    لأنه كان يُبحث عنه في جدول الوجه القديم وحده."""
+    pin = str(pin).strip()
+    out = {'fingers': 0, 'finger_versions': [], 'face': False, 'face_versions': [], 'palm': 0,
+           'palm_versions': []}
+    fingers, palms = set(), set()
+    fv, facev, pv = set(), set(), set()
+    for r in conn.execute("SELECT COALESCE(template_type, 1) t, finger_id, COALESCE(major_ver, '') v "
+                          "FROM fingerprint_templates WHERE pin = ?", (pin,)):
+        t, v = int(r['t']), norm_ver(r['v'])
+        if t == FINGER:
+            fingers.add(int(r['finger_id']))
+            if v:
+                fv.add(v)
+        elif t in (2, 9):
+            out['face'] = True
+            if v:
+                facev.add(v)
+        elif t == 8:
+            palms.add(int(r['finger_id']))
+            if v:
+                pv.add(v)
+    try:
+        if conn.execute('SELECT 1 FROM fingerprint_faces WHERE pin = ?', (pin,)).fetchone():
+            out['face'] = True
+    except Exception:
+        pass
+    out.update(fingers=len(fingers), palm=len(palms), finger_versions=sorted(fv),
+               face_versions=sorted(facev), palm_versions=sorted(pv))
+    return out

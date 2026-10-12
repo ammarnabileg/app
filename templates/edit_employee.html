@@ -529,15 +529,28 @@
                                 <div class="col-md-12">
                                     <div class="alert alert-secondary d-flex align-items-center flex-wrap gap-4 justify-content-center">
                                         <div class="text-center">
-                                            <i class="fas fa-fingerprint fa-2x mb-2 text-primary"></i>
+                                            <i class="fas fa-fingerprint fa-2x mb-2 {{ 'text-primary' if fingerprints_count else 'text-muted' }}"></i>
                                             <div class="fw-bold">{{ _('x.registered_fingerprints') }}</div>
                                             <div class="fs-5">{{ fingerprints_count }}</div>
+                                            {% if bio_info and bio_info.finger_versions %}<div class="small text-muted">إصدار {{ bio_info.finger_versions|join('، ') }}</div>{% endif %}
                                         </div>
                                         <div class="text-center">
                                             <i class="fas fa-user-circle fa-2x mb-2 {{ 'text-success' if has_face else 'text-muted' }}"></i>
                                             <div class="fw-bold">{{ _('x.face_template') }}</div>
                                             <div class="fs-5">
                                                 {% if has_face %}
+                                                    <span class="badge bg-success">{{ _('x.registered') }}</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">{{ _('x.not_registered') }}</span>
+                                                {% endif %}
+                                            </div>
+                                            {% if bio_info and bio_info.face_versions %}<div class="small text-muted">إصدار {{ bio_info.face_versions|join('، ') }}</div>{% endif %}
+                                        </div>
+                                        <div class="text-center">
+                                            <i class="fas fa-hand-paper fa-2x mb-2 {{ 'text-success' if bio_info and bio_info.palm else 'text-muted' }}"></i>
+                                            <div class="fw-bold">بصمة الكف</div>
+                                            <div class="fs-5">
+                                                {% if bio_info and bio_info.palm %}
                                                     <span class="badge bg-success">{{ _('x.registered') }}</span>
                                                 {% else %}
                                                     <span class="badge bg-secondary">{{ _('x.not_registered') }}</span>

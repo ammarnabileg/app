@@ -476,6 +476,16 @@ def cdata():
                         matches = re.findall(r'(\w+)=((?:(?!\s+\w+=).)*)', clean_line)
                         info = {k: v.strip() for k, v in matches}
                         
+                        _head = line.lstrip().split(' ', 1)[0].upper()
+                        if 'PIN' in info and _head in ('BIOPHOTO', 'USERPIC') and info.get('Content'):
+                            # صورة الموظّف من SpeedFace بتيجي جوه OPERLOG («BIOPHOTO PIN=… Content=…»)
+                            # وكانت بتضيع، فصفحة الموظّف تقول «صورة غير متوفرة».
+                            try:
+                                conn.execute('INSERT OR REPLACE INTO user_photos (device_sn, pin, photo_data) '
+                                             'VALUES (?, ?, ?)', (sn, info['PIN'], info['Content']))
+                            except Exception as e:
+                                logger.error(f"OPERLOG photo Save Error: {e}", exc_info=True)
+                            continue
                         if 'PIN' in info and line.lstrip().startswith('FP ') and info.get('TMP'):
                             # بصمةٌ بالصيغة القديمة (ردُّ DATA QUERY FINGERTMP): بلا إصدارٍ في
                             # السطر — فبإصدار الجهاز إن عُرف.

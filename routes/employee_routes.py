@@ -584,9 +584,11 @@ def edit_employee(id):
     
     # جلب بيانات البصمة والوجه والصورة
     emp_number = employee['employee_number']
-    fingerprints_count = conn.execute('SELECT COUNT(*) FROM fingerprint_templates WHERE pin = ?', (emp_number,)).fetchone()[0]
-    
-    has_face = conn.execute('SELECT COUNT(*) FROM fingerprint_faces WHERE pin = ?', (emp_number,)).fetchone()[0] > 0
+    # صوابع ووجه وكفّ كلٌّ لوحده (utils/biometric_templates.employee_breakdown).
+    from utils import biometric_templates as _bio
+    bio_info = _bio.employee_breakdown(conn, emp_number)
+    fingerprints_count = bio_info['fingers']
+    has_face = bio_info['face']
     
     photo_record = conn.execute('SELECT photo_data FROM user_photos WHERE pin = ?', (emp_number,)).fetchone()
     has_photo = photo_record is not None
@@ -626,7 +628,7 @@ def edit_employee(id):
                            departments=departments,
                            positions=positions,
                            fingerprints_count=fingerprints_count,
-                           has_face=has_face,
+                           has_face=has_face, bio_info=bio_info,
                            has_photo=has_photo,
                            photo_data=photo_data)
 
