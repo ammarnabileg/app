@@ -429,3 +429,33 @@ def test_speedface_photo_inside_operlog_is_saved(adms):
            content_type='text/plain')
     row = con.execute("SELECT photo_data FROM user_photos WHERE pin = '201'").fetchone()
     assert row and row[0] == 'QUJDREVGR0g='
+
+
+def test_remove_stopped_button(env, monkeypatch):
+    db, _da, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    import utils.device_access as da2
+    monkeypatch.setattr(da2, 'apply_now', lambda: None)
+    con.execute("UPDATE employees SET is_active = 0, end_of_service_date = '2026-01-01' WHERE employee_number IN ('202', '203')")
+    con.execute("UPDATE fingerprint_devices SET serial_number = 'SNADMS1' WHERE id = 2")
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, template_data, device_sn)"
+                " VALUES ('202', 0, 1, 'T', 'SNADMS1')")
+    con.commit()
+    client = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with client.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    page = client.get('/fingerprint/device-access').get_data(as_text=True)
+    assert 'شيل الموقوفين من أجهزة ADMS' in page
+    j = client.post('/fingerprint/device-access/remove-stopped').get_json()
+    assert j['employees'] == 2 and j['deleted'] == 1 and j['backup'] == 1, j
+    cmds = {(r[0], r[1]) for r in con.execute("SELECT command_type, payload FROM adms_commands WHERE device_id = 2")}
+    assert ('DATA DELETE USERINFO', '{"PIN": "202"}') in cmds, 'بصماته عندنا: يتمسح'
+    assert any(t == 'DATA QUERY BIODATA' and '203' in p for t, p in cmds), 'مش عندنا: نطلبها الأول'
+    assert not any('201' in p for _t, p in cmds), 'النشط مايتلمسش'

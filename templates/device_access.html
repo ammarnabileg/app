@@ -32,6 +32,15 @@
     <div class="mt-1">ولو حدّدت لموظف أجهزة مفيش ولا واحد فيها بصمته تنفع عليه، البرنامج هينبّهك قبل الحفظ، عشان مايتحبسش من غير ما يعرف يبصم في أي حتة.</div>
 </div>
 
+{% if stopped_count %}
+<div class="alert alert-light border d-flex flex-wrap align-items-center gap-2 small">
+    <i class="fas fa-user-slash text-danger"></i>
+    <span><b>{{ stopped_count }}</b> موظف موقوف (غير نشط أو منتهي خدمته). اللي اتوقفوا قبل التحديث ممكن يكونوا لسه على أجهزة ADMS
+        وبيبصموا، لأن الجهاز كان بيتجاهل أمر التعطيل. الزرار ده بيمسحهم من كل أجهزة ADMS بعد ما بصماتهم تتحفظ عندنا،
+        ولو رجّعت حد فيهم نشط بيرجع على الجهاز ببصماته.</span>
+    <button class="btn btn-sm btn-outline-danger ms-auto" onclick="removeStopped()"><i class="fas fa-user-minus me-1"></i>شيل الموقوفين من أجهزة ADMS</button>
+</div>
+{% endif %}
 {% set no_branch = branch_counts.get('', 0) %}
 {% if no_branch %}
 <div class="alert alert-warning small">
@@ -323,6 +332,14 @@
         if (j.commands) out += ` (${j.commands} أمر لأجهزة ADMS)`;
         alert(out);
         location.reload();
+    };
+    window.removeStopped = async function () {
+        if (!confirm('كل الموظفين الموقوفين هيتمسحوا من كل أجهزة ADMS (بصماتهم بتتحفظ عندنا الأول). تكمل؟')) return;
+        const r = await fetch("{{ url_for('attendance.device_access_remove_stopped') }}", {method: 'POST'});
+        const j = await r.json();
+        let msg = `${j.employees} موظف موقوف:\n- ${j.deleted} أمر مسح اتبعت (بصماتهم محفوظة عندنا)`;
+        if (j.backup) msg += `\n- ${j.backup} لسه بنطلب بصماتهم من الجهاز الأول، وبيتمسحوا أول ما توصل`;
+        alert(msg);
     };
     window.printReport = function () {
         const p = new URLSearchParams({

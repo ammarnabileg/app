@@ -1063,3 +1063,23 @@ def push_employee(employee_number, conn=None, templates='all'):
 def push_employee_now(employee_number, templates='all'):
     threading.Thread(target=push_employee, args=(str(employee_number),),
                      kwargs={'templates': templates}, daemon=True).start()
+
+
+def adms_remove_blocked(conn):
+    """زرار «شيل الموقوفين من أجهزة ADMS»: كل موظف موقوف بيتمسح من كل جهاز ADMS.
+
+    اللي اتوقفوا قبل ٢.٣٧.١٢ اتبعتلهم Enabled=0 والأجهزة اتجاهلته — فاضلين عليها وبيبصموا.
+    بصماته عندنا بإصدار الجهاز: بيتمسح على طول. مش عندنا: بنطلبها من الجهاز الأول والمسح بيتم
+    أول ما توصل (أو بعد RESTRICT_WAIT_HOURS). ولو اتفعّل بعدين بيرجع ببصماته.
+    يُرجع {'employees', 'deleted', 'backup'}."""
+    ensure_schema(conn)
+    blocked = blocked_map(conn)
+    out = {'employees': len(blocked), 'deleted': 0, 'backup': 0}
+    for d in _adms_devices(conn):
+        for num in blocked:
+            res = adms_restrict(conn, d['id'], num)
+            if res == 'deleted':
+                out['deleted'] += 1
+            elif res == 'backup':
+                out['backup'] += 1
+    return out

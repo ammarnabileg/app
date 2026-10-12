@@ -115,7 +115,12 @@ def device_access_page():
                            (da.WRONG_DEVICE_REASON,)).fetchall()
     cells, labels = da.bio_readiness(conn, devices)
     readiness = {f"{pin}|{dev}": v for (pin, dev), v in cells.items()}
+    try:
+        stopped_count = len(da.blocked_map(conn))
+    except Exception:
+        stopped_count = 0
     return render_template('device_access.html', devices=devices, employees=employees, rules=rules,
+                           stopped_count=stopped_count,
                            branches=branches, departments=departments, ignored=ignored,
                            readiness=readiness, dev_labels=labels, branch_counts=branch_counts,
                            branch_devices={k: sorted(v) for k, v in da.branch_devices(conn).items()})
@@ -191,6 +196,19 @@ def device_access_print():
                            totals=totals, count=count, limited=limited, stuck_n=stuck_n, header=header,
                            filt=filt, now=_dt.now().strftime('%Y-%m-%d %H:%M'),
                            auto=request.args.get('auto') == '1')
+
+
+@attendance_bp.route('/fingerprint/device-access/remove-stopped', methods=['POST'])
+@login_required
+@require_permission('attendance.devices')
+def device_access_remove_stopped():
+    """شيل الموقوفين من أجهزة ADMS (utils/device_access.adms_remove_blocked)."""
+    from utils import device_access as da
+    conn = get_db_connection()
+    res = da.adms_remove_blocked(conn)
+    conn.commit()
+    da.apply_now()          # وأجهزة IP: الموقوف بيتعطّل عليها في الخلفية
+    return jsonify({'success': True, **res})
 
 
 @attendance_bp.route('/fingerprint/device-access/save', methods=['POST'])
