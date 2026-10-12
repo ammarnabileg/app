@@ -79,25 +79,36 @@ class SmartFingerprintReport:
             'grace': grace_val,
         }
     
+    # الأداء: التقارير الشهرية كانت بتسأل القاعدة مرتين لكل موظف في كل يوم (شفته وبصماته)،
+    # وباتصال جديد كل مرة، وبـ DATE(check_time) اللي مابيستعملش الفهرس: ٥٠٠ موظف × ٣١ يوم =
+    # ٣١ ألف استعلام ≈ دقيقة كاملة للتقرير. دلوقتي شفتات كل الموظفين في استعلام واحد، وبصمات
+    # كل يوم لكل الموظفين في استعلام واحد بمدى وقت (بيستعمل الفهرس). الكائن بيتعمل لكل طلب،
+    # فالذاكرة دي عمرها طلب واحد.
+    _SHIFT_SQL = """
+            SELECT e.default_start_time, e.default_end_time, e.shift_type,
+                   st.start_time, st.end_time, st.hours_per_day, st.description,
+                   st.presence_start_time, st.presence_end_time, e.id
+            FROM employees e
+            LEFT JOIN shift_types st ON e.shift_type = st.name"""
+
+    def _hot(self):
+        c = getattr(self, '_hot_conn', None)
+        if c is None:
+            c = self._hot_conn = sqlite3.connect(self.db_path)
+        return c
+
     def get_employee_shift_from_employee_data(self, emp_id: int) -> Dict:
         """الحصول على شفت الموظف من بياناته الأساسية مع دعم السحب من أنواع الشفت عند غياب القيم.
         يعيد أيضاً مؤشر عبور منتصف الليل عندما يكون وقت النهاية <= البداية.
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # الحصول على بيانات الشفت من جدول الموظفين
-        cursor.execute("""
-            SELECT e.default_start_time, e.default_end_time, e.shift_type,
-                   st.start_time, st.end_time, st.hours_per_day, st.description,
-                   st.presence_start_time, st.presence_end_time
-            FROM employees e
-            LEFT JOIN shift_types st ON e.shift_type = st.name
-            WHERE e.id = ?
-        """, (emp_id,))
-        
-        row = cursor.fetchone()
-        pass # conn.close() removed to prevent leak in Flask g
+        rows = getattr(self, '_shift_rows', None)
+        if rows is None:
+            rows = self._shift_rows = {}
+            for r in self._hot().execute(self._SHIFT_SQL).fetchall():
+                rows.setdefault(r[9], r)
+        row = rows.get(emp_id)
+        if row is None and emp_id not in rows:
+            row = self._hot().execute(self._SHIFT_SQL + " WHERE e.id = ?", (emp_id,)).fetchone()
         
         if row:
             # Check if Shift Type exists and has valid times
@@ -184,24 +195,36 @@ class SmartFingerprintReport:
             'presence_end_time': None
         }
     
+    def _day_punches(self, target_date: str) -> Dict:
+        """{employee_id: [(check_time,), ...]} لكل الموظفين في اليوم ده — استعلام واحد."""
+        cache = getattr(self, '_day_cache', None)
+        if cache is None:
+            cache = self._day_cache = {}
+        if target_date not in cache:
+            if len(cache) >= 3:
+                cache.pop(next(iter(cache)))
+            try:
+                nxt = (datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+            except Exception:
+                nxt = None
+            out = {}
+            if nxt:
+                # مدى نصّي بدل DATE(): '2026-10-12 08:00' و'2026-10-12T08:00' الاتنين جوه المدى.
+                q = self._hot().execute("""
+                    SELECT employee_id, CASE WHEN check_time LIKE '%T%' THEN REPLACE(check_time, 'T', ' ')
+                                             ELSE check_time END AS ct
+                    FROM attendance_records
+                    WHERE check_time >= ? AND check_time < ?
+                    ORDER BY employee_id, ct ASC""", (target_date, nxt))
+                for eid, t in q:
+                    if str(t)[:10] == target_date:
+                        out.setdefault(eid, []).append((t,))
+            cache[target_date] = out
+        return cache[target_date]
+
     def get_daily_checkin_checkout_by_time(self, emp_id: int, target_date: str) -> Dict:
         """حساب الدخول والخروج بناءً على الوقت فقط"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # الحصول على جميع البصمات في هذا اليوم (مرتبة بالوقت)
-        cursor.execute("""
-            SELECT CASE 
-                       WHEN check_time LIKE '%T%' THEN REPLACE(check_time, 'T', ' ')
-                       ELSE check_time
-                   END as check_time
-            FROM attendance_records
-            WHERE employee_id = ? AND DATE(check_time) = ?
-            ORDER BY check_time ASC
-        """, (emp_id, target_date))
-        
-        records = cursor.fetchall()
-        pass # conn.close() removed to prevent leak in Flask g
+        records = self._day_punches(target_date).get(emp_id, [])
         
         if not records:
             return {

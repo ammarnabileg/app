@@ -1424,6 +1424,12 @@ def init_db():
         ''')
         cursor.execute('''CREATE INDEX IF NOT EXISTS idx_emp_audit
             ON employee_audit_log (employee_id, changed_at DESC)''')
+        # فهارس الحضور هنا كمان (كانت بتتعمل من fingerprint_sync بس): التقارير بتدوّر بالوقت
+        # لكل الموظفين، ومن غيرها كل تقرير يقرا الجدول كله.
+        cursor.execute('''CREATE INDEX IF NOT EXISTS idx_attendance_employee_time
+            ON attendance_records (employee_id, check_time)''')
+        cursor.execute('''CREATE INDEX IF NOT EXISTS idx_attendance_time_type
+            ON attendance_records (check_time, check_type)''')
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS payroll_ledger_postings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
