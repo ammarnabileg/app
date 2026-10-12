@@ -9,6 +9,9 @@
         <div class="report-desc">كل الموظفين بيتنزّلوا على كل الأجهزة ببصماتهم عادي، والموظف اللي تحدّد له أجهزة يبقى <b>متوقف</b> على باقي الأجهزة: الجهاز نفسه يرفض بصمته. على الأجهزة القديمة (IP) بيتعطّل وهو على الجهاز. وعلى أجهزة ADMS (زي SpeedFace) الجهاز مابيقبلش أمر التعطيل، فبيتمسح منه بعد ما بصماته تتحفظ عندنا، ولو سمحت له تاني بيترفع عليه ببصماته. ولو بصمة وصلت من جهاز مش مسموح له، مابتتحسبش في الحضور.</div>
     </div>
     <div class="btn-toolbar mb-2 mb-md-0">
+        <button class="btn btn-primary me-2" onclick="printReport()" title="بنفس الفلاتر اللي مختارها">
+            <i class="fas fa-file-pdf me-2"></i>طباعة التقرير / PDF
+        </button>
         <a href="{{ url_for('attendance.devices') }}" class="btn btn-outline-secondary">
             <i class="fas fa-arrow-left me-2"></i>رجوع للأجهزة
         </a>
@@ -295,6 +298,16 @@
         const j = await r.json();
         alert(`اتنقل ${j.moved} موظف لفرع «${b}». لسه ماتحدّدش هيبصموا فين — دوس «كل واحد على أجهزة فرعه» لو عاوز.`);
         location.reload();
+    };
+    window.printReport = function () {
+        const p = new URLSearchParams({
+            q: document.getElementById('f-q').value.trim(),
+            branch: document.getElementById('f-branch').value,
+            dept: document.getElementById('f-dept').value,
+            state: document.getElementById('f-state').value,
+            auto: '1'
+        });
+        window.open("{{ url_for('attendance.device_access_print') }}?" + p.toString(), '_blank');
     };
     window.bulkBranch = function () {
         const sel = selected();

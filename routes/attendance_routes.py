@@ -121,6 +121,77 @@ def device_access_page():
                            branch_devices={k: sorted(v) for k, v in da.branch_devices(conn).items()})
 
 
+@attendance_bp.route('/fingerprint/device-access/print')
+@login_required
+@require_permission('attendance.devices')
+def device_access_print():
+    """تقرير «مين يبصم فين» للطباعة / PDF — مجمّع بالفرع، وبنفس فلاتر الصفحة."""
+    from datetime import datetime as _dt
+    from utils import device_access as da
+    conn = get_db_connection()
+    da.ensure_schema(conn)
+    branch = request.args.get('branch', '')
+    dept = request.args.get('dept', '')
+    state = request.args.get('state', '')
+    q = (request.args.get('q') or '').strip().lower()
+    devices = conn.execute('SELECT * FROM fingerprint_devices WHERE is_active = 1 ORDER BY id').fetchall()
+    names = {int(d['id']): d['device_name'] for d in devices}
+    restr = da.restriction_map(conn)
+    cells, _labels = da.bio_readiness(conn, devices)
+    groups, totals = {}, {int(d['id']): 0 for d in devices}
+    count = limited = stuck_n = 0
+    for e in conn.execute('''SELECT employee_number, name, department, position,
+                                     COALESCE(branch_location, '') AS branch_location
+                                FROM employees WHERE COALESCE(is_active, 1) = 1
+                                ORDER BY branch_location, department, name'''):
+        num = str(e['employee_number']).strip()
+        b = e['branch_location'] or ''
+        if branch == '__none__' and b:
+            continue
+        if branch and branch != '__none__' and b != branch:
+            continue
+        if dept and (e['department'] or '') != dept:
+            continue
+        if q and q not in (e['name'] or '').lower() and q not in num:
+            continue
+        rule = restr.get(num)
+        if state == 'all' and rule is not None or state == 'limited' and rule is None:
+            continue
+        allowed = sorted(rule[1]) if rule else [int(d['id']) for d in devices]
+        ok = [i for i in allowed if cells.get((num, i)) in ('ok', 'unknown')]
+        no_bio = [names[i] for i in allowed if i in names and cells.get((num, i)) in ('none', 'empty')]
+        for i in allowed:
+            if i in totals:
+                totals[i] += 1
+        count += 1
+        limited += rule is not None
+        stuck = rule is not None and not ok
+        stuck_n += stuck
+        groups.setdefault(b, []).append({
+            'num': num, 'name': e['name'], 'department': e['department'] or '', 'position': e['position'] or '',
+            'all': rule is None,
+            'allowed': [names[i] for i in allowed if i in names],
+            'denied': [names[i] for i in names if rule is not None and i not in rule[1]],
+            'no_bio': no_bio, 'stuck': stuck,
+            'since': (rule[0].strftime('%Y-%m-%d') if rule and rule[0] else ''),
+        })
+    header = ''
+    try:
+        row = conn.execute("SELECT setting_value FROM app_settings WHERE setting_key = 'report_header'").fetchone()
+        header = row[0] if row else ''
+    except Exception:
+        pass
+    filt = ' · '.join(x for x in (
+        ('الفرع: ' + ('بدون فرع' if branch == '__none__' else branch)) if branch else '',
+        ('القسم: ' + dept) if dept else '',
+        {'all': 'بيبصموا على كل الأجهزة', 'limited': 'محدّد لهم أجهزة'}.get(state, ''),
+        ('بحث: ' + q) if q else '') if x)
+    return render_template('device_access_print.html', groups=sorted(groups.items()), devices=devices,
+                           totals=totals, count=count, limited=limited, stuck_n=stuck_n, header=header,
+                           filt=filt, now=_dt.now().strftime('%Y-%m-%d %H:%M'),
+                           auto=request.args.get('auto') == '1')
+
+
 @attendance_bp.route('/fingerprint/device-access/save', methods=['POST'])
 @login_required
 @require_permission('attendance.devices')

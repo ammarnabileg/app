@@ -333,3 +333,31 @@ def test_editing_an_employee_reaches_direct_devices_now(env, monkeypatch):
 def test_employee_edit_route_pushes_to_direct_devices():
     src = open(os.path.join(ROOT, 'routes', 'employee_routes.py'), encoding='utf-8').read()
     assert src.count('device_access.push_employee_now(') == 2, 'الإضافة والتعديل'
+
+
+def test_print_report_groups_by_branch_and_filters(env, monkeypatch):
+    db, _da, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    import utils.device_access as da2
+    da2.set_allowed_devices(con, ['202'], [2])
+    con.commit()
+    client = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with client.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    page = client.get('/fingerprint/device-access/print').get_data(as_text=True)
+    assert 'تقرير مين يبصم فين' in page and 'الفرع: الإدارة' in page and 'الفرع: السوق' in page
+    assert 'كل الأجهزة' in page and 'موظف 202' in page
+    row = page[page.index('موظف 202'):page.index('موظف 202') + 600]
+    assert 'SNADMS1' in row and 'K40' in row, 'يبصم على SNADMS1 ومتوقف على K40'
+    page = client.get('/fingerprint/device-access/print?state=limited').get_data(as_text=True)
+    assert 'موظف 202' in page and 'موظف 201' not in page
+    page = client.get('/fingerprint/device-access/print?branch=__none__').get_data(as_text=True)
+    assert 'موظف 203' in page and 'موظف 201' not in page
+    assert 'printReport()' in client.get('/fingerprint/device-access').get_data(as_text=True)

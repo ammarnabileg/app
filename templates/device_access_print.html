@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>تقرير مين يبصم فين — {{ now[:10] }}</title>
+<style>
+    @page { size: A4 portrait; margin: 10mm; }
+    body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 10px; color: #000; margin: 0; }
+    .doc-header { text-align: center; font-size: 10px; line-height: 1.7; margin-bottom: 6px;
+                  padding-bottom: 6px; border-bottom: 2px solid #1F5C4A; }
+    h1 { font-size: 15px; text-align: center; margin: 8px 0 2px; }
+    .sub { text-align: center; font-size: 9.5px; color: #444; margin-bottom: 8px; }
+    .stats { display: flex; gap: 8px; margin-bottom: 8px; }
+    .stats div { flex: 1; border: 1px solid #1F5C4A; background: #E7F1EC; padding: 4px 6px; text-align: center; }
+    .stats b { display: block; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+    th, td { border: 1px solid #999; padding: 3px 5px; text-align: right; vertical-align: top; }
+    thead th { background: #1F5C4A; color: #fff; font-size: 9px; text-align: center; }
+    td.c { text-align: center; }
+    .branch-head { background: #E7F1EC; border: 1px solid #1F5C4A; padding: 4px 8px; margin-top: 10px;
+                   font-weight: bold; font-size: 11px; display: flex; justify-content: space-between; }
+    .branch-block { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+    .all { color: #1F5C4A; font-weight: bold; }
+    .deny { color: #A33; }
+    .warn { color: #8a5a00; font-size: 9px; }
+    tr.stuck { background: #FFF3CD; }
+    .legend { margin-top: 10px; font-size: 8.5px; color: #444; border-top: 1px dashed #999; padding-top: 5px; }
+    .sign { margin-top: 24px; display: flex; justify-content: space-around; font-size: 9.5px; }
+    .sign div { text-align: center; width: 28%; }
+    .sign .line { border-top: 1px solid #000; margin-top: 30px; padding-top: 3px; }
+    @media print { .noprint { display: none !important; } }
+    .btn { padding: 6px 16px; border: 0; background: #1F5C4A; color: #fff; border-radius: 5px;
+           cursor: pointer; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="noprint" style="margin-bottom:10px">
+    <button class="btn" onclick="window.print()">🖨 طباعة / حفظ PDF</button>
+    <span style="font-size:11px;color:#555;margin-inline-start:8px">لحفظه PDF: اختار «Save as PDF» أو «Microsoft Print to PDF» في نافذة الطباعة.</span>
+</div>
+
+{% if header %}<div class="doc-header">{{ header }}</div>{% endif %}
+
+<h1>تقرير مين يبصم فين</h1>
+<div class="sub">بتاريخ {{ now }}{% if filt %} · {{ filt }}{% endif %}</div>
+
+<div class="stats">
+    <div>الموظفين في التقرير<b>{{ count }}</b></div>
+    <div>بيبصموا على كل الأجهزة<b>{{ count - limited }}</b></div>
+    <div>محدّد لهم أجهزة<b>{{ limited }}</b></div>
+    <div>مش هيعرفوا يبصموا<b>{{ stuck_n }}</b></div>
+</div>
+
+<table>
+    <thead><tr><th>الجهاز</th><th>النوع</th><th>الفرع</th><th>عدد الموظفين المسموح لهم</th></tr></thead>
+    <tbody>
+    {% for d in devices %}
+    <tr><td>{{ d['device_name'] }}</td><td class="c">{{ 'ADMS' if d['is_adms'] else 'IP' }}</td>
+        <td>{{ d['branch_name'] or '—' }}</td><td class="c">{{ totals.get(d['id'], 0) }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+{% for branch, rows in groups %}
+<div class="branch-block">
+    <div class="branch-head"><span>الفرع: {{ branch or 'بدون فرع' }}</span><span>{{ rows|length }} موظف</span></div>
+    <table>
+        <thead><tr><th style="width:6%">#</th><th style="width:9%">الرقم</th><th style="width:22%">الاسم</th>
+            <th style="width:15%">القسم</th><th>يبصم على</th><th style="width:20%">متوقف على</th></tr></thead>
+        <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'stuck' if r.stuck else '' }}">
+            <td class="c">{{ loop.index }}</td>
+            <td class="c">{{ r.num }}</td>
+            <td>{{ r.name }}</td>
+            <td>{{ r.department }}</td>
+            <td>{% if r.all %}<span class="all">كل الأجهزة</span>{% else %}{{ r.allowed|join('، ') }}
+                {% if r.since %}<div class="warn" style="color:#666">من {{ r.since }}</div>{% endif %}{% endif %}
+                {% if r.stuck %}<div class="warn">⚠ مالوش بصمة تنفع على ولا جهاز من دول</div>
+                {% elif r.no_bio %}<div class="warn">مالوش بصمة تنفع على: {{ r.no_bio|join('، ') }}</div>{% endif %}</td>
+            <td class="deny">{{ r.denied|join('، ') if r.denied else '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p style="text-align:center;color:#777">مفيش موظفين بالفلتر ده.</p>
+{% endfor %}
+
+<div class="legend">
+    «متوقف على»: الجهاز بيرفض بصمته (أجهزة IP بتعطّله، وأجهزة ADMS بتمسحه وبصماته محفوظة)، ولو بصمة وصلت منه مابتتحسبش في الحضور.
+    الصف الأصفر: موظف محدّد له أجهزة مفيش ولا واحد فيها بصمته تنفع عليه — لازم يبصم على واحد منها مرة.
+</div>
+
+<div class="sign">
+    <div><div class="line">أعدّه</div></div>
+    <div><div class="line">مدير الموارد البشرية</div></div>
+    <div><div class="line">اعتماد</div></div>
+</div>
+
+{% if auto %}<script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 300); });</script>{% endif %}
+</body>
+</html>
