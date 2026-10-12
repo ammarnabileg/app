@@ -864,12 +864,16 @@ def get_request():
             _da_w.adms_restrict_pending(conn, device['id'])
         except Exception as _e:
             logger.warning(f'restrict pending failed: {_e}')
-        # Fetch pending commands
+        # أوامر اتبعتت ومارجعش ردّها (الجهاز اتقفل أو الشبكة قطعت) ترجع للطابور — ٣ مرات بالكتير.
+        _requeue_unanswered(conn, device['id'])
+        # Fetch pending commands — لحد ADMS_COMMANDS_PER_POLL أمر (كانت ١٠: رفع ٣٠٠٠ موظف ببصماتهم
+        # لجهاز جديد كان بياخد ساعات)، ومن غير ما الرد يعدّي ADMS_MAX_REPLY_BYTES.
         rows = conn.execute('''
             SELECT id, command_type, payload FROM adms_commands 
             WHERE device_id = ? AND status = 'PENDING'
-            ORDER BY id ASC LIMIT 10
-        ''', (device['id'],)).fetchall()
+            ORDER BY id ASC LIMIT ?
+        ''', (device['id'], _commands_per_poll())).fetchall()
+        _reply_bytes = 0
         
         for row in rows:
             cmd_id = row['id']
@@ -1012,11 +1016,17 @@ def get_request():
             else:
                  cmd_str = f"C:{cmd_id}:{cmd_type}"
             
-            print(f" [ADMS] Sending Command to {sn}: {cmd_str}")
+            _size = len(cmd_str.encode('utf-8')) + 1
+            if commands and _reply_bytes + _size > ADMS_MAX_REPLY_BYTES:
+                break                       # الباقي في السؤال الجاي
+            _reply_bytes += _size
             commands.append(cmd_str)
             
             # Update status to SENT
-            conn.execute('UPDATE adms_commands SET status = "SENT", updated_at = CURRENT_TIMESTAMP WHERE id = ?', (cmd_id,))
+            conn.execute('UPDATE adms_commands SET status = "SENT", attempts = COALESCE(attempts, 0) + 1, '
+                         'updated_at = CURRENT_TIMESTAMP WHERE id = ?', (cmd_id,))
+        if commands:
+            print(f" [ADMS] Sending {len(commands)} command(s) to {sn} ({_reply_bytes // 1024} KB)")
             
         conn.commit()
     
@@ -1026,6 +1036,38 @@ def get_request():
         return "\n".join(commands)
     
     return "OK"
+
+ADMS_COMMANDS_PER_POLL = 1000
+ADMS_MAX_REPLY_BYTES = 2 * 1024 * 1024     # رد واحد للجهاز مايعدّيش ٢ ميجا (صور ووشوش)
+ADMS_RESEND_AFTER_MIN = 15
+ADMS_MAX_ATTEMPTS = 3
+
+
+def _commands_per_poll():
+    """عدد الأوامر في الرد الواحد — من الإعداد adms_commands_per_poll لو موجود."""
+    try:
+        from utils.db import get_setting
+        v = int(float(get_setting('adms_commands_per_poll', '') or ADMS_COMMANDS_PER_POLL))
+        return max(1, min(v, 5000))
+    except Exception:
+        return ADMS_COMMANDS_PER_POLL
+
+
+def _requeue_unanswered(conn, device_id):
+    """أمر اتبعت (SENT) ومارجعش ردّه في ربع ساعة: يرجع PENDING ويتبعت تاني، ٣ مرات بالكتير،
+    وبعدها FAILED. مع ١٠٠٠ أمر في الرد، لو الجهاز اتقفل في النص مايضيعوش."""
+    try:
+        conn.execute(f"""UPDATE adms_commands SET status = 'FAILED (no reply)', updated_at = CURRENT_TIMESTAMP
+                         WHERE device_id = ? AND status = 'SENT' AND COALESCE(attempts, 1) >= ?
+                           AND updated_at < datetime('now', '-{ADMS_RESEND_AFTER_MIN} minutes')""",
+                     (device_id, ADMS_MAX_ATTEMPTS))
+        conn.execute(f"""UPDATE adms_commands SET status = 'PENDING'
+                         WHERE device_id = ? AND status = 'SENT' AND COALESCE(attempts, 1) < ?
+                           AND updated_at < datetime('now', '-{ADMS_RESEND_AFTER_MIN} minutes')""",
+                     (device_id, ADMS_MAX_ATTEMPTS))
+    except Exception as e:
+        logger.warning(f'requeue unanswered failed: {e}')
+
 
 @adms_bp.route('/devicecmd', methods=['POST'])
 def device_cmd():

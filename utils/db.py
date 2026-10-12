@@ -1220,6 +1220,7 @@ def init_db():
         ('fingerprint_devices', 'branch_id', 'INTEGER'),
         # إصداراتُ البصمة/الوجه على جهاز ADMS كما أبلغ بها (utils/biometric_templates) — v68.
         ('fingerprint_devices', 'bio_versions', 'TEXT'),
+        ('adms_commands', 'attempts', 'INTEGER DEFAULT 0'),
     ]
     
     for table, column, col_type in migrations:
@@ -1426,6 +1427,9 @@ def init_db():
             ON employee_audit_log (employee_id, changed_at DESC)''')
         # فهارس الحضور هنا كمان (كانت بتتعمل من fingerprint_sync بس): التقارير بتدوّر بالوقت
         # لكل الموظفين، ومن غيرها كل تقرير يقرا الجدول كله.
+        # طابور أوامر ADMS: كل سؤال من جهاز بيدوّر على المعلّق بتاعه.
+        cursor.execute('''CREATE INDEX IF NOT EXISTS idx_adms_commands_device_status
+            ON adms_commands (device_id, status, id)''')
         cursor.execute('''CREATE INDEX IF NOT EXISTS idx_attendance_employee_time
             ON attendance_records (employee_id, check_time)''')
         cursor.execute('''CREATE INDEX IF NOT EXISTS idx_attendance_time_type
