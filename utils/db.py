@@ -1221,6 +1221,7 @@ def init_db():
         # إصداراتُ البصمة/الوجه على جهاز ADMS كما أبلغ بها (utils/biometric_templates) — v68.
         ('fingerprint_devices', 'bio_versions', 'TEXT'),
         ('adms_commands', 'attempts', 'INTEGER DEFAULT 0'),
+        ('fingerprint_devices', 'lock_mode', 'TEXT'),
     ]
     
     for table, column, col_type in migrations:

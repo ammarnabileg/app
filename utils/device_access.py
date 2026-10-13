@@ -155,6 +155,28 @@ def is_blocked_punch(blocked, employee_number, at):
     return t is None or t >= cutoff
 
 
+# ------------------------------------------------------------ طريقة القفل على كل جهاز («إعدادات البصمة»)
+
+LOCK_DISABLE = 'disable'    # الموظف بيتعطّل على الجهاز ويفضل ببصماته
+LOCK_WIPE = 'wipe'          # الموظف بيفضل متسجّل، وبصماته (والكارت والباسورد) بتتمسح
+
+
+def lock_mode(device):
+    """طريقة قفل الموظف الممنوع أو الموقوف على الجهاز ده — من «إعدادات البصمة»، وإلا الافتراضي:
+    ADMS ← مسح البصمات (SpeedFace بيتجاهل التعطيل)، IP ← تعطيل."""
+    try:
+        m = (device['lock_mode'] or '').strip()
+    except (IndexError, KeyError, TypeError):
+        m = ''
+    if m in (LOCK_DISABLE, LOCK_WIPE):
+        return m
+    try:
+        adms = bool(device['is_adms'])
+    except (IndexError, KeyError, TypeError):
+        adms = False
+    return LOCK_WIPE if adms else LOCK_DISABLE
+
+
 # ------------------------------------------------------------ الأجهزة المسموحة لكلّ موظّف
 
 WRONG_DEVICE_REASON = 'بصم على جهاز غير مسموح له'
@@ -265,6 +287,15 @@ def adms_restrict(conn, device_id, pin, now=None):
     if not device or not pin:
         return None
     now = now or datetime.now()
+    if lock_mode(device) == LOCK_DISABLE:
+        # «إعدادات البصمة»: تعطيل بس — بيفضل ببصماته (أجهزة ADMS اللي بتحترم Enabled=0).
+        p = json.loads(adms_disable_payload(conn, pin))
+        p['_lock'] = 1
+        _queue_once(conn, int(device_id), 'DATA UPDATE USERINFO', json.dumps(p))
+        conn.execute('DELETE FROM adms_restrict_waits WHERE device_id = ? AND user_id = ?', (int(device_id), pin))
+        conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
+                     (int(device_id), pin))
+        return 'disabled'
     wait = conn.execute('SELECT asked_at FROM adms_restrict_waits WHERE device_id = ? AND user_id = ?',
                         (int(device_id), pin)).fetchone()
     timed_out = wait is not None and (_parse(wait['asked_at']) or now) <= now - timedelta(hours=RESTRICT_WAIT_HOURS)
@@ -648,10 +679,18 @@ def enforce_device(conn, device, blocked=None):
     dev = _connect(device)
     removed = 0
     done, temps, sn, fp_ver = [], None, None, None
+    mode = lock_mode(device)
     try:
         users = dev.get_users() or []
-        targets = [u for u in users if str(u.user_id).strip() in off
-                   and not (int(u.privilege or 0) & DISABLED_BIT)]
+        if mode == LOCK_WIPE:
+            # «إعدادات البصمة»: بيفضل متسجّل، وبصماته والكارت والباسورد بيتشالوا — بعد ما تتحفظ عندنا.
+            temps, sn = _device_templates(dev, device)
+            with_fp = {getattr(t, 'uid', None) for t in (temps or [])}
+            targets = [u for u in users if str(u.user_id).strip() in off
+                       and (u.uid in with_fp or int(u.card or 0) or str(u.password or '').strip())]
+        else:
+            targets = [u for u in users if str(u.user_id).strip() in off
+                       and not (int(u.privilege or 0) & DISABLED_BIT)]
         if not targets:
             return 0
         dev.disable_device()
@@ -659,11 +698,20 @@ def enforce_device(conn, device, blocked=None):
         # بصمات الجهاز كلها مرة واحدة (احتياطًا قبل أي تغيير)، وكل الكلام مع الجهاز الأول،
         # والكتابة في القاعدة في الآخر مرة واحدة: كانت القاعدة مقفولة طول ما البرنامج بيكلّم
         # الجهاز، فأجهزة ADMS ماتقدرش تحفظ بصماتها («database is locked») والبرنامج يتقل.
-        temps, sn = _device_templates(dev, device)
+        if mode != LOCK_WIPE:
+            temps, sn = _device_templates(dev, device)
         try:
             for u in targets:
-                # يُعطَّل ولا يُحذف: يبقى ببصماته، والجهازُ يرفض بصمتَه.
-                write_user(dev, u, int(u.privilege or 0) | DISABLED_BIT)
+                if mode == LOCK_WIPE:
+                    from zk.user import User
+                    bare = User(u.uid, u.name, int(u.privilege or 0), '', u.group_id, u.user_id, 0)
+                    write_user(dev, bare, int(u.privilege or 0))
+                    for t in [t for t in (temps or []) if getattr(t, 'uid', None) == u.uid]:
+                        dev.delete_user_template(uid=u.uid, temp_id=int(t.fid))
+                    dev.refresh_data()
+                else:
+                    # يُعطَّل ولا يُحذف: يبقى ببصماته، والجهازُ يرفض بصمتَه.
+                    write_user(dev, u, int(u.privilege or 0) | DISABLED_BIT)
                 done.append(u)
         finally:
             try:
@@ -711,13 +759,24 @@ def restore_device(conn, device):
             users = dev.get_users() or []
             used = {u.uid for u in users}
             by_id = {str(u.user_id): u for u in users}
+            dev_temps, _sn = _device_templates(dev, device)
+            with_fp = {getattr(t, 'uid', None) for t in (dev_temps or [])}
+            from zk.user import User
             for r in rows:
                 uid_s = str(r['user_id'])
                 if uid_s in by_id:
                     user = by_id[uid_s]
-                    if int(user.privilege or 0) & DISABLED_BIT:
-                        # كان معطّلًا ببصماته: يُفكّ البتُّ فقط فيبصم كما كان.
-                        write_user(dev, user, int(user.privilege or 0) & ~DISABLED_BIT)
+                    # السجل يرجع كامل: من غير علامة التعطيل، وبالكارت والباسورد اللي عندنا
+                    # (لو كان اتمسح بصماته والكارت والباسورد اتشالوا).
+                    try:
+                        card = int(r['card_number'] or 0)
+                    except (TypeError, ValueError):
+                        card = 0
+                    priv = int(user.privilege or 0) & ~DISABLED_BIT
+                    full = User(user.uid, user.name, priv, str(r['password'] or ''), user.group_id, user.user_id, card)
+                    write_user(dev, full, priv)
+                    if user.uid in with_fp:
+                        # بصماته لسه على الجهاز (كان متعطّل بس): خلاص.
                         done_ids.append(uid_s)
                         restored += 1
                         continue
@@ -1130,7 +1189,7 @@ def adms_remove_blocked(conn):
     for d in _adms_devices(conn):
         for num in blocked:
             res = adms_restrict(conn, d['id'], num)
-            if res == 'deleted':
+            if res in ('deleted', 'disabled'):
                 out['deleted'] += 1
             elif res == 'backup':
                 out['backup'] += 1
@@ -1234,3 +1293,19 @@ def lookup_direct(device, pin):
     out['fingers'] = [{'fid': int(t.fid), 'size': len(bytes(t.template or b'')), 'valid': int(t.valid or 0)}
                       for t in sorted(temps, key=lambda t: int(t.fid))]
     return out
+
+
+def reapply_device(conn, device_id):
+    """طريقة القفل على الجهاز اتغيّرت من «إعدادات البصمة»: الممنوعين والموقوفين عليه يتقفلوا
+    بالطريقة الجديدة. ADMS: أوامر دلوقتي. IP: في الخلفية (apply_now). يُرجع عدد الأوامر."""
+    ensure_schema(conn)
+    dev = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (int(device_id),)).fetchone()
+    if not dev or not dev['is_adms']:
+        return 0
+    restr = restriction_map(conn)
+    off = set(blocked_map(conn)) | {n for n in restr if denied_on(restr, n, dev['id'])}
+    n = 0
+    for num in off:
+        if adms_restrict(conn, dev['id'], num):
+            n += 1
+    return n

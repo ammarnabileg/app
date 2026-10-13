@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}إعدادات البصمة{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <div>
+        <h1 class="h2"><i class="fas fa-sliders-h me-2"></i>إعدادات البصمة</h1>
+        <div class="report-desc">لما موظف يكون <b>موقوف</b> (غير نشط أو منتهي خدمته) أو <b>ممنوع على جهاز</b> («مين يبصم فين»)،
+            البرنامج بيقفله على الجهاز. هنا تختار لكل جهاز طريقة القفل.</div>
+    </div>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('attendance.device_access_page') }}" class="btn btn-outline-primary me-2"><i class="fas fa-user-lock me-2"></i>مين يبصم فين</a>
+        <a href="{{ url_for('attendance.devices') }}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>رجوع للأجهزة</a>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="card h-100 border-primary"><div class="card-body">
+            <h6 class="fw-bold"><i class="fas fa-user-slash me-1 text-primary"></i>تعطيل الموظف</h6>
+            <ul class="small mb-0">
+                <li>الموظف بيفضل على الجهاز <b>ببصماته</b>، والجهاز بيرفض بصمته.</li>
+                <li>لما يتسمح له أو يتفعّل بيرجع يبصم على طول، من غير ما بصماته تتبعت تاني.</li>
+                <li>⚠ أجهزة SpeedFace (ADMS) <b>بتتجاهل</b> أمر التعطيل، فالموظف بيفضل يبصم.</li>
+            </ul>
+        </div></div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100 border-danger"><div class="card-body">
+            <h6 class="fw-bold"><i class="fas fa-fingerprint me-1 text-danger"></i>مسح بصماته بس</h6>
+            <ul class="small mb-0">
+                <li>الموظف بيفضل <b>متسجّل</b> على الجهاز باسمه ورقمه.</li>
+                <li>بتتمسح بصماته (صوابع ووش وكف)، والكارت والباسورد بيتشالوا، بعد ما بصماته تتحفظ عندنا.</li>
+                <li>لما يتسمح له أو يتفعّل، بصماته والكارت والباسورد بيرجعوا من عندنا.</li>
+            </ul>
+        </div></div>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-white d-flex align-items-center">
+        <span class="fw-bold">طريقة القفل لكل جهاز</span>
+        <button class="btn btn-success btn-sm ms-auto" onclick="saveModes()"><i class="fas fa-save me-1"></i>حفظ</button>
+    </div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-light"><tr><th>الجهاز</th><th>النوع</th><th>الفرع</th><th>الموظف الممنوع أو الموقوف</th></tr></thead>
+            <tbody>
+            {% for d in devices %}
+            <tr data-id="{{ d.id }}" data-saved="{{ d.saved }}">
+                <td>{{ d.name }} <span class="text-muted small" dir="ltr">{{ d.ip or '' }}</span></td>
+                <td><span class="badge {{ 'bg-dark' if d.adms else 'bg-secondary' }}">{{ 'ADMS' if d.adms else 'IP' }}</span></td>
+                <td>{{ d.branch or '—' }}</td>
+                <td>
+                    <select class="form-select form-select-sm mode" style="max-width: 320px">
+                        <option value="" {{ 'selected' if not d.saved }}>الافتراضي ({{ 'مسح بصماته بس' if d.adms else 'تعطيل الموظف' }})</option>
+                        <option value="disable" {{ 'selected' if d.saved == 'disable' }}>تعطيل الموظف</option>
+                        <option value="wipe" {{ 'selected' if d.saved == 'wipe' }}>مسح بصماته بس (يفضل متسجّل)</option>
+                    </select>
+                    {% if d.adms %}<div class="small text-muted mode-warn" style="display:none">⚠ SpeedFace بيتجاهل التعطيل — اتأكد إن جهازك بيحترمه.</div>{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted">مفيش أجهزة شغالة.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer small text-muted">لما تغيّر طريقة جهاز، الموظفين المقفولين عليه بيتقفلوا بالطريقة الجديدة على طول (ADMS أول ما يسأل السيرفر، وIP في الخلفية).</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('tr[data-id]').forEach(tr => {
+    const sel = tr.querySelector('.mode'), warn = tr.querySelector('.mode-warn');
+    const upd = () => { if (warn) warn.style.display = sel.value === 'disable' ? '' : 'none'; };
+    sel.addEventListener('change', upd); upd();
+});
+async function saveModes() {
+    const devices = Array.from(document.querySelectorAll('tr[data-id]'))
+        .map(tr => ({id: tr.dataset.id, mode: tr.querySelector('.mode').value, saved: tr.dataset.saved}))
+        .filter(d => d.mode !== d.saved);
+    if (!devices.length) return alert('مفيش تغيير');
+    const r = await fetch("{{ url_for('attendance.fingerprint_settings_page') }}", {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({devices})
+    });
+    const j = await r.json();
+    alert(`اتحفظ لـ ${j.changed} جهاز` + (j.commands ? ` — ${j.commands} أمر لأجهزة ADMS` : ''));
+    location.reload();
+}
+</script>
+{% endblock %}

@@ -289,6 +289,37 @@ def device_lookup_page():
     return jsonify(out)
 
 
+@attendance_bp.route('/fingerprint/settings', methods=['GET', 'POST'])
+@login_required
+@require_permission('attendance.devices')
+def fingerprint_settings_page():
+    """«إعدادات البصمة»: لكل جهاز — الموظف الممنوع أو الموقوف يتعطّل، ولا تتمسح بصماته ويفضل متسجّل."""
+    from utils import device_access as da
+    conn = get_db_connection()
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        changed, cmds = 0, 0
+        for row in data.get('devices') or []:
+            mode = row.get('mode') if row.get('mode') in (da.LOCK_DISABLE, da.LOCK_WIPE, '') else None
+            if mode is None:
+                continue
+            dev = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (int(row.get('id') or 0),)).fetchone()
+            if not dev or (dev['lock_mode'] or '') == mode:
+                continue
+            conn.execute('UPDATE fingerprint_devices SET lock_mode = ? WHERE id = ?', (mode or None, dev['id']))
+            changed += 1
+            cmds += da.reapply_device(conn, dev['id'])
+        conn.commit()
+        if changed:
+            da.apply_now()
+        return jsonify({'success': True, 'changed': changed, 'commands': cmds})
+    devices = conn.execute('SELECT * FROM fingerprint_devices WHERE is_active = 1 ORDER BY id').fetchall()
+    rows = [{'id': d['id'], 'name': d['device_name'], 'ip': d['device_ip'], 'adms': bool(d['is_adms']),
+             'branch': d['branch_name'] or '', 'saved': d['lock_mode'] or '', 'effective': da.lock_mode(d)}
+            for d in devices]
+    return render_template('fingerprint_settings.html', devices=rows)
+
+
 @attendance_bp.route('/fingerprint/device-access/save', methods=['POST'])
 @login_required
 @require_permission('attendance.devices')

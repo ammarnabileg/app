@@ -408,3 +408,51 @@ def test_disabling_many_on_k40_does_not_lock_the_database(env, monkeypatch):
     assert res['removed'] == 5 and not res['errors'], res
     assert calls['templates'] == 1, 'بصمات الجهاز مرة واحدة مش مرة لكل موظف'
     assert con.execute("SELECT COUNT(DISTINCT pin) FROM fingerprint_templates").fetchone()[0] == 5, 'واتحفظت كلها'
+
+
+class FakeK40Wipe(FakeK40):
+    def delete_user_template(self, uid=0, temp_id=0, user_id=''):
+        self.log.append(('delete_template', uid, temp_id))
+        self.templates = [t for t in self.templates if not (t.uid == uid and t.fid == temp_id)]
+
+
+def test_wipe_mode_on_k40_keeps_the_user_and_removes_only_fingers(env, monkeypatch):
+    """«إعدادات البصمة» ← مسح بصماته بس: بيفضل متسجّل، وبصماته والكارت والباسورد بيتشالوا."""
+    db, da, con = env
+    con.execute("UPDATE fingerprint_devices SET lock_mode = 'wipe' WHERE id = 1")
+    con.execute("UPDATE employees SET card_number = '777', password = '12' WHERE id = 2")
+    con.commit()
+    k40 = FakeK40Wipe(users=[(1, '101', 'a'), (2, '102', 'b')],
+                      templates=[(1, 0, b'\x01' * 40), (2, 0, b'\x02' * 40), (2, 6, b'\x03' * 40)])
+    from zk.user import User
+    k40.users[1] = User(2, 'b', 0, '12', '', '102', 777)
+    monkeypatch.setattr(da, '_connect', lambda device: k40)
+    res = da.enforce_all(con)
+    assert res['removed'] == 1, res
+    u = _user(k40, '102')
+    assert u is not None and u.name == 'b', 'بيفضل متسجّل'
+    assert not (u.privilege & da.DISABLED_BIT), 'مش متعطّل — بصماته بس اتمسحت'
+    assert int(u.card or 0) == 0 and not u.password, 'الكارت والباسورد اتشالوا'
+    assert [t.uid for t in k40.templates] == [1], 'بصماته اتمسحت، والموظف التاني ماتلمسش'
+    assert con.execute("SELECT COUNT(*) FROM fingerprint_templates WHERE pin = '102'").fetchone()[0] == 2, 'اتحفظت عندنا الأول'
+    assert da.enforce_all(con)['removed'] == 0, 'مرة واحدة'
+    # اتفعّل: الكارت والباسورد وبصماته بيرجعوا
+    con.execute('UPDATE employees SET is_active = 1 WHERE id = 2')
+    con.commit()
+    assert da.enforce_all(con)['restored'] == 1
+    u = _user(k40, '102')
+    assert int(u.card) == 777 and u.password == '12'
+    assert ('save_templates', '102', 2) in k40.log, 'بصماته رجعت من عندنا'
+
+
+def test_adms_disable_mode_sends_enabled_0_and_keeps_fingers(adms):
+    c, con = adms
+    c.get('/iclock/cdata?SN=SNADMS1&options=all')
+    con.execute("UPDATE fingerprint_devices SET lock_mode = 'disable' WHERE id = 2")
+    con.commit()
+    import utils.device_access as da
+    assert da.adms_restrict(con, 2, '102') == 'disabled'
+    con.commit()
+    out = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
+    assert 'PIN=102' in out and 'Enabled=0' in out, out
+    assert 'DATA DELETE BIODATA' not in out and 'DATA QUERY BIODATA' not in out, 'من غير مسح ولا طلب بصمات'

@@ -555,3 +555,29 @@ def test_lookup_pages_render(env, monkeypatch):
     j = client.post('/fingerprint/device-lookup', json={'device_id': 2, 'pin': '201', 'refresh': True}).get_json()
     assert j['success'] and j['adms'] and j['queued'] and j['ours']['employee']['name'] == 'موظف 201'
     assert con.execute("SELECT COUNT(*) FROM adms_commands WHERE device_id = 2 AND payload LIKE '%201%'").fetchone()[0] == 3
+
+
+def test_fingerprint_settings_page_changes_mode_and_reapplies(env, monkeypatch):
+    db, _da, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    import utils.device_access as da2
+    monkeypatch.setattr(da2, 'apply_now', lambda: None)
+    da2.set_allowed_devices(con, ['201'], [1])
+    con.commit()
+    client = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with client.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    page = client.get('/fingerprint/settings').get_data(as_text=True)
+    assert 'إعدادات البصمة' in page and 'مسح بصماته بس' in page and 'تعطيل الموظف' in page
+    j = client.post('/fingerprint/settings', json={'devices': [{'id': 2, 'mode': 'disable'}]}).get_json()
+    assert j['changed'] == 1 and j['commands'] >= 1, j
+    assert con.execute('SELECT lock_mode FROM fingerprint_devices WHERE id = 2').fetchone()[0] == 'disable'
+    assert con.execute("SELECT 1 FROM adms_commands WHERE device_id = 2 AND payload LIKE '%\"Enabled\": 0%'").fetchone()
+    assert da2.lock_mode(con.execute('SELECT * FROM fingerprint_devices WHERE id = 1').fetchone()) == 'disable', 'IP افتراضي: تعطيل'

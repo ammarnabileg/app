@@ -9,6 +9,9 @@
         <div class="report-desc">كل الموظفين بيتنزّلوا على كل الأجهزة ببصماتهم عادي، والموظف اللي تحدّد له أجهزة يبقى <b>متوقف</b> على باقي الأجهزة: الجهاز نفسه يرفض بصمته. على الأجهزة القديمة (IP) بيتعطّل وهو على الجهاز. وعلى أجهزة ADMS (زي SpeedFace) الجهاز مابيقبلش أمر التعطيل، فالموظف بيفضل متسجّل عليه بس بصماته (صوابع ووش وكف) بتتمسح منه والكارت والباسورد بيتشالوا، بعد ما بصماته تتحفظ عندنا. ولو سمحت له تاني بترجع عليه بصماته. ولو بصمة وصلت من جهاز مش مسموح له، مابتتحسبش في الحضور.</div>
     </div>
     <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('attendance.fingerprint_settings_page') }}" class="btn btn-outline-secondary me-2">
+            <i class="fas fa-sliders-h me-2"></i>إعدادات البصمة
+        </a>
         <button class="btn btn-primary me-2" onclick="printReport()" title="بنفس الفلاتر اللي مختارها">
             <i class="fas fa-file-pdf me-2"></i>طباعة التقرير / PDF
         </button>
