@@ -213,7 +213,7 @@ RESTRICT_WAIT_HOURS = 6
 def _restorable(conn, device, pin):
     """بصماتُ الموظّف عندنا وتنفع على الجهاز ده؟ (ممكن نمسحه ونرجّعه زي ما كان)."""
     from utils import biometric_templates as bio
-    ids = {str(device[k]).strip() for k in ('serial_number', 'device_ip') if k in device.keys() and device[k]}
+    ids = {str(device[k]).strip() for k in ('serial_number', 'device_name', 'device_ip') if k in device.keys() and device[k]}
     vers = bio.device_versions(device)
     for r in conn.execute("SELECT COALESCE(template_type, 1) t, COALESCE(major_ver, '') v, COALESCE(device_sn, '') sn "
                           "FROM fingerprint_templates WHERE pin = ?", (str(pin).strip(),)):
@@ -393,7 +393,7 @@ def bio_readiness(conn, devices):
     info = []
     for d in devices:
         keys = d.keys()
-        ids = {str(d[k]).strip() for k in ('serial_number', 'device_ip') if k in keys and d[k]}
+        ids = {str(d[k]).strip() for k in ('serial_number', 'device_name', 'device_ip') if k in keys and d[k]}
         vers = bio.device_versions(d)
         labels[int(d['id'])] = ' · '.join(f"{bio.TYPE_LABELS.get(t, t)} {v}" for t, v in sorted(vers.items()))
         info.append((int(d['id']), ids, vers))

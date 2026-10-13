@@ -459,3 +459,16 @@ def test_remove_stopped_button(env, monkeypatch):
     assert ('DATA DELETE USERINFO', '{"PIN": "202"}') in cmds, 'بصماته عندنا: يتمسح'
     assert any(t == 'DATA QUERY BIODATA' and '203' in p for t, p in cmds), 'مش عندنا: نطلبها الأول'
     assert not any('201' in p for _t, p in cmds), 'النشط مايتلمسش'
+
+
+def test_adms_device_known_by_its_name_counts_as_backed_up(env):
+    """أجهزة ADMS بتتعرف بالاسم (= الرقم التسلسلي) وعمود serial_number فاضي — البصمة اللي جت منها
+    محفوظة فعلًا، فيتمسح على طول مش بعد ٦ ساعات انتظار."""
+    db, da, con = env
+    con.execute("UPDATE fingerprint_devices SET serial_number = NULL WHERE id = 2")
+    con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, template_data, device_sn)"
+                " VALUES ('201', 0, 9, 'F', 'SNADMS1')")
+    con.commit()
+    assert da.adms_restrict(con, 2, '201') == 'deleted'
+    cells, _ = da.bio_readiness(con, con.execute('SELECT * FROM fingerprint_devices').fetchall())
+    assert cells[('201', 2)] == 'ok'

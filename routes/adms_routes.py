@@ -3,6 +3,7 @@ from datetime import datetime
 import logging
 import os
 import json
+import sqlite3
 import re
 from utils.db import get_db_connection, DATA_DIR
 from utils.auth import login_required
@@ -596,6 +597,15 @@ def cdata():
                         if _dev:
                             bio.remember_version(conn, _dev['id'], btype, info.get('MajorVer'))
                         saved += 1
+                    except sqlite3.OperationalError as e:
+                        if 'locked' not in str(e):
+                            logger.error(f"Template Save Error ({pin}): {e}", exc_info=True)
+                            continue
+                        # القاعدة مشغولة: مانقولش للجهاز OK — بيبعت الدفعة كلها تاني بعد شوية.
+                        # كان بيكمّل ويرد OK فالبصمات دي بتضيع.
+                        conn.rollback()
+                        logger.warning(f"BIODATA from {sn}: database busy — device will resend")
+                        return "ERROR"
                     except Exception as e:
                         logger.error(f"Template Save Error ({pin}): {e}", exc_info=True)
                 conn.commit()

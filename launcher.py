@@ -221,14 +221,16 @@ def start_adms_process(port, status_cb, lang="ar"):
         if not port_check.port_free(port):
             status_cb(False, port_check.busy_message(port, port_check.port_owner(port), lang))
             return
-        # Load Oracle config to Env so ADMS reads it properly
+        # إعدادات أوراكل اللي اتظبطت في الشاشة بس — مش القيم الافتراضية. كانت بتتحط دايمًا
+        # (localhost وHR)، فالبرنامج يفتكر إن أوراكل مضبوط ويحاول يتصل كل ٥ دقايق ويسجّل
+        # «Connection DEAD» عند كل عميل مابيستعملش أوراكل.
         cfg = load_config()
-        os.environ["ORACLE_HOST"] = str(cfg.get("oracle_host", "localhost"))
-        os.environ["ORACLE_PORT"] = str(cfg.get("oracle_port", "1521"))
-        os.environ["ORACLE_SERVICE"] = str(cfg.get("oracle_service", "XEPDB1"))
-        os.environ["ORACLE_USER"] = str(cfg.get("oracle_user", "HR"))
-        os.environ["ORACLE_PASSWORD"] = str(cfg.get("oracle_password", "password"))
-        os.environ["ORACLE_TABLE_NAME"] = str(cfg.get("oracle_table", "ATTENDANCE_LOGS"))
+        for _key, _env in (("oracle_host", "ORACLE_HOST"), ("oracle_port", "ORACLE_PORT"),
+                           ("oracle_service", "ORACLE_SERVICE"), ("oracle_user", "ORACLE_USER"),
+                           ("oracle_password", "ORACLE_PASSWORD"), ("oracle_table", "ORACLE_TABLE_NAME")):
+            _v = str(cfg.get(_key) or "").strip()
+            if _v:
+                os.environ[_env] = _v
         
         # Import dynamically to avoid early init issues
         from adms_server import app as adms_app
@@ -236,8 +238,16 @@ def start_adms_process(port, status_cb, lang="ar"):
         failed = []
         
         def run_adms():
+            # waitress زي البرنامج الرئيسي وزي adms_server.py — كان سيرفر التجارب بتاع Flask
+            # («This is a development server»): أبطأ ومش معمول لأجهزة بتبعت طول اليوم.
             try:
-                adms_app.run(host='0.0.0.0', port=port, use_reloader=False)
+                from waitress import serve
+                serve(adms_app, host='0.0.0.0', port=port, threads=8)
+            except ImportError:
+                try:
+                    adms_app.run(host='0.0.0.0', port=port, use_reloader=False, threaded=True)
+                except BaseException as e:
+                    failed.append(e)
             except BaseException as e:
                 failed.append(e)
         

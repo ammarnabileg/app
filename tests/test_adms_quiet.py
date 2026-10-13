@@ -24,7 +24,7 @@ def env(tmp_path, monkeypatch):
     con.execute("INSERT INTO employees (id, name, employee_number, department, position, hire_date, salary, is_active,"
                 " card_number) VALUES (1, 'أحمد', '101', 'D', 'P', '2025-01-01', 500, 1, '55')")
     con.execute("INSERT INTO fingerprint_devices (id, device_name, device_ip, is_active, is_adms, serial_number)"
-                " VALUES (1, 'SF', '192.168.2.23', 1, 1, 'SNQ')")
+                " VALUES (1, 'SNQ', '192.168.2.23', 1, 1, 'SNQ')")
     con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, template_data, device_sn)"
                 " VALUES ('101', 0, 1, 'TPL', 'SNQ')")
     con.execute("INSERT INTO fingerprint_users (user_id, device_id, name) VALUES ('101', 1, 'أحمد')")
@@ -110,3 +110,29 @@ def test_saving_without_device_changes_sends_nothing(env, monkeypatch):
     cmds = [r[0] for r in con.execute("SELECT command_type FROM adms_commands WHERE device_id = 1")]
     assert cmds == ['DATA UPDATE USERINFO'], f'الاسم اتغيّر: البيانات بس، بصماته عليه — {cmds}'
     assert pushed == [('101', 'missing')]
+
+
+def test_biodata_when_db_is_busy_asks_the_device_to_resend(env, monkeypatch):
+    """«database is locked» وسط دفعة بصمات: كان بيرد OK فالبصمات دي بتضيع."""
+    db, con = env
+    import routes.adms_routes as R
+    importlib.reload(R)
+    import adms_server
+    importlib.reload(adms_server)
+    import utils.biometric_templates as bio
+
+    def busy(*a, **k):
+        raise sqlite3.OperationalError('database is locked')
+    monkeypatch.setattr(bio, 'save', busy)
+    c = adms_server.app.test_client()
+    r = c.post('/iclock/cdata?SN=SNQ&table=BIODATA', data='BIODATA Pin=101\tNo=0\tType=9\tMajorVer=36\tTmp=AAAA\n',
+               content_type='text/plain')
+    assert r.get_data(as_text=True) != 'OK', 'الجهاز لازم يعيد الإرسال'
+
+
+def test_launcher_uses_waitress_and_no_default_oracle_settings():
+    src = open(os.path.join(ROOT, 'launcher.py'), encoding='utf-8').read()
+    i = src.index('def start_adms_process')
+    block = src[i:i + 4000]
+    assert 'serve(adms_app' in block, 'سيرفر ADMS بـ waitress مش سيرفر التجارب'
+    assert 'cfg.get("oracle_host", "localhost")' not in src, 'مايتحطش أوراكل افتراضي يخلّيه يحاول يتصل'
