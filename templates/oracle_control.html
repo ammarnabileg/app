@@ -10,6 +10,9 @@
             <div class="report-desc">{{ _('x.rdesc_oracle_center') }}</div>
         </div>
         <div class="btn-group">
+            <a href="{{ url_for('attendance.punch_reconcile_page') }}" class="btn btn-outline-primary">
+                <i class="fas fa-user-check me-2"></i>تسوية البصمة
+            </a>
             <a href="{{ url_for('attendance.oracle_history') }}" class="btn btn-outline-secondary">
                 <i class="fas fa-history me-2"></i>{{ _('x.oracle_sync_history') }}
             </a>

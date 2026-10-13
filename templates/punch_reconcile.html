@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+
+{% block title %}تسوية البصمة{% endblock %}
+
+
+
+{% block content %}
+<style>
+    .rc-mono { font-family: Consolas, "Courier New", monospace; direction: ltr; unicode-bidi: embed; }
+    .rc-table td { vertical-align: middle; }
+    .rc-table tr.rc-rest { color: #9aa5b1; }
+    .rc-table tr.rc-holed { box-shadow: inset -3px 0 0 #b45309; }
+    .rc-table input.rc-time { width: 110px; direction: ltr; text-align: left; font-family: Consolas, monospace;
+                              font-size: 12px; border-color: #b45309; background: #fdf2e2; }
+    .rc-commit { position: sticky; bottom: 0; z-index: 5; background: var(--bs-body-bg, #fff);
+                 border-top: 1px solid #d5dce3; padding: 10px 14px; }
+    .rc-tally { border-inline-end: 3px solid #b45309 !important; }
+    .rc-adj { font-size: 10px; }
+    .rc-hide { display: none; }
+</style>
+{% set AR = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'] %}
+<div class="d-flex justify-content-between flex-wrap align-items-center pt-3 pb-2 mb-3 border-bottom gap-2">
+    <div>
+        <h1 class="h2 mb-0"><i class="fas fa-user-check me-2"></i>تسوية البصمة</h1>
+        <div class="report-desc">دخول · تواجد · خروج — تكملة بصمات ناقصة لموظف <b>بكتاب معتمد</b>. كل تسوية متسجّلة برقم الكتاب
+            ومين عملها وإمتى، ومتعلّم عليها في الحضور، وبتوصل أوراكل زي أي بصمة.</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+        {% if not locked and data and data.calendar %}
+        <div class="border rounded px-3 py-1 rc-tally bg-white">
+            <span class="h4 mb-0 text-warning rc-mono">{{ data.holes }}</span>
+            <span class="small text-muted">يوم عمل فيه بصمة ناقصة</span>
+        </div>
+        {% endif %}
+        <a href="{{ url_for('attendance.oracle_control') }}" class="btn btn-outline-secondary"><i class="fas fa-database me-1"></i>أوراكل</a>
+        {% if not locked %}
+        <form method="post" class="d-inline"><input type="hidden" name="action" value="lock">
+            <button class="btn btn-outline-dark" title="اقفل الصفحة"><i class="fas fa-lock"></i></button></form>
+        {% endif %}
+    </div>
+</div>
+
+{% if locked %}
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-lock me-2"></i>الصفحة دي بباسورد لوحدها</h5>
+                <form method="post">
+                    <input type="hidden" name="action" value="unlock">
+                    <input type="password" name="password" class="form-control mb-3" placeholder="باسورد تسوية البصمة" autofocus required>
+                    <button class="btn btn-primary w-100">فتح</button>
+                </form>
+                <div class="small text-muted mt-2">بتفضل مفتوحة نص ساعة، وبعدها بتتقفل لوحدها.</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+
+{% if cfg_error %}<div class="alert alert-danger">الإعدادات مش صحيحة ومااتحمّلش حاجة: <span class="rc-mono">{{ cfg_error }}</span></div>{% endif %}
+{% if db_error %}<div class="alert alert-danger">{{ db_error }}</div>{% endif %}
+
+<form method="get" class="card shadow-sm mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-auto"><label class="form-label small">الرقم الوظيفي</label>
+                <input name="user_id" class="form-control rc-mono" style="width:130px" value="{{ user_id or '' }}" required autofocus></div>
+            <div class="col-auto"><label class="form-label small">الشهر</label>
+                <input name="month" type="number" min="1" max="12" class="form-control" style="width:80px" value="{{ month }}"></div>
+            <div class="col-auto"><label class="form-label small">السنة</label>
+                <input name="year" type="number" min="2000" max="2100" class="form-control" style="width:100px" value="{{ year }}"></div>
+            <div class="col-auto"><button class="btn btn-primary"><i class="fas fa-calendar-alt me-1"></i>عرض الشهر</button></div>
+        </div>
+
+        <details class="mt-3" {{ 'open' if cfg_error }}>
+            <summary class="small fw-bold text-muted">النوافذ والأكواد والأوقات المقترحة</summary>
+            <div class="row g-3 mt-1">
+                <div class="col-lg-4">
+                    <div class="small text-muted mb-1">نوافذ الأعمدة (ساعات 0–24): كل بصمة بتتصنّف بالنافذة اللي واقعة فيها. لازم مرتّبة ومش متداخلة.</div>
+                    {% for f, key, label in fields %}
+                    <div class="input-group input-group-sm mb-1">
+                        <span class="input-group-text" style="width:70px">{{ label }}</span>
+                        <input name="{{ key }}_from" type="number" min="0" max="24" class="form-control" value="{{ windows[key][0] }}">
+                        <span class="input-group-text">إلى</span>
+                        <input name="{{ key }}_to" type="number" min="0" max="24" class="form-control" value="{{ windows[key][1] }}">
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="col-lg-4">
+                    <div class="small text-muted mb-1">كود CHECKTYPE لكل نافذة (فاضي = الأكتر استخدامًا في بصمات الجهاز للموظف ده):</div>
+                    {% for f, key, label in fields %}
+                    <div class="input-group input-group-sm mb-1">
+                        <span class="input-group-text" style="width:70px">{{ label }}</span>
+                        <input name="ct_{{ key }}" class="form-control rc-mono" value="{{ codes.get(key, '') }}">
+                        <span class="input-group-text small rc-mono">
+                            {% for c, n in (data.code_dist.get(key, []) if data else []) %}{{ c if c != '' else 'NULL' }}×{{ n }}{{ '، ' if not loop.last }}{% else %}—{% endfor %}
+                        </span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="col-lg-4">
+                    <div class="small text-muted mb-1">الأوقات المقترحة للأيام الناقصة (لازم تقع جوه نافذتها، وتقدر تعدّل كل يوم لوحده):</div>
+                    {% for f, key, label in fields %}
+                    <div class="input-group input-group-sm mb-1">
+                        <span class="input-group-text" style="width:70px">{{ label }}</span>
+                        <input name="suggest_{{ key }}" class="form-control rc-mono" value="{{ suggest[key] }}">
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </details>
+    </div>
+</form>
+
+{% if data and data.orphans %}
+<div class="alert alert-warning small">بصمات خارج النوافذ — مش ظاهرة في الجدول ومش هيلمسها الحفظ:
+    <span class="rc-mono">{% for o in data.orphans %}{{ o.date }} {{ o.time }} (نوع {{ o.type or 'NULL' }}){{ '، ' if not loop.last }}{% endfor %}</span></div>
+{% endif %}
+
+{% if not user_id %}
+<div class="alert alert-light border">اكتب الرقم الوظيفي فوق عشان تظهر بصمات الشهر.</div>
+{% elif data and data.calendar %}
+<div class="mb-2"><b>{{ data.employee['name'] }}</b> <span class="text-muted">— {{ data.employee['employee_number'] }} · {{ data.employee['department'] or '' }}</span></div>
+<form method="post" id="rcSave">
+    <input type="hidden" name="action" value="save">
+    <input type="hidden" name="user_id" value="{{ user_id }}">
+    <input type="hidden" name="month" value="{{ month }}"><input type="hidden" name="year" value="{{ year }}">
+    {% for f, key, label in fields %}
+    <input type="hidden" name="{{ key }}_from" value="{{ windows[key][0] }}"><input type="hidden" name="{{ key }}_to" value="{{ windows[key][1] }}">
+    <input type="hidden" name="ct_{{ key }}" value="{{ codes[key] }}"><input type="hidden" name="suggest_{{ key }}" value="{{ suggest[key] }}">
+    {% endfor %}
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 rc-table">
+                <thead class="table-light"><tr>
+                    <th style="width:34px"><input type="checkbox" class="form-check-input" id="rcPickAll" title="كل أيام العمل الناقصة"></th>
+                    <th style="width:150px">اليوم</th><th>دخول</th><th>تواجد</th><th>خروج</th>
+                </tr></thead>
+                <tbody>
+                {% for day in data.calendar %}
+                <tr class="{{ 'rc-rest' if day.is_weekend }} {{ 'rc-holed' if day.holed }}">
+                    <td><input type="checkbox" class="form-check-input rc-pick" name="selected_days" value="{{ day.date }}" {{ 'data-hole=1' if day.holed }}></td>
+                    <td><div class="rc-mono small">{{ day.date }}</div><div class="small text-muted">{{ AR[day.dow] }}{{ ' · إجازة' if day.is_weekend }}</div></td>
+                    {% for f, key, label in fields %}
+                    {% set actual = day['actual_' ~ f] %}{% set sugg = day['s_' ~ f] %}
+                    <td>
+                        {% if actual %}
+                            <span class="rc-mono small rc-shown">{{ actual }}</span>
+                            {% if day['adj_' ~ f] %}<span class="badge bg-info text-dark rc-adj rc-shown" title="تسوية سابقة">تسوية</span>{% endif %}
+                            <button type="button" class="btn btn-link btn-sm p-0 rc-edit rc-shown">تعديل</button>
+                            <input type="text" class="form-control form-control-sm rc-time rc-hide" name="{{ f }}_{{ day.date }}" value="{{ actual }}" disabled placeholder="{{ sugg }}">
+                        {% elif day.is_weekend %}
+                            <span class="text-muted rc-shown">—</span>
+                            <button type="button" class="btn btn-link btn-sm p-0 rc-edit rc-shown">إضافة</button>
+                            <input type="text" class="form-control form-control-sm rc-time rc-hide" name="{{ f }}_{{ day.date }}" value="" disabled placeholder="{{ sugg }}">
+                        {% else %}
+                            <input type="text" class="form-control form-control-sm rc-time" name="{{ f }}_{{ day.date }}" value="{{ sugg }}">
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="rc-commit d-flex flex-wrap gap-3 align-items-center justify-content-center">
+            <div class="input-group" style="max-width:280px">
+                <span class="input-group-text">رقم الكتاب المعتمد</span>
+                <input name="book_no" class="form-control rc-mono" required placeholder="مطلوب">
+            </div>
+            <button class="btn btn-success"><i class="fas fa-save me-1"></i>حفظ الأيام المحددة</button>
+            <small class="text-muted">الخانة الفاضية مابتتحفظش ومابتلغيش اللي موجود. الحفظ بيستبدل اللي في نفس النافذة لليوم ده (والقديم متسجّل في السجل).</small>
+        </div>
+    </div>
+</form>
+{% endif %}
+
+<div class="row g-3 mt-2">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="fas fa-history me-1"></i>سجل التسويات {{ '— ' ~ user_id if user_id }}</div>
+            <div class="table-responsive" style="max-height:320px">
+                <table class="table table-sm mb-0 small">
+                    <thead class="table-light"><tr><th>إمتى</th><th>مين</th><th>الموظف</th><th>اليوم</th><th>النافذة</th><th>القديم</th><th>الجديد</th><th>الكتاب</th></tr></thead>
+                    <tbody>
+                    {% for h in history %}
+                    <tr><td class="rc-mono">{{ h['created_at'] }}</td><td>{{ h['username'] or '—' }}</td>
+                        <td>{{ h['employee_number'] }} — {{ h['name'] }}</td><td class="rc-mono">{{ h['day'] }}</td>
+                        <td>{{ {'in':'دخول','pres':'تواجد','out':'خروج'}[h['field']] }}</td>
+                        <td class="rc-mono">{{ (h['old_times'] or '[]')|replace('[','')|replace(']','')|replace('"','') or '—' }}</td>
+                        <td class="rc-mono">{{ h['new_time'][11:] }}</td><td class="rc-mono">{{ h['book_no'] }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted">مفيش تسويات لسه</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <form method="post" class="card shadow-sm">
+            <div class="card-header bg-white"><i class="fas fa-key me-1"></i>تغيير باسورد الصفحة</div>
+            <div class="card-body">
+                <input type="hidden" name="action" value="password">
+                <input type="password" name="old_password" class="form-control form-control-sm mb-2" placeholder="الحالي" required>
+                <input type="password" name="new_password" class="form-control form-control-sm mb-2" placeholder="الجديد (٦ على الأقل)" required minlength="6">
+                <button class="btn btn-sm btn-outline-primary">تغيير</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.rc-edit').forEach(function (b) {
+    b.addEventListener('click', function () {
+        var cell = b.closest('td');
+        cell.querySelectorAll('.rc-shown').forEach(function (el) { el.classList.add('rc-hide'); });
+        var inp = cell.querySelector('input[type=text]');
+        inp.classList.remove('rc-hide'); inp.disabled = false;
+        if (!inp.value) inp.value = inp.placeholder;
+        inp.focus();
+        b.closest('tr').querySelector('.rc-pick').checked = true;
+    });
+});
+document.querySelectorAll('#rcSave input[type=text]').forEach(function (i) {
+    i.addEventListener('input', function () { i.closest('tr').querySelector('.rc-pick').checked = true; });
+});
+var all = document.getElementById('rcPickAll');
+if (all) all.addEventListener('change', function () {
+    document.querySelectorAll('.rc-pick[data-hole]').forEach(function (c) { c.checked = all.checked; });
+});
+var f = document.getElementById('rcSave');
+if (f) f.addEventListener('submit', function (e) {
+    var n = document.querySelectorAll('.rc-pick:checked').length;
+    if (!n) { e.preventDefault(); alert('حدّد يوم واحد على الأقل قبل الحفظ.'); return; }
+    if (!confirm(n + ' يوم هيتسوّى بكتاب رقم ' + f.book_no.value + '. تكمل؟')) e.preventDefault();
+});
+</script>
+{% endblock %}

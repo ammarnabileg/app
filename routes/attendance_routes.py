@@ -1146,6 +1146,85 @@ def oracle_control():
     return render_template('oracle_control.html', enabled=enabled,
                            configured=configured, stats=stats, cfg=cfg)
 
+def _reconcile_unlocked():
+    from flask import session
+    return float(session.get('reconcile_until') or 0) > time.time()
+
+
+@attendance_bp.route('/attendance/oracle/reconcile', methods=['GET', 'POST'])
+@login_required
+@require_permission('page.oracle_control')
+def punch_reconcile_page():
+    """«تسوية البصمة»: تكملة بصمات ناقصة لموظف بكتاب معتمد (utils/punch_reconcile). بباسورد لوحدها."""
+    from flask import session
+    from datetime import date as _date
+    from utils import punch_reconcile as pr
+    action = request.form.get('action') if request.method == 'POST' else None
+    if action == 'unlock':
+        if pr.check_password(request.form.get('password')):
+            session['reconcile_until'] = time.time() + 30 * 60      # نص ساعة
+            return redirect(url_for('attendance.punch_reconcile_page'))
+        flash('الباسورد غلط', 'error')
+        return render_template('punch_reconcile.html', locked=True)
+    if not _reconcile_unlocked():
+        return render_template('punch_reconcile.html', locked=True)
+    if action == 'lock':
+        session.pop('reconcile_until', None)
+        return redirect(url_for('attendance.punch_reconcile_page'))
+    if action == 'password':
+        ok, msg = pr.change_password(request.form.get('old_password'), request.form.get('new_password'))
+        flash(msg, 'success' if ok else 'error')
+        return redirect(url_for('attendance.punch_reconcile_page'))
+
+    src = request.form if request.method == 'POST' else request.args
+    today = _date.today()
+    try:
+        month = int(src.get('month') or today.month)
+        year = int(src.get('year') or today.year)
+        if not (1 <= month <= 12 and 2000 <= year <= 2100):
+            raise ValueError
+    except ValueError:
+        month, year = today.month, today.year
+    user_id = (src.get('user_id') or '').strip()
+    windows, cfg_error = pr.parse_windows(src)
+    codes = {k: (src.get(f'ct_{k}') or '').strip() for k in ('in', 'pres', 'out')}
+    suggest = {k: src.get(f'suggest_{k}') for k in ('in', 'pres', 'out')}
+    conn = get_db_connection()
+
+    if action == 'save' and not cfg_error and user_id:
+        days = request.form.getlist('selected_days')
+        values = {k: v for k, v in request.form.items() if k.startswith(('entry_', 'pres_', 'exit_'))}
+        built = pr.build(conn, user_id, month, year, windows, codes, suggest)
+        res = pr.save(conn, user_id, days, values, windows, built.get('codes', codes),
+                      request.form.get('book_no'), session.get('user_id'))
+        if res.get('saved'):
+            flash(f"اتحفظ {res['saved']} بصمة (اتشال {res['replaced']} قديمة) — كتاب رقم {request.form.get('book_no')}. "
+                  f"بتتبعت لأوراكل في ثواني.", 'success')
+        elif not res.get('errors'):
+            flash('مفيش تغيير يتحفظ', 'warning')
+        if res.get('locked'):
+            flash('أيام في شهر كشفه اتقفل ماتلمستش: ' + '، '.join(res['locked']), 'warning')
+        for e in res.get('errors', [])[:15]:
+            flash(e, 'error')
+        q = {k: v for k, v in request.form.items() if k in (
+            'user_id', 'month', 'year', 'in_from', 'in_to', 'pres_from', 'pres_to', 'out_from', 'out_to',
+            'ct_in', 'ct_pres', 'ct_out', 'suggest_in', 'suggest_pres', 'suggest_out')}
+        return redirect(url_for('attendance.punch_reconcile_page', **q))
+
+    data, db_error = {}, None
+    if user_id and not cfg_error:
+        try:
+            data = pr.build(conn, user_id, month, year, windows, codes, suggest)
+            if data.get('error'):
+                db_error, data = data['error'], {}
+        except Exception as e:                  # noqa: BLE001
+            db_error = str(e)[:300]
+    return render_template('punch_reconcile.html', locked=False, user_id=user_id, month=month, year=year,
+                           windows=windows, cfg_error=cfg_error, db_error=db_error, data=data,
+                           codes=data.get('codes', codes), suggest=data.get('suggest', pr.DEFAULT_SUGGEST),
+                           fields=pr.FIELDS, history=pr.history(conn, user_id or None, 30))
+
+
 @attendance_bp.route('/attendance/oracle/toggle', methods=['POST'])
 @login_required
 @require_permission('attendance.edit')
