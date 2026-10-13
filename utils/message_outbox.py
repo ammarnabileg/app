@@ -365,6 +365,12 @@ def run_once(conn=None, session=None, now=None, force=False):
 
     و`force` لزرّ «أرسل الآن» — انظر `cloud_sync.run_once`.
     """
+    try:
+        from utils.plan_features import edition
+        if edition() == 'free':
+            return {'ok': False, 'skipped': 'free_edition'}   # النسخة المجانية: بوابة الرسائل مقفولة
+    except Exception:
+        pass
     cfg = _settings()
     if not cfg['enabled'] and not force:
         return {'ok': True, 'skipped': 'disabled', 'sent': 0}

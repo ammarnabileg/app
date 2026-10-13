@@ -7,8 +7,15 @@
     <div class="mb-4">
         <i class="fas fa-lock text-secondary" style="font-size: 4rem;"></i>
     </div>
+    {% if feature == 'full_edition' %}
+    <h1 class="h3 fw-bold mb-3">الشاشة دي مش في النسخة المجانية</h1>
+    <p class="lead text-muted mb-2">النسخة المجانية فيها الأجهزة والبصمات وسجل الحركات وتصديره، لحد 25 موظف.</p>
+    <p class="text-muted mb-4">النسخة الكاملة بتفتح التقارير، والرواتب، والإجازات، و«مين يبصم فين»، وأوراكل، والبوابة، وكل الباقي —
+        على نفس بياناتك من غير ما تدخّل حاجة تاني.</p>
+    {% else %}
     <h1 class="h3 fw-bold mb-3">{{ _('x.feature_not_in_plan', feature=feature_label) }}</h1>
     <p class="lead text-muted mb-4">{{ _('x.feature_not_in_plan_details') }}</p>
+    {% endif %}
     <a href="{{ upgrade_url }}" target="_blank" rel="noopener" class="btn btn-primary btn-lg px-4">
         {{ _('x.upgrade_plan') }}
     </a>

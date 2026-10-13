@@ -320,6 +320,76 @@ def fingerprint_settings_page():
     return render_template('fingerprint_settings.html', devices=rows)
 
 
+def _punches_query(args):
+    """الحركات الخام بالفلاتر: من/إلى، وموظف (رقم أو اسم)، وجهاز. ← (sql, params, filters)."""
+    from datetime import date as _date, timedelta as _td
+    today = _date.today()
+    start = (args.get('start') or (today - _td(days=6)).isoformat())[:10]
+    end = (args.get('end') or today.isoformat())[:10]
+    q = (args.get('q') or '').strip()
+    dev = (args.get('device') or '').strip()
+    where = ['a.check_time >= ?', 'a.check_time <= ?']
+    params = [start, end + ' 23:59:59']
+    if q:
+        where.append('(CAST(e.employee_number AS TEXT) = ? OR e.name LIKE ?)')
+        params += [q, f'%{q}%']
+    if dev.isdigit():
+        where.append('a.device_id = ?')
+        params.append(int(dev))
+    sql = f"""SELECT a.check_time, a.check_type, a.verify_code, COALESCE(a.source, 'device') AS source, a.note,
+                     e.employee_number, e.name, e.department, d.device_name
+              FROM attendance_records a JOIN employees e ON e.id = a.employee_id
+              LEFT JOIN fingerprint_devices d ON d.id = a.device_id
+              WHERE {' AND '.join(where)} ORDER BY a.check_time DESC"""
+    return sql, params, {'start': start, 'end': end, 'q': q, 'device': dev}
+
+
+@attendance_bp.route('/fingerprint/punches')
+@login_required
+@require_permission('attendance.view')
+def punches_log():
+    """سجل الحركات الخام: مين بصم، إمتى، على أنهي جهاز — أساس النسخة المجانية."""
+    conn = get_db_connection()
+    sql, params, f = _punches_query(request.args)
+    total = conn.execute(f'SELECT COUNT(*) FROM ({sql})', params).fetchone()[0]
+    rows = conn.execute(sql + ' LIMIT 1000', params).fetchall()
+    devices = conn.execute('SELECT id, device_name FROM fingerprint_devices ORDER BY id').fetchall()
+    return render_template('punches_log.html', rows=rows, total=total, devices=devices, f=f)
+
+
+@attendance_bp.route('/fingerprint/punches/export')
+@login_required
+@require_permission('attendance.view')
+def punches_log_export():
+    """تصدير الحركات الخام Excel (كل اللي في الفلتر، مش أول ١٠٠٠ بس)."""
+    import io
+    from flask import send_file
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    conn = get_db_connection()
+    sql, params, f = _punches_query(request.args)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Punches'
+    ws.sheet_view.rightToLeft = True
+    head = ['الرقم', 'الاسم', 'القسم', 'التاريخ', 'الوقت', 'النوع', 'طريقة التحقق', 'الجهاز', 'المصدر', 'ملاحظة']
+    ws.append(head)
+    for c in ws[1]:
+        c.font = Font(bold=True, color='FFFFFF')
+        c.fill = PatternFill('solid', fgColor='1F5C4A')
+    for r in conn.execute(sql, params):
+        t = str(r['check_time']).replace('T', ' ')
+        ws.append([r['employee_number'], r['name'], r['department'] or '', t[:10], t[11:19], r['check_type'],
+                   r['verify_code'], r['device_name'] or '', r['source'], r['note'] or ''])
+    for col, w in zip('ABCDEFGHIJ', (10, 28, 18, 12, 10, 8, 12, 18, 12, 30)):
+        ws.column_dimensions[col].width = w
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name=f"punches_{f['start']}_{f['end']}.xlsx",
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @attendance_bp.route('/fingerprint/device-access/save', methods=['POST'])
 @login_required
 @require_permission('attendance.devices')

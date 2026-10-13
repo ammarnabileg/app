@@ -368,8 +368,14 @@ def enforce_plan_features():
 
 @app.context_processor
 def inject_plan_features():
-    from utils.plan_features import has_feature
-    return {'has_feature': has_feature}
+    from utils.plan_features import has_feature, edition, trial_days_left, free_locked_paths, SUBSCRIPTION_URL
+    try:
+        ed = edition()
+    except Exception:
+        ed = 'full'
+    info = {'edition': ed, 'days_left': trial_days_left() if ed == 'trial' else 0,
+            'locked_paths': free_locked_paths(app) if ed == 'free' else [], 'upgrade_url': SUBSCRIPTION_URL}
+    return {'has_feature': has_feature, 'edition_info': info}
 
 
 @app.after_request

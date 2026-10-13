@@ -94,6 +94,14 @@ def auto_status(enabled, last_auto, now=None):
     return 'stale' if now - t > timedelta(minutes=AUTO_STALE_MINUTES) else 'running'
 
 
+def _free_edition():
+    try:
+        from utils.plan_features import edition
+        return edition() == 'free'
+    except Exception:
+        return False
+
+
 def _settings():
     from utils.db import get_setting
     url = (get_setting(SETTING_URL, '') or '').strip().rstrip('/')
@@ -207,6 +215,8 @@ def run_once(conn=None, session=None, force=False):
     يُنادى بلا `force` فيبقى المفتاحُ في الشاشة هو ما يحكمه.
     """
     cfg = _settings()
+    if _free_edition():
+        return {'ok': False, 'skipped': 'free_edition'}       # النسخة المجانية: الرفع للبوابة مقفول
     if not cfg['enabled'] and not force:
         return {'ok': True, 'skipped': 'disabled', 'sent': 0}
     if not (cfg['url'] and cfg['client_id'] and cfg['api_key']):

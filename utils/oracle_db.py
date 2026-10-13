@@ -100,6 +100,14 @@ def oracle_configured():
     return _oracle_configured_cache['value']
 
 
+def _free_edition():
+    try:
+        from utils.plan_features import edition
+        return edition() == 'free'
+    except Exception:
+        return False
+
+
 def is_oracle_enabled():
     """مفتوحة من الشاشة ومضبوطة. لو لأ: لا اتصال ولا طابور ولا ضجّة في اللوج."""
     now = time.time()
@@ -109,6 +117,8 @@ def is_oracle_enabled():
         except Exception:
             _oracle_enabled_cache['value'] = True
         _oracle_enabled_cache['ts'] = now
+    if _oracle_enabled_cache['value'] and _free_edition():
+        return False                # النسخة المجانية: أوراكل مقفول
     return _oracle_enabled_cache['value'] and oracle_configured()
 
 

@@ -828,6 +828,13 @@
                                 {{ _('nav.fingerprint') }}
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'attendance.punches_log' %}active{% endif %}"
+                                href="{{ url_for('attendance.punches_log') }}">
+                                <i class="fas fa-stream"></i>
+                                سجل الحركات
+                            </a>
+                        </li>
                         {% endif %}
                         {% if has_permission('page.oracle_control') %}
                         <li class="nav-item">
@@ -1187,6 +1194,21 @@
                 </script>
 
 
+                {# النسخة المجانية / التجربة الكاملة (utils/plan_features.edition) #}
+                {% if edition_info and edition_info.edition == 'trial' and session.user_id %}
+                <div class="alert alert-info d-flex flex-wrap align-items-center gap-2 py-2 small" id="editionBanner">
+                    <i class="fas fa-gift"></i>
+                    <span><b>تجربة كاملة</b> — كل حاجة مفتوحة. باقي <b>{{ edition_info.days_left }}</b> يوم، وبعدها البرنامج بيرجع للنسخة المجانية (الأجهزة والبصمات بس) وبياناتك كلها باقية.</span>
+                    <a href="{{ edition_info.upgrade_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary ms-auto">اشترِ النسخة الكاملة</a>
+                </div>
+                {% elif edition_info and edition_info.edition == 'free' and session.user_id %}
+                <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-2 small" id="editionBanner">
+                    <i class="fas fa-lock-open"></i>
+                    <span><b>النسخة المجانية</b> — الأجهزة والبصمات وسجل الحركات. الحاجات اللي عليها 🔒 بتتفتح لما تشتري.</span>
+                    <a href="{{ edition_info.upgrade_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary ms-auto">افتح كل حاجة</a>
+                </div>
+                {% endif %}
+
                 {% block content %}{% endblock %}
 
                 <!-- Footer -->
@@ -1340,6 +1362,25 @@
         });
     </script>
 
+    {% if edition_info and edition_info.locked_paths %}
+    <script>
+    // النسخة المجانية: أي رابط لشاشة مقفولة عليه قفل 🔒 (والشاشة نفسها بتقول «اشترِ وافتحها»).
+    (function () {
+        var locked = new Set({{ edition_info.locked_paths | tojson }});
+        document.querySelectorAll('a[href]').forEach(function (a) {
+            try {
+                var u = new URL(a.getAttribute('href'), location.origin);
+                if (u.origin !== location.origin) return;
+                var p = u.pathname.replace(/\/$/, '') || '/';
+                if (locked.has(p) && !a.querySelector('.free-lock')) {
+                    a.insertAdjacentHTML('beforeend', ' <span class="free-lock" title="مش في النسخة المجانية">🔒</span>');
+                    a.classList.add('opacity-75');
+                }
+            } catch (e) {}
+        });
+    })();
+    </script>
+    {% endif %}
     {% block scripts %}{% endblock %}
     <div id="restartOverlay" style="display:none; position:fixed; inset:0; z-index:20000; background:rgba(250,250,247,.92); backdrop-filter:blur(6px); align-items:center; justify-content:center; flex-direction:column; gap:1rem;">
         <div class="spinner-border text-success" style="width:3rem;height:3rem;"></div>

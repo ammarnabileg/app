@@ -47,7 +47,9 @@ def employee_cap():
             return None
         v = (r.get('data') or {}).get('max_employees')
         if v is None:
-            return None
+            # النسخة المجانية (بعد التجربة) من غير حدّ في الرخصة: ٢٥ موظف.
+            from utils.plan_features import edition, FREE_MAX_EMPLOYEES
+            return FREE_MAX_EMPLOYEES if edition() == 'free' else None
         v = int(v)
         return v if v > 0 else None
     except Exception as e:
