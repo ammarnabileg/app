@@ -426,6 +426,31 @@ def save_license_key(key: str, username: str = None, api_key: str = None):
     finally:
         pass # conn.close() removed to prevent leak in Flask g
 
+def refresh_license_now():
+    """يسأل اللوحة الآن بدل ما يستنّى الفحص اللي كل ساعة — (ok, رسالة).
+
+    بيمسح كاش الفحص بس: لو الاتصال فشل، الرخصة الموقَّعة المحفوظة والمهلة
+    بيشتغلوا زي ما هما في `check_online_license_secure` — مفيش قفل بسبب الزرار.
+    """
+    key = get_saved_license_key()
+    if not key:
+        return False, 'مفيش ترخيص متفعّل'
+    conn = get_db_connection()
+    init_license_table(conn)
+    conn.execute('UPDATE license_settings SET last_check = NULL WHERE id=1')
+    conn.commit()
+    try:
+        ok, msg = check_online_license_secure(key)
+    finally:
+        invalidate_license_cache()
+    if ok:
+        try:
+            msg = f"حد الأجهزة {get_effective_max_devices()}"
+        except Exception:
+            pass
+    return ok, msg
+
+
 def logout_license():
     conn = get_db_connection()
     try:

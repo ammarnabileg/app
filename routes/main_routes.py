@@ -540,6 +540,15 @@ def license_page():
             flash(gettext('x.f_logout_deactivated'), 'success')
             return redirect(url_for('main.license_page'))
 
+        if req_type == 'refresh':
+            # «حدّث من onz.one الآن»: الفحص كل ساعة، فتعديلٌ في اللوحة (حدّ الأجهزة،
+            # التاريخ، الخطّة) كان يستنّى لحد ساعة. ده بيسأل اللوحة دلوقتي.
+            from utils.license import refresh_license_now
+            ok, msg = refresh_license_now()
+            flash(('اتحدّث الترخيص من onz.one' if ok else 'ماقدرناش نحدّث الترخيص دلوقتي') + f' — {msg}',
+                  'success' if ok else 'error')
+            return redirect(url_for('main.license_page'))
+
         if req_type == 'login':
             # Activation by Login
             username = request.form.get('username')
