@@ -78,6 +78,7 @@
                                     <th>{{ _('x.status') }}</th>
                                     <th>{{ _('x.attempts') }}</th>
                                     <th>{{ _('x.record_time') }}</th>
+                                    <th>العملية / السبب</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -97,6 +98,8 @@
                                     <td>
                                         {% if row['status'] == 'SYNCED' %}
                                         <span class="badge bg-success-soft text-success"><i class="fas fa-check me-1"></i>{{ _('x.done') }}</span>
+                                        {% elif row['status'] in ('SKIPPED', 'CANCELLED') %}
+                                        <span class="badge bg-secondary">{{ 'اتلغت' if row['status'] == 'CANCELLED' else 'اتساب' }}</span>
                                         {% elif row['status'] == 'PENDING' %}
                                         <span class="badge bg-warning-soft text-warning"><i class="fas fa-clock me-1"></i>{{ _('x.pending') }}</span>
                                         {% else %}
@@ -105,10 +108,12 @@
                                     </td>
                                     <td>{{ row['retry_count'] }}</td>
                                     <td class="text-muted small">{{ row['created_at'] }}</td>
+                                    <td class="small">{% if row['op'] == 'DELETE' %}<span class="badge bg-dark">مسح من أوراكل</span>{% endif %}
+                                        {% if row['last_error'] %}<div class="text-danger" dir="ltr" style="max-width:320px">{{ row['last_error'] }}</div>{% endif %}</td>
                                 </tr>
                                 {% else %}
                                 <tr>
-                                    <td colspan="6" class="text-center py-5 text-muted">
+                                    <td colspan="7" class="text-center py-5 text-muted">
                                         <i class="fas fa-scroll fa-3x mb-3 opacity-25"></i>
                                         <p>{{ _('x.no_sync_data') }}</p>
                                     </td>

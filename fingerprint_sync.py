@@ -462,6 +462,13 @@ class FingerprintSyncManager:
                     WHERE id = ?
                 ''', (formatted_sync_time, device_id))
                 db_conn.commit()
+            # البصمات الجديدة اتحطّت في طابور أوراكل (trigger) — تتبعت دلوقتي.
+            if saved_count:
+                try:
+                    from utils.oracle_db import wake as _oracle_wake
+                    _oracle_wake()
+                except Exception:
+                    pass
             
             pass # conn.close() removed to prevent leak in Flask g
             

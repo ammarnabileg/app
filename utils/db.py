@@ -1921,6 +1921,18 @@ def init_db():
     except Exception as e:
         print(f'cloud outbox install failed: {e}')
 
+    # بعد كل الترحيلات (الـtrigger بيقرا attendance_records.source).
+    # أعمدة الطابور الجديدة وTriggers جدول الحضور (utils/oracle_db) — البصمة بتتحط في طابور أوراكل
+    # من أي مكان دخلت منه الحضور.
+    try:
+        from utils.oracle_db import ensure_schema as _oracle_schema
+        _oracle_schema(conn)
+        conn.commit()
+    except ImportError:
+        pass                    # oracledb مش متثبّت: مفيش مزامنة أوراكل أصلًا
+    except Exception as _oe:
+        print(f"Oracle schema: {_oe}")
+
     # Stamp the schema version last: reaching this point means every
     # migration above completed without raising.
     try:

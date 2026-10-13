@@ -133,6 +133,14 @@
         </div>
     </div>
 
+    <div class="alert {{ 'alert-danger' if stats.last_error else ('alert-success' if stats.last_ok_at else 'alert-secondary') }} small">
+        <i class="fas fa-sync me-1"></i>المزامنة <b>أول بأول</b>: أي بصمة جهاز بتدخل الحضور بتتبعت لأوراكل في ثواني (كل {{ stats.interval_seconds }} ثواني بالكتير).
+        {% if stats.last_ok_at %}<div>آخر مزامنة نجحت: <span dir="ltr">{{ stats.last_ok_at }}</span></div>{% endif %}
+        {% if stats.last_error %}<div>آخر خطأ (<span dir="ltr">{{ stats.last_error_at }}</span>): <span dir="ltr">{{ stats.last_error }}</span>
+            — البصمات بتفضل في الطابور وبتتبعت لما أوراكل يرجع.</div>{% endif %}
+        {% if stats.retrying %}<div>{{ stats.retrying }} حركة بتتعاد محاولتها.</div>{% endif %}
+    </div>
+
     <div class="row g-3">
         <div class="col-md-4">
             <div class="card text-center py-3">

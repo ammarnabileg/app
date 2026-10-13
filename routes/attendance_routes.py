@@ -1154,7 +1154,7 @@ def oracle_toggle():
     from utils import oracle_db as _odb
     new_state = '1' if request.form.get('enable') == '1' else '0'
     set_setting('oracle_enabled', new_state)
-    _odb._oracle_enabled_cache['ts'] = 0
+    _odb.refresh_state()        # الـtriggers تبدأ/توقف والعامل يصحى على طول
     if new_state == '1':
         flash(gettext('x.f_oracle_enabled'), 'success')
     else:
@@ -1173,6 +1173,11 @@ def oracle_save_settings():
     pw = request.form.get('password', '')
     if pw.strip():
         set_setting('oracle_password', pw.strip())
+    try:
+        from utils import oracle_db as _odb
+        _odb.refresh_state()
+    except Exception:
+        pass
     flash(gettext('x.f_oracle_settings_saved'), 'success')
     return redirect(url_for('attendance.oracle_control'))
 
@@ -1193,18 +1198,18 @@ def oracle_history():
     import os
     conn = get_db_connection()
     # Get last 100 records
+    from utils import oracle_db as _odb
+    _odb.ensure_schema(conn)
+    # كان بيطلب عمود device_ip مش موجود في الطابور — الصفحة كانت بتقع.
     history = conn.execute('''
-        SELECT id, user_id, check_time, check_type, verify_code, device_ip, retry_count, status, created_at 
+        SELECT id, user_id, check_time, check_type, verify_code, device_id, retry_count, status, created_at,
+               COALESCE(op, 'INSERT') AS op, last_error, synced_at
         FROM oracle_sync_queue 
-        ORDER BY created_at DESC 
-        LIMIT 100
+        ORDER BY id DESC 
+        LIMIT 200
     ''').fetchall()
-    pass # conn.close() removed to prevent leak in Flask g
-    
-    table_name = os.environ.get("ORACLE_TABLE_NAME", "ATTENDANCE_LOGS")
-    # For sync interval, we'll use a hardcoded 5 for now as per current logic, 
-    # but we could also get it from settings if we added one.
-    sync_interval = "5 دقائق"
+    table_name = _odb.table_name()
+    sync_interval = f"أول بأول (كل {_odb.SYNC_SECONDS} ثواني)"
     
     return render_template('oracle_history.html', 
                           history=history, 
@@ -1216,108 +1221,40 @@ def oracle_history():
 @require_permission('attendance.view')
 def oracle_stats():
     """API for Oracle Sync Dashboard"""
-    from utils.oracle_db import check_oracle_connection
-    conn = get_db_connection()
-    
-    stats = conn.execute('''
-        SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending,
-            SUM(CASE WHEN status = 'SYNCED' THEN 1 ELSE 0 END) as synced,
-            SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) as failed
-        FROM oracle_sync_queue
-    ''').fetchone()
-    
-    pass # conn.close() removed to prevent leak in Flask g
-    
-    is_online = check_oracle_connection()
-    
-    return jsonify({
-        'success': True,
-        'is_online': is_online,
-        'stats': {
-            'total': stats['total'] or 0,
-            'pending': stats['pending'] or 0,
-            'synced': stats['synced'] or 0,
-            'failed': stats['failed'] or 0
-        }
-    })
+    from utils.oracle_db import get_sync_queue_stats as _stats
+    st = _stats()
+    # «متصل» من آخر مزامنة نجحت (العامل بيبعت كل ثواني) — كان بيفتح اتصال جديد بأوراكل مع كل سؤال
+    # من الشاشة ويسيبه مفتوح.
+    is_online = bool(st.get('active') and st.get('last_ok_at') and not st.get('last_error'))
+    return jsonify({'success': True, 'is_online': is_online, 'stats': st})
 
 @attendance_bp.route('/attendance/api/oracle/sync_missing', methods=['POST'])
 @login_required
 @require_permission('attendance.edit')
 def sync_missing_to_oracle():
-    """Find records in attendance_records not yet in oracle_sync_queue and add them"""
-    from utils.oracle_db import is_oracle_enabled
+    """بصمات أجهزة في الحضور ماتحطّتش في طابور أوراكل — تتحط وتتبعت (utils/oracle_db.backfill).
+    (كانت بتقع دايمًا: الاستعلام كان بيسمّي جدول مش موجود فيه.)"""
+    from utils.oracle_db import is_oracle_enabled, backfill
     if not is_oracle_enabled():
         return jsonify({'success': False, 'message': gettext('x.oracle_is_disabled')})
-    from utils.oracle_db import process_sync_queue
-    import threading
-    
-    conn = get_db_connection()
+    since = (request.get_json(silent=True) or {}).get('since') or request.form.get('since') or None
     try:
-        # Find records in attendance_records that don't exist in oracle_sync_queue
-        # We join on employee_number as user_id, check_time, check_type
-        missing_records = conn.execute('''
-            SELECT 
-                e.employee_number,
-                ar.check_time, 
-                ar.check_type, 
-                ar.verify_code, 
-                fd.device_ip
-            FROM attendance_records ar
-            JOIN employees e ON ar.employee_id = e.id
-            LEFT JOIN oracle_sync_queue osq ON 
-                osq.user_id = e.employee_number AND 
-                osq.check_time = ar.check_time AND 
-                osq.check_type = ar.check_type
-            WHERE osq.id IS NULL
-        ''').fetchall()
-        
-        added_count = 0
-        for row in missing_records:
-            conn.execute('''
-                INSERT INTO oracle_sync_queue (user_id, check_time, check_type, verify_code, device_id, status)
-                VALUES (?, ?, ?, ?, ?, 'PENDING')
-            ''', (row['employee_number'], row['check_time'], row['check_type'], row['verify_code'], row['device_id']))
-            added_count += 1
-        
-        conn.commit()
-        
-        if added_count > 0:
-            # Trigger sync process in background
-            thread = threading.Thread(target=process_sync_queue)
-            thread.daemon = True
-            thread.start()
-            
-        return jsonify({
-            'success': True, 
-            'message': f'تم إضافة {added_count} حركة جديدة إلى طابور المزامنة',
-            'added_count': added_count
-        })
+        added = backfill(since)
+        return jsonify({'success': True, 'message': f'تم إضافة {added} حركة جديدة إلى طابور المزامنة',
+                        'added_count': added})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
-    finally:
-        pass # conn.close() removed to prevent leak in Flask g
 
 @attendance_bp.route('/attendance/api/oracle/retry', methods=['POST'])
 @login_required
 @require_permission('attendance.edit')
 def oracle_retry():
-    """Trigger manual retry of pending records"""
-
-    from utils.oracle_db import is_oracle_enabled
+    """الفاشل والمستني يتبعتوا دلوقتي."""
+    from utils.oracle_db import is_oracle_enabled, retry_failed
     if not is_oracle_enabled():
         return jsonify({'success': False, 'message': gettext('x.oracle_is_disabled')})
-    from utils.oracle_db import process_sync_queue
-    
-    # Run in a separate thread so it doesn't block the UI
-    import threading
-    thread = threading.Thread(target=process_sync_queue)
-    thread.daemon = True
-    thread.start()
-    
-    return jsonify({'success': True, 'message': 'تم بدء محاولة المزامنة في الخلفية'})
+    n = retry_failed()
+    return jsonify({'success': True, 'message': f'هتتبعت دلوقتي ({n} حركة رجعت للطابور)'})
 
 @attendance_bp.route('/api/adms/sync_users/<int:device_id>', methods=['POST'])
 @login_required
@@ -1389,7 +1326,8 @@ def sync_queue_data_api():
     """API endpoint to get pending records for the UI"""
     try:
         conn = get_db_connection()
-        records = conn.execute("SELECT user_id, check_time, check_type, status, retry_count FROM oracle_sync_queue WHERE status = 'PENDING' ORDER BY id DESC LIMIT 100").fetchall()
+        records = conn.execute("SELECT user_id, check_time, check_type, status, retry_count, last_error FROM oracle_sync_queue "
+                               "WHERE status IN ('PENDING', 'FAILED') ORDER BY id DESC LIMIT 200").fetchall()
         pass # conn.close() removed to prevent leak in Flask g
         return jsonify([dict(r) for r in records])
     except Exception as e:

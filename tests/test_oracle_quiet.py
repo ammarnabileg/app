@@ -179,8 +179,16 @@ class _FakeOracle:
 
         class C:
             def execute(self, sql, params):
-                outer.rows.append(params)
+                # قبل الإضافة بيتأكد إنها مش موجودة (٢.٣٧.٢٠) — بنسجّل الإضافات بس.
+                if sql.strip().upper().startswith('INSERT'):
+                    outer.rows.append(params)
+
+            def fetchone(self):
+                return None
         return C()
+
+    def rollback(self):
+        pass
 
     def commit(self):
         self.committed = True
@@ -217,7 +225,7 @@ def test_a_flush_closes_the_connection_it_opened(oracle, monkeypatch, caplog):
     with caplog.at_level(logging.ERROR, logger='oracle_sync'):
         r = o.process_sync_queue()
 
-    assert r is True
+    assert r == 1, 'اتبعتت بصمة واحدة'
     assert len(fake.rows) == 1 and fake.committed
     assert fake.closed, 'الاتصالُ الذي فتحته الدالةُ يُغلق'
     st = db.get_db_connection().execute("SELECT status FROM oracle_sync_queue").fetchone()[0]

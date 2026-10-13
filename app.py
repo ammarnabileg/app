@@ -518,6 +518,13 @@ def main():
     from utils.device_autosync import background_worker as _device_autosync_worker
     threading.Thread(target=_device_autosync_worker, name='مزامنة-الأجهزة-كل-ساعة', daemon=True).start()
 
+    # مزامنة أوراكل أول بأول (utils/oracle_db) — بتشتغل بس لو أوراكل مفتوح ومضبوط.
+    try:
+        from utils.oracle_db import start_oracle_heartbeat
+        start_oracle_heartbeat()
+    except ImportError:
+        pass
+
     try:
         print(f"تشغيل خادم HR System على http://{host}:{port} (debug={debug})")
     except UnicodeEncodeError:

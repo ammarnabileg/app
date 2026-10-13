@@ -20,6 +20,11 @@ app.teardown_appcontext(close_db_connection)
 if __name__ == '__main__':
     # Initialize DB (Validation)
     init_db()
+    try:
+        from utils.oracle_db import start_oracle_heartbeat
+        start_oracle_heartbeat()
+    except ImportError:
+        pass
     
     # Get Port from Env or Default
     port = int(os.environ.get('ADMS_PORT', 8081))

@@ -434,15 +434,12 @@ def cdata():
                                 VALUES (?, ?, ?, ?, ?)
                             ''', (emp_id, device_id, time_str, status, verify))
                             
-                            # Sync to Oracle database alongside SQLite
-                            if ORACLE_ENABLED:
-                                # DO NOT start a thread per record anymore (Thundering Herd bottleneck)
-                                # Instead, just add to the local sync queue and let the background 
-                                # heartbeat in utils/oracle_db handle the flushing.
-                                from utils.oracle_db import add_to_sync_queue
-                                add_to_sync_queue(user_id, time_str, status, verify, device_addr(), sqlite_conn=conn)
+                            # أوراكل: الـtrigger على جدول الحضور حطّها في الطابور (utils/oracle_db).
             
             conn.commit()
+            if ORACLE_ENABLED:
+                from utils.oracle_db import wake as _oracle_wake
+                _oracle_wake()          # تتبعت لأوراكل في ثواني
             pass # conn.close() removed to prevent leak in Flask g
             return "OK"
             
