@@ -226,6 +226,69 @@ def device_access_accept_punches():
     return jsonify({'success': True, **res})
 
 
+@attendance_bp.route('/fingerprint/device-lookup', methods=['GET', 'POST'])
+@login_required
+@require_permission('attendance.devices')
+def device_lookup_page():
+    """استعلام عن موظف من جوه الجهاز: بياناته لوحدها، وبصماته لوحدها، وقدّامها اللي عندنا."""
+    from utils import device_access as da
+    from utils import biometric_templates as bio
+    conn = get_db_connection()
+    if request.method == 'GET':
+        devices = conn.execute('SELECT id, device_name, device_ip, is_adms, branch_name FROM fingerprint_devices '
+                               'WHERE is_active = 1 ORDER BY id').fetchall()
+        return render_template('device_lookup.html', devices=devices)
+    data = request.get_json(silent=True) or {}
+    pin = str(data.get('pin') or '').strip()
+    dev = conn.execute('SELECT * FROM fingerprint_devices WHERE id = ?', (int(data.get('device_id') or 0),)).fetchone()
+    if not dev or not pin:
+        return jsonify({'success': False, 'message': 'اختار الجهاز واكتب رقم الموظف'}), 400
+    da.ensure_schema(conn)
+    emp = conn.execute('SELECT id, name, card_number, password, privilege, is_active, branch_location '
+                       'FROM employees WHERE CAST(employee_number AS TEXT) = ?', (pin,)).fetchone()
+    restr = da.restriction_map(conn)
+    ours = {
+        'employee': dict(emp) if emp else None,
+        'blocked': pin in da.blocked_map(conn),
+        'denied_here': da.denied_on(restr, pin, dev['id']),
+        'off_marker': bool(conn.execute('SELECT 1 FROM device_removed_users WHERE device_id = ? AND user_id = ?',
+                                        (dev['id'], pin)).fetchone()),
+        'stored': bio.employee_breakdown(conn, pin),
+    }
+    if ours['employee']:
+        ours['employee'].pop('password', None)
+    out = {'success': True, 'adms': bool(dev['is_adms']), 'device': dev['device_name'], 'ours': ours}
+    if dev['is_adms']:
+        if data.get('refresh'):
+            from utils import adms_queue
+            import json as _j
+            for bt in (1, 9):
+                adms_queue.queue_every(conn, dev['id'], 'DATA QUERY BIODATA', _j.dumps({'Type': bt, 'PIN': pin}), hours=0)
+            adms_queue.queue_every(conn, dev['id'], 'DATA QUERY USERINFO', _j.dumps({'PIN': pin}), hours=0)
+            conn.commit()
+            out['queued'] = True
+        u = conn.execute('SELECT name, privilege, card_number, group_id, password, created_at FROM fingerprint_users '
+                         'WHERE device_id = ? AND CAST(user_id AS TEXT) = ?', (dev['id'], pin)).fetchone()
+        ids = {str(dev[k]) for k in ('device_name', 'serial_number', 'device_ip') if k in dev.keys() and dev[k]}
+        tpl = conn.execute(f"""SELECT COALESCE(template_type, 1) t, finger_id, COALESCE(major_ver, '') v,
+                                      LENGTH(template_data) n, created_at FROM fingerprint_templates
+                               WHERE pin = ? AND device_sn IN ({','.join('?' * len(ids))})
+                               ORDER BY 1, 2""", [pin] + list(ids)).fetchall()
+        out['device_data'] = {
+            'user': ({'name': u['name'], 'privilege': u['privilege'], 'card': u['card_number'] or '',
+                      'has_password': bool(str(u['password'] or '').strip()), 'reported_at': u['created_at']}
+                     if u else None),
+            'templates': [{'type': bio.TYPE_LABELS.get(int(r['t']), r['t']), 'no': r['finger_id'], 'version': r['v'],
+                           'size': r['n'], 'at': r['created_at']} for r in tpl],
+        }
+        return jsonify(out)
+    try:
+        out['device_data'] = da.lookup_direct(dev, pin)
+    except Exception as e:                      # noqa: BLE001
+        return jsonify({'success': False, 'message': f'تعذّر الاتصال بالجهاز: {str(e)[:120]}'})
+    return jsonify(out)
+
+
 @attendance_bp.route('/fingerprint/device-access/save', methods=['POST'])
 @login_required
 @require_permission('attendance.devices')

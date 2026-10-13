@@ -641,6 +641,21 @@ def edit_employee(id):
                            has_photo=has_photo,
                            photo_data=photo_data)
 
+@employee_bp.route('/employees/device-new')
+@login_required
+@require_permission('employee.edit')
+def device_new_employees_page():
+    """موظفين جداد اتضافوا من أجهزة البصمة — وإيه اللي ناقص في بيانات كل واحد."""
+    from utils import device_new_employees as dne
+    scope = request.args.get('scope', 'new')
+    if scope not in ('new', 'all_new', 'all'):
+        scope = 'new'
+    conn = get_db_connection()
+    items = dne.page_items(conn, scope)
+    return render_template('device_new_employees.html', items=items, scope=scope,
+                           open_count=dne.count_open(conn))
+
+
 @employee_bp.route('/api/device_new_employees')
 @login_required
 @require_permission('employee.edit')

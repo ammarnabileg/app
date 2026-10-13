@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}موظفين جداد من أجهزة البصمة{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <div>
+        <h1 class="h2"><i class="fas fa-user-plus me-2"></i>موظفين جداد من أجهزة البصمة</h1>
+        <div class="report-desc">موظف اتسجّل على جهاز البصمة بيتضاف للبرنامج لوحده بقسم «غير محدد» وراتب صفر.
+            هنا تشوف مين، واتضاف من أنهي جهاز وفين، و<b>إيه اللي ناقص في بياناته</b>. اضغط «كمّل» عشان تفتح صفحة الموظف.</div>
+    </div>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('attendance.device_lookup_page') }}" class="btn btn-outline-primary">
+            <i class="fas fa-search me-2"></i>استعلم عن موظف من الجهاز
+        </a>
+    </div>
+</div>
+
+<ul class="nav nav-pills mb-3">
+    <li class="nav-item"><a class="nav-link {{ 'active' if scope == 'new' }}" href="?scope=new">لسه ماتكمّلوش <span class="badge bg-light text-dark">{{ open_count }}</span></a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if scope == 'all_new' }}" href="?scope=all_new">كل اللي اتضافوا من الأجهزة</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if scope == 'all' }}" href="?scope=all">كل الموظفين اللي بياناتهم الأساسية ناقصة</a></li>
+</ul>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-white d-flex flex-wrap gap-3 small">
+        <span><span class="badge bg-danger">أساسي</span> لازم للرواتب والتقارير</span>
+        <span><span class="badge bg-light text-dark border">إضافي</span> يستحسن يتكمّل</span>
+        <span class="ms-auto">{{ items|length }} موظف</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr><th>الرقم</th><th>الاسم</th><th>اتضاف من</th><th>إمتى</th><th>ناقص (أساسي)</th><th>ناقص (إضافي)</th><th></th></tr>
+            </thead>
+            <tbody>
+            {% for it in items %}
+            <tr class="{{ 'text-muted' if not it.active }}">
+                <td>{{ it.number }}</td>
+                <td>{{ it.name }}{% if not it.active %} <span class="badge bg-secondary">غير نشط</span>{% endif %}
+                    {% if it.done %} <span class="badge bg-success">اتكمّل</span>{% endif %}</td>
+                <td class="small">{{ it.device or '—' }}{% if it.location %}<div class="text-muted">{{ it.location }}</div>{% endif %}</td>
+                <td class="small" dir="ltr">{{ it.created or '—' }}</td>
+                <td>{% for m in it.must %}<span class="badge bg-danger me-1 mb-1">{{ m }}</span>{% else %}<span class="text-success small"><i class="fas fa-check"></i> كامل</span>{% endfor %}</td>
+                <td>{% for m in it.nice %}<span class="badge bg-light text-dark border me-1 mb-1">{{ m }}</span>{% endfor %}</td>
+                <td class="text-nowrap">
+                    <a class="btn btn-sm btn-primary" href="{{ url_for('employee.edit_employee', id=it.id) }}"><i class="fas fa-pen me-1"></i>كمّل</a>
+                    {% if not it.done and it.device %}<button class="btn btn-sm btn-link" onclick="markDone({{ it.id }}, this)">تم</button>{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-center text-muted py-4">مفيش موظفين هنا 👍</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function markDone(id, btn) {
+    await fetch(`/api/device_new_employees/${id}/done`, {method: 'POST'});
+    btn.closest('tr').querySelector('td:nth-child(2)').insertAdjacentHTML('beforeend', ' <span class="badge bg-success">اتكمّل</span>');
+    btn.remove();
+}
+</script>
+{% endblock %}

@@ -88,3 +88,70 @@ def count_open(conn):
     ensure_schema(conn)
     return conn.execute('''SELECT COUNT(*) FROM device_new_employees d JOIN employees e ON e.id = d.employee_id
                            WHERE d.done_at IS NULL''').fetchone()[0]
+
+
+# ------------------------------------------------------------ صفحة «كمّل بياناتهم»
+
+_PLACEHOLDER_DEPTS = {'', 'general', 'غير محدد', 'عام', 'none'}
+_PLACEHOLDER_POS = {'', 'employee', 'none', 'موظف'}
+
+
+def _blank(v):
+    return v is None or str(v).strip() in ('', 'None', '0', '0.0')
+
+
+def missing_fields(e):
+    """(الأساسي الناقص، الإضافي الناقص) — بالعربي، لموظف (صف employees)."""
+    keys = e.keys() if hasattr(e, 'keys') else e
+    g = lambda k: (e[k] if k in keys else None)
+    num = str(g('employee_number') or '').strip()
+    name = str(g('name') or '').strip()
+    must, nice = [], []
+    if not name or name in ('New User', num) or name.startswith('مستخدم_'):
+        must.append('الاسم')
+    if str(g('department') or '').strip().lower() in _PLACEHOLDER_DEPTS:
+        must.append('القسم')
+    if str(g('position') or '').strip().lower() in _PLACEHOLDER_POS:
+        must.append('الوظيفة')
+    if _blank(g('salary')):
+        must.append('الراتب')
+    if _blank(g('national_id')):
+        must.append('الرقم المدني')
+    if _blank(g('branch_location')):
+        must.append('الفرع')
+    if _blank(g('weekly_leave_selected_days')) and _blank(g('weekly_leave_days')):
+        must.append('الإجازة الأسبوعية')
+    for k, label in (('nationality', 'الجنسية'), ('phone', 'التليفون'), ('dob', 'تاريخ الميلاد'),
+                     ('gender', 'النوع'), ('shift_type', 'الشفت'), ('contract_type', 'نوع العقد'),
+                     ('bank_iban', 'الآيبان'), ('arabic_name', 'الاسم بالعربي')):
+        if _blank(g(k)):
+            nice.append(label)
+    return must, nice
+
+
+def page_items(conn, scope='new'):
+    """صفوف الصفحة. scope: 'new' اللي اتضافوا من الأجهزة ولسه ماتكمّلوش، 'all_new' كل اللي اتضافوا
+    من الأجهزة، 'all' كل الموظفين النشطين اللي بياناتهم الأساسية ناقصة."""
+    ensure_schema(conn)
+    if scope == 'all':
+        rows = conn.execute('''SELECT e.*, d.device_name AS dev_name, d.location AS dev_location,
+                                      datetime(d.created_at, 'localtime') AS dev_created, d.done_at AS dev_done
+                               FROM employees e LEFT JOIN device_new_employees d ON d.employee_id = e.id
+                               WHERE COALESCE(e.is_active, 1) = 1
+                               ORDER BY CAST(e.employee_number AS INTEGER)''').fetchall()
+    else:
+        rows = conn.execute(f'''SELECT e.*, d.device_name AS dev_name, d.location AS dev_location,
+                                       datetime(d.created_at, 'localtime') AS dev_created, d.done_at AS dev_done
+                                FROM device_new_employees d JOIN employees e ON e.id = d.employee_id
+                                {"WHERE d.done_at IS NULL" if scope == 'new' else ""}
+                                ORDER BY d.created_at DESC''').fetchall()
+    out = []
+    for r in rows:
+        must, nice = missing_fields(r)
+        if scope == 'all' and not must:
+            continue
+        out.append({'id': r['id'], 'number': r['employee_number'], 'name': r['name'] or '',
+                    'active': bool(r['is_active']), 'device': r['dev_name'] or '', 'location': r['dev_location'] or '',
+                    'created': r['dev_created'] or '', 'done': bool(r['dev_done']),
+                    'must': must, 'nice': nice})
+    return out

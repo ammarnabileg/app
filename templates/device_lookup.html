@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}استعلام عن موظف من الجهاز{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <div>
+        <h1 class="h2"><i class="fas fa-search me-2"></i>استعلام عن موظف من الجهاز</h1>
+        <div class="report-desc">اكتب رقم الموظف واختار الجهاز: بيظهرلك اللي <b>جوه الجهاز نفسه</b>، بيانات الموظف لوحدها وبصماته لوحدها،
+            وقدّامها اللي عندنا في البرنامج.</div>
+    </div>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('attendance.devices') }}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>رجوع للأجهزة</a>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label small">الجهاز</label>
+                <select id="lk-dev" class="form-select">
+                    {% for d in devices %}
+                    <option value="{{ d['id'] }}">{{ d['device_name'] }} — {{ 'ADMS' if d['is_adms'] else 'IP ' ~ (d['device_ip'] or '') }}{% if d['branch_name'] %} ({{ d['branch_name'] }}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">رقم الموظف</label>
+                <input id="lk-pin" class="form-control" dir="ltr" placeholder="مثلًا 365">
+            </div>
+            <div class="col-md-4 d-flex gap-2">
+                <button class="btn btn-primary" onclick="lookup(false)"><i class="fas fa-search me-1"></i>استعلم</button>
+                <button class="btn btn-outline-secondary" id="lk-refresh" onclick="lookup(true)" style="display:none"
+                        title="أجهزة ADMS: بيتطلب من الجهاز يبعت بياناته من جديد">اطلب من الجهاز تاني</button>
+            </div>
+        </div>
+        <div class="small text-muted mt-2" id="lk-hint"></div>
+    </div>
+</div>
+
+<div id="lk-out"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ADMS = { {% for d in devices %}"{{ d['id'] }}": {{ 'true' if d['is_adms'] else 'false' }},{% endfor %} };
+const sel = document.getElementById('lk-dev');
+function hint() {
+    const a = ADMS[sel.value];
+    document.getElementById('lk-refresh').style.display = a ? '' : 'none';
+    document.getElementById('lk-hint').textContent = a
+        ? 'جهاز ADMS: السيرفر مايقدرش يكلّمه مباشرة. بيظهرلك آخر حاجة الجهاز بعتها، و«اطلب من الجهاز تاني» بتخليه يبعتها من جديد أول ما يسأل السيرفر (ثواني).'
+        : 'جهاز IP: البرنامج بيتصل بالجهاز دلوقتي ويقرا منه مباشرة (الجهاز بيقف ثواني).';
+}
+sel.addEventListener('change', hint); hint();
+document.getElementById('lk-pin').addEventListener('keydown', e => { if (e.key === 'Enter') lookup(false); });
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+function yes(v) { return v ? '<span class="text-success">أيوه</span>' : '<span class="text-muted">لأ</span>'; }
+
+async function lookup(refresh) {
+    const pin = document.getElementById('lk-pin').value.trim();
+    if (!pin) return alert('اكتب رقم الموظف');
+    const out = document.getElementById('lk-out');
+    out.innerHTML = '<div class="text-muted"><i class="fas fa-spinner fa-spin me-1"></i>بيستعلم…</div>';
+    const r = await fetch("{{ url_for('attendance.device_lookup_page') }}", {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({device_id: sel.value, pin: pin, refresh: refresh})
+    });
+    const j = await r.json();
+    if (!j.success) { out.innerHTML = `<div class="alert alert-danger">${esc(j.message)}</div>`; return; }
+    const d = j.device_data || {}, o = j.ours || {}, e = o.employee;
+    let h = '<div class="row g-3">';
+    // ---- جوه الجهاز: بيانات الموظف
+    h += '<div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white fw-bold"><i class="fas fa-microchip me-1"></i>جوه الجهاز: بيانات الموظف</div><div class="card-body">';
+    if (j.adms) {
+        if (j.queued) h += '<div class="alert alert-info py-1 small">اتطلب من الجهاز يبعت بياناته — اعمل «استعلم» تاني بعد شوية.</div>';
+        const u = d.user;
+        if (!u) h += '<div class="text-muted">الجهاز ماأبلغش عن الموظف ده لسه.</div>';
+        else h += `<table class="table table-sm mb-0"><tr><th>الاسم</th><td>${esc(u.name)}</td></tr>
+            <tr><th>الصلاحية</th><td>${esc(u.privilege)}</td></tr><tr><th>كارت</th><td>${esc(u.card) || '—'}</td></tr>
+            <tr><th>باسورد</th><td>${yes(u.has_password)}</td></tr><tr><th>آخر بلاغ من الجهاز</th><td dir="ltr">${esc(u.reported_at)}</td></tr></table>`;
+    } else if (!d.found) {
+        h += `<div class="alert alert-warning mb-0">الموظف <b>${esc(pin)}</b> مش موجود على الجهاز (عليه ${esc(d.device_users)} موظف).</div>`;
+    } else {
+        const u = d.user;
+        h += `<table class="table table-sm mb-0"><tr><th>الاسم</th><td>${esc(u.name)}</td></tr>
+            <tr><th>مكانه جوه الجهاز (uid)</th><td>${esc(u.uid)}</td></tr>
+            <tr><th>الصلاحية</th><td>${u.admin ? 'مسؤول' : 'مستخدم عادي'} <span class="text-muted small">(${esc(u.privilege)})</span></td></tr>
+            <tr><th>متوقف على الجهاز؟</th><td>${u.disabled ? '<span class="badge bg-danger">متوقف — الجهاز بيرفض بصمته</span>' : '<span class="badge bg-success">شغال</span>'}</td></tr>
+            <tr><th>كارت</th><td>${esc(u.card) || '—'}</td></tr><tr><th>باسورد</th><td>${yes(u.has_password)}</td></tr>
+            <tr><th>المجموعة</th><td>${esc(u.group) || '—'}</td></tr></table>
+            <div class="small text-muted mt-1">الجهاز: ${esc(d.serial || '')} · إصدار البصمة ${esc(d.fp_version || '؟')}</div>`;
+    }
+    h += '</div></div></div>';
+    // ---- جوه الجهاز: البصمات
+    h += '<div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white fw-bold"><i class="fas fa-fingerprint me-1"></i>جوه الجهاز: البصمات نفسها</div><div class="card-body">';
+    const fingers = j.adms ? (d.templates || []) : (d.fingers || []);
+    if (!fingers.length) h += '<div class="text-muted">مفيش بصمات' + (j.adms ? ' وصلت من الجهاز ده للموظف ده.' : ' على الجهاز للموظف ده.') + '</div>';
+    else {
+        h += '<table class="table table-sm mb-0"><thead><tr>' + (j.adms ? '<th>النوع</th><th>رقم</th><th>الإصدار</th><th>الحجم</th><th>وصلت</th>' : '<th>الصباع</th><th>الحجم</th><th>صالحة</th>') + '</tr></thead><tbody>';
+        fingers.forEach(f => {
+            h += j.adms ? `<tr><td>${esc(f.type)}</td><td>${esc(f.no)}</td><td>${esc(f.version)}</td><td>${esc(f.size)}</td><td dir="ltr" class="small">${esc(f.at)}</td></tr>`
+                        : `<tr><td>${esc(f.fid)}</td><td>${esc(f.size)} بايت</td><td>${yes(f.valid)}</td></tr>`;
+        });
+        h += '</tbody></table>';
+    }
+    h += '</div></div></div>';
+    // ---- عندنا في البرنامج
+    const st = o.stored || {};
+    h += '<div class="col-12"><div class="card"><div class="card-header bg-white fw-bold"><i class="fas fa-database me-1"></i>عندنا في البرنامج</div><div class="card-body small">';
+    if (!e) h += `<div class="alert alert-warning mb-2">الرقم ${esc(pin)} مش موظف في البرنامج.</div>`;
+    else {
+        h += `<div class="mb-1"><b>${esc(e.name)}</b> — ${e.is_active ? 'نشط' : '<span class="text-danger">غير نشط</span>'} · الفرع: ${esc(e.branch_location) || '—'} · كارت: ${esc(e.card_number) || '—'}
+              · <a href="/employees/edit/${e.id}">فتح الموظف</a></div>`;
+        if (!j.adms && d.found && d.user.name !== e.name) h += '<div class="text-warning">الاسم على الجهاز مختلف عن البرنامج.</div>';
+    }
+    h += `<div>بصمات محفوظة عندنا: صوابع ${esc(st.fingers || 0)}${st.finger_versions && st.finger_versions.length ? ' (إصدار ' + esc(st.finger_versions.join('، ')) + ')' : ''}
+          · وش ${yes(st.face)} · كف ${yes(st.palm)}</div>`;
+    h += `<div>على الجهاز ده: ${o.denied_here ? '<span class="badge bg-warning text-dark">ممنوع («مين يبصم فين»)</span>' : (o.blocked ? '<span class="badge bg-danger">موقوف</span>' : '<span class="badge bg-success">مسموح</span>')}
+          ${o.off_marker ? ' · <span class="text-muted">البرنامج قفله على الجهاز ده</span>' : ''}</div>`;
+    h += '</div></div></div></div>';
+    out.innerHTML = h;
+}
+</script>
+{% endblock %}

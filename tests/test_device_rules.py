@@ -510,3 +510,48 @@ def test_accept_rejected_punches_and_optionally_allow_the_device(env, monkeypatc
     assert j['accepted'] == 1 and j['allowed'] == 1
     assert da2.restriction_map(con)['201'][1] == {1, 2}, 'اتسمح له بالجهاز'
     assert con.execute('SELECT COUNT(*) FROM ignored_punches').fetchone()[0] == 0
+
+
+def test_device_new_employees_page_and_missing_fields(env):
+    db, _da, con = env
+    from utils import device_new_employees as dne
+    con.execute("UPDATE employees SET department = 'General', position = 'Employee', salary = 0, name = '201' "
+                "WHERE employee_number = '201'")
+    dne.record(con, 1, 2)
+    con.commit()
+    items = dne.page_items(con, 'new')
+    assert len(items) == 1 and items[0]['device'] == 'SNADMS1' and items[0]['location'] == 'السوق'
+    assert {'الاسم', 'القسم', 'الوظيفة', 'الراتب', 'الرقم المدني'} <= set(items[0]['must'])
+    assert 'الفرع' not in items[0]['must'], 'فرعه مكتوب'
+    assert any(i['number'] == '203' and 'الفرع' in i['must'] for i in dne.page_items(con, 'all'))
+
+
+def test_lookup_on_an_ip_device_separates_user_and_fingers(env, monkeypatch):
+    db, da, con = env
+    k40 = FakeK40(users=[(7, '201', 'أحمد')], templates=[(7, 0, b'\x01' * 40), (7, 6, b'\x02' * 50)])
+    monkeypatch.setattr(da, '_connect', lambda device: k40)
+    dev = con.execute('SELECT * FROM fingerprint_devices WHERE id = 1').fetchone()
+    r = da.lookup_direct(dev, '201')
+    assert r['found'] and r['user']['uid'] == 7 and r['user']['name'] == 'أحمد' and not r['user']['disabled']
+    assert [(f['fid'], f['size']) for f in r['fingers']] == [(0, 40), (6, 50)]
+    assert da.lookup_direct(dev, '999') == {'found': False, 'device_users': 1, 'fp_version': '10', 'serial': 'K40SN001'}
+
+
+def test_lookup_pages_render(env, monkeypatch):
+    db, _da, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    client = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with client.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    assert 'موظفين جداد من أجهزة البصمة' in client.get('/employees/device-new?scope=all').get_data(as_text=True)
+    assert 'استعلام عن موظف من الجهاز' in client.get('/fingerprint/device-lookup').get_data(as_text=True)
+    j = client.post('/fingerprint/device-lookup', json={'device_id': 2, 'pin': '201', 'refresh': True}).get_json()
+    assert j['success'] and j['adms'] and j['queued'] and j['ours']['employee']['name'] == 'موظف 201'
+    assert con.execute("SELECT COUNT(*) FROM adms_commands WHERE device_id = 2 AND payload LIKE '%201%'").fetchone()[0] == 3

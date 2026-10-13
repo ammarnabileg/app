@@ -1185,3 +1185,52 @@ def accept_ignored(conn, ids, allow_device=False):
             apply_rules_adms(conn, changed)
             out['allowed'] = len(changed)
     return out
+
+
+# ------------------------------------------------------------ استعلام عن موظف من جوه الجهاز
+
+def lookup_direct(device, pin):
+    """موظف من جوه جهاز IP نفسه — بياناته لوحدها وبصمات صوابعه لوحدها.
+
+    في أجهزة ZKTeco سجل الموظف (الاسم، الصلاحية، الكارت، الباسورد) حاجة، وبصمات صوابعه حاجة
+    تانية مربوطة بيه برقمه الداخلي (uid): ينفع يتعدّل السجل من غير مايتلمسوا البصمات، وينفع
+    تتمسح البصمات والسجل يفضل. يُرجع dict، أو {'found': False}."""
+    pin = str(pin).strip()
+    dev = _connect(device)
+    try:
+        dev.disable_device()
+        try:
+            users = dev.get_users() or []
+            user = next((u for u in users if str(u.user_id).strip() == pin), None)
+            fp_ver = _fp_version(dev)
+            temps = []
+            if user is not None:
+                temps = [t for t in (dev.get_templates() or []) if getattr(t, 'uid', None) == user.uid]
+            try:
+                sn = dev.get_serialnumber()
+            except Exception:
+                sn = None
+        finally:
+            try:
+                dev.enable_device()
+            except Exception:
+                pass
+    finally:
+        try:
+            dev.disconnect()
+        except Exception:
+            pass
+    out = {'found': user is not None, 'device_users': len(users), 'fp_version': fp_ver, 'serial': sn}
+    if user is None:
+        return out
+    priv = int(user.privilege or 0)
+    out['user'] = {
+        'uid': user.uid, 'user_id': str(user.user_id), 'name': user.name or '',
+        'privilege': priv, 'admin': bool(priv & 14) and (priv & ~DISABLED_BIT) == 14,
+        'disabled': bool(priv & DISABLED_BIT),
+        'has_password': bool(str(user.password or '').strip()), 'card': str(user.card or '') if user.card else '',
+        'group': str(user.group_id or ''),
+    }
+    out['fingers'] = [{'fid': int(t.fid), 'size': len(bytes(t.template or b'')), 'valid': int(t.valid or 0)}
+                      for t in sorted(temps, key=lambda t: int(t.fid))]
+    return out
