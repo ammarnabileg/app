@@ -146,6 +146,19 @@ def verify_license_token(token, current_hwid=None, today=None):
         result['reason'] = 'expired'
         return result
 
+    # `check_by`: اللوحة ممكن تطلب إن الجهاز ده يكلّمها قبل تاريخ معيّن (جهاز إضافي على نفس
+    # الترخيص). بعده الرمز المحفوظ مابيكفيش للشغل من غير نت — لازم اتصال واحد يجدّده.
+    # التاريخ المعروض للعميل يفضل `expiry` زي ما هو. والرخص اللي من غير الحقل مالهاش القيد ده.
+    if data.get('check_by'):
+        try:
+            check_by = datetime.strptime(str(data['check_by'])[:10], '%Y-%m-%d').date()
+        except ValueError:
+            result['reason'] = 'bad_check_by'
+            return result
+        if today > check_by:
+            result['reason'] = 'check_required'
+            return result
+
     try:
         result['max_devices'] = int(data.get('max_devices', 0))
     except (TypeError, ValueError):
