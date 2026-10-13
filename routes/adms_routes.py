@@ -901,6 +901,8 @@ def get_request():
                 try:
                     from utils import device_access as _da
                     _pin = payload.get('PIN') or payload.get('Pin')
+                    if payload.get('_lock'):
+                        raise StopIteration         # أمر القفل نفسه (utils/device_access.adms_lock_commands)
                     if _off is None:
                         # مرة واحدة في الطلب: الممنوعين على الجهاز ده، والموقوفين.
                         _off = (_da.restriction_map(conn), _da.blocked_map(conn))
@@ -911,8 +913,10 @@ def get_request():
                         if cmd_type in ('DATA UPDATE USERINFO', 'ADD_USER'):
                             _da.adms_restrict(conn, device['id'], _pin)
                         adms_protocol_logger.info(f"{cmd_type} skipped | SN: {sn} | PIN {_pin} "
-                                                  f"{'موقوف' if _blocked_now else 'ممنوع على الجهاز ده'} — بيتمسح بدل كده")
+                                                  f"{'موقوف' if _blocked_now else 'ممنوع على الجهاز ده'} — بتتمسح بصماته بدل كده")
                         continue
+                except StopIteration:
+                    pass
                 except Exception as _e:
                     logger.warning(f'device rules check failed: {_e}')
 
@@ -971,6 +975,10 @@ def get_request():
 
             elif cmd_type == 'DATA DELETE USERINFO':
                  cmd_str = f"C:{cmd_id}:DATA DELETE USERINFO PIN={payload.get('PIN')}"
+
+            elif cmd_type in ('DATA DELETE BIODATA', 'DATA DELETE FINGERTMP', 'DATA DELETE FACE'):
+                 # مسح بصمات موظف بس (هو بيفضل متسجّل): «DATA DELETE BIODATA Pin=365».
+                 cmd_str = f"C:{cmd_id}:{cmd_type} " + "\t".join(f"{k}={v}" for k, v in payload.items())
             
             elif cmd_type == 'SET TIME' and _clock_self_sync(conn, device['id']):
                  # الجهاز بيسأل عن الوقت بنفسه (/iclock/rtdata) — الأمر القديم بيقدّمه ساعة: مايتبعتش.

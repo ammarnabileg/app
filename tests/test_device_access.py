@@ -108,8 +108,9 @@ def test_adms_punch_of_a_stopped_employee_is_ignored_and_the_device_told_to_disa
     con.commit()
     out = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
     out += c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
-    assert 'DATA DELETE USERINFO PIN=102' in out, out
-    assert 'Enabled=0' not in out
+    assert 'DATA DELETE BIODATA Pin=102' in out, 'بصماته بتتمسح'
+    assert 'DATA DELETE USERINFO' not in out, 'وهو بيفضل متسجّل على الجهاز'
+    assert 'PIN=102' in out and 'Card=0' in out and 'Passwd=' in out, 'والكارت والباسورد بيتشالوا'
 
 
 def test_reactivated_employee_goes_back_to_adms_with_his_fingers(adms):
@@ -375,3 +376,35 @@ def test_saving_an_active_employee_re_enables_him_on_adms(env):
     p = json.loads(con.execute("SELECT payload FROM adms_commands WHERE command_type = 'DATA UPDATE USERINFO'")
                    .fetchone()[0])
     assert p['Enabled'] == 1 and not (p['Pri'] & 1)
+
+
+def test_disabling_many_on_k40_does_not_lock_the_database(env, monkeypatch):
+    """«database is locked» عند العميل: تعطيل موظفين كتير على جهاز IP كان بيسحب كل بصمات الجهاز
+    لكل موظف، والقاعدة مقفولة طول ما البرنامج بيكلّم الجهاز — فأجهزة ADMS ماتقدرش تحفظ."""
+    db, da, con = env
+    for i, num in enumerate(('104', '105', '106'), start=4):
+        con.execute("INSERT INTO employees (id, name, employee_number, department, position, hire_date, salary,"
+                    " is_active, card_number) VALUES (?, ?, ?, 'D', 'P', '2025-01-01', 500, 0, '0')", (i, 'x' + num, num))
+    con.commit()
+    k40 = FakeK40(users=[(2, '102', 'b'), (3, '103', 'c'), (4, '104', 'd'), (5, '105', 'e'), (6, '106', 'f')],
+                  templates=[(u, 0, bytes([u]) * 40) for u in (2, 3, 4, 5, 6)])
+    calls = {'templates': 0}
+    real = k40.get_templates
+
+    def counted():
+        calls['templates'] += 1
+        return real()
+    k40.get_templates = counted
+    other = sqlite3.connect(db.DB_PATH, timeout=0.2)
+    real_send = k40._ZK__send_command
+
+    def send(*a, **k):
+        other.execute("INSERT INTO sync_logs (level, message) VALUES ('INFO', 'ADMS بيكتب في نفس اللحظة')")
+        other.commit()                          # كانت بتقع: database is locked
+        return real_send(*a, **k)
+    k40._ZK__send_command = send
+    monkeypatch.setattr(da, '_connect', lambda device: k40)
+    res = da.enforce_all(con)
+    assert res['removed'] == 5 and not res['errors'], res
+    assert calls['templates'] == 1, 'بصمات الجهاز مرة واحدة مش مرة لكل موظف'
+    assert con.execute("SELECT COUNT(DISTINCT pin) FROM fingerprint_templates").fetchone()[0] == 5, 'واتحفظت كلها'

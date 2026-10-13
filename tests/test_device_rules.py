@@ -65,14 +65,18 @@ def test_adms_denied_device_backs_up_then_deletes_and_restores(env):
     da.set_allowed_devices(con, ['201'], [1])
     assert da.apply_rules_adms(con, ['201']) == 1
     cmds = [r[0] for r in con.execute("SELECT command_type FROM adms_commands WHERE device_id = 2")]
-    assert 'DATA DELETE USERINFO' not in cmds and 'DATA QUERY BIODATA' in cmds, 'بصماته مش عندنا: نطلبها الأول'
+    assert 'DATA DELETE BIODATA' not in cmds and 'DATA QUERY BIODATA' in cmds, 'بصماته مش عندنا: نطلبها الأول'
     # البصمات وصلت من الجهاز (BIODATA بالـSN بتاعه)
     con.execute("UPDATE fingerprint_devices SET serial_number = 'SNADMS1' WHERE id = 2")
     con.execute("INSERT INTO fingerprint_templates (pin, finger_id, template_type, major_ver, template_data, device_sn)"
                 " VALUES ('201', 0, 1, '12', 'TPL', 'SNADMS1')")
     assert da.adms_restrict_pending(con, 2) == 1
-    p = json.loads(con.execute("SELECT payload FROM adms_commands WHERE command_type = 'DATA DELETE USERINFO'").fetchone()[0])
-    assert p == {'PIN': '201'}
+    p = json.loads(con.execute("SELECT payload FROM adms_commands WHERE command_type = 'DATA DELETE BIODATA'").fetchone()[0])
+    assert p == {'Pin': '201'}, 'بصماته بس'
+    assert not con.execute("SELECT 1 FROM adms_commands WHERE command_type = 'DATA DELETE USERINFO'").fetchone()
+    lock = json.loads(con.execute("SELECT payload FROM adms_commands WHERE command_type = 'DATA UPDATE USERINFO' "
+                                  "AND payload LIKE '%_lock%'").fetchone()[0])
+    assert lock['PIN'] == '201' and lock['Card'] == '0' and lock['Passwd'] == '', 'الكارت والباسورد بيتشالوا'
     # اتسمح له تاني: يترفع ببياناته وبصماته
     da.set_allowed_devices(con, ['201'], None)
     assert da.apply_rules_adms(con, ['201']) == 1
@@ -138,7 +142,7 @@ def test_adms_punch_on_a_wrong_device_is_not_counted(adms):
     ign = con.execute('SELECT reason FROM ignored_punches').fetchall()
     assert [r[0] for r in ign] == [da.WRONG_DEVICE_REASON]
     r = c.get('/iclock/getrequest?SN=SNADMS1').get_data(as_text=True)
-    assert 'DATA DELETE USERINFO PIN=201' in r, r
+    assert 'DATA DELETE BIODATA Pin=201' in r and 'DATA DELETE USERINFO' not in r, r
 
 
 def test_any_upload_to_a_denied_adms_device_is_skipped(adms):
@@ -456,7 +460,8 @@ def test_remove_stopped_button(env, monkeypatch):
     j = client.post('/fingerprint/device-access/remove-stopped').get_json()
     assert j['employees'] == 2 and j['deleted'] == 1 and j['backup'] == 1, j
     cmds = {(r[0], r[1]) for r in con.execute("SELECT command_type, payload FROM adms_commands WHERE device_id = 2")}
-    assert ('DATA DELETE USERINFO', '{"PIN": "202"}') in cmds, 'بصماته عندنا: يتمسح'
+    assert ('DATA DELETE BIODATA', '{"Pin": "202"}') in cmds, 'بصماته عندنا: بتتمسح من الجهاز'
+    assert not any(t == 'DATA DELETE USERINFO' for t, _p in cmds), 'وهو بيفضل متسجّل'
     assert any(t == 'DATA QUERY BIODATA' and '203' in p for t, p in cmds), 'مش عندنا: نطلبها الأول'
     assert not any('201' in p for _t, p in cmds), 'النشط مايتلمسش'
 

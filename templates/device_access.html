@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <div>
         <h1 class="h2"><i class="fas fa-user-lock me-2"></i>مين يبصم فين</h1>
-        <div class="report-desc">كل الموظفين بيتنزّلوا على كل الأجهزة ببصماتهم عادي، والموظف اللي تحدّد له أجهزة يبقى <b>متوقف</b> على باقي الأجهزة: الجهاز نفسه يرفض بصمته. على الأجهزة القديمة (IP) بيتعطّل وهو على الجهاز. وعلى أجهزة ADMS (زي SpeedFace) الجهاز مابيقبلش أمر التعطيل، فبيتمسح منه بعد ما بصماته تتحفظ عندنا، ولو سمحت له تاني بيترفع عليه ببصماته. ولو بصمة وصلت من جهاز مش مسموح له، مابتتحسبش في الحضور.</div>
+        <div class="report-desc">كل الموظفين بيتنزّلوا على كل الأجهزة ببصماتهم عادي، والموظف اللي تحدّد له أجهزة يبقى <b>متوقف</b> على باقي الأجهزة: الجهاز نفسه يرفض بصمته. على الأجهزة القديمة (IP) بيتعطّل وهو على الجهاز. وعلى أجهزة ADMS (زي SpeedFace) الجهاز مابيقبلش أمر التعطيل، فالموظف بيفضل متسجّل عليه بس بصماته (صوابع ووش وكف) بتتمسح منه والكارت والباسورد بيتشالوا، بعد ما بصماته تتحفظ عندنا. ولو سمحت له تاني بترجع عليه بصماته. ولو بصمة وصلت من جهاز مش مسموح له، مابتتحسبش في الحضور.</div>
     </div>
     <div class="btn-toolbar mb-2 mb-md-0">
         <button class="btn btn-primary me-2" onclick="printReport()" title="بنفس الفلاتر اللي مختارها">
@@ -36,8 +36,8 @@
 <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2 small">
     <i class="fas fa-user-slash text-danger"></i>
     <span><b>{{ stopped_count }}</b> موظف موقوف (غير نشط أو منتهي خدمته). اللي اتوقفوا قبل التحديث ممكن يكونوا لسه على أجهزة ADMS
-        وبيبصموا، لأن الجهاز كان بيتجاهل أمر التعطيل. الزرار ده بيمسحهم من كل أجهزة ADMS بعد ما بصماتهم تتحفظ عندنا،
-        ولو رجّعت حد فيهم نشط بيرجع على الجهاز ببصماته.</span>
+        وبيبصموا، لأن الجهاز كان بيتجاهل أمر التعطيل. الزرار ده بيمسح بصماتهم (والكارت والباسورد) من كل أجهزة ADMS وهم بيفضلوا متسجّلين، بعد ما بصماتهم تتحفظ عندنا،
+        ولو رجّعت حد فيهم نشط بترجع بصماته على الجهاز.</span>
     <button class="btn btn-sm btn-outline-danger ms-auto" onclick="removeStopped()"><i class="fas fa-user-minus me-1"></i>شيل الموقوفين من أجهزة ADMS</button>
 </div>
 {% endif %}
@@ -334,11 +334,11 @@
         location.reload();
     };
     window.removeStopped = async function () {
-        if (!confirm('كل الموظفين الموقوفين هيتمسحوا من كل أجهزة ADMS (بصماتهم بتتحفظ عندنا الأول). تكمل؟')) return;
+        if (!confirm('بصمات كل الموظفين الموقوفين هتتمسح من كل أجهزة ADMS وهم هيفضلوا متسجّلين (بصماتهم بتتحفظ عندنا الأول). تكمل؟')) return;
         const r = await fetch("{{ url_for('attendance.device_access_remove_stopped') }}", {method: 'POST'});
         const j = await r.json();
-        let msg = `${j.employees} موظف موقوف:\n- ${j.deleted} أمر مسح اتبعت (بصماتهم محفوظة عندنا)`;
-        if (j.backup) msg += `\n- ${j.backup} لسه بنطلب بصماتهم من الجهاز الأول، وبيتمسحوا أول ما توصل`;
+        let msg = `${j.employees} موظف موقوف:\n- ${j.deleted} اتبعت لهم مسح البصمات (محفوظة عندنا)`;
+        if (j.backup) msg += `\n- ${j.backup} لسه بنطلب بصماتهم من الجهاز الأول، وبتتمسح أول ما توصل`;
         alert(msg);
     };
     window.printReport = function () {

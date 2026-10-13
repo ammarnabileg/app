@@ -237,9 +237,27 @@ def _queue_once(conn, device_id, ctype, payload):
     return True
 
 
+def adms_lock_commands(conn, device, pin):
+    """أوامر قفل الموظف على جهاز ADMS: **بيفضل متسجّل عليه** ببياناته، وبتتمسح بصماته بس
+    (صوابع ووش وكف)، والكارت والباسورد بيتشالوا عشان مايبصمش بيهم برضه.
+    [(نوع الأمر، الحمولة)] — USERINFO عليه علامة `_lock` عشان مايتوقفش في getrequest."""
+    import json
+    from utils import biometric_templates as bio
+    p = json.loads(adms_enable_payload(conn, pin))
+    p.update({'Card': '0', 'Passwd': '', '_lock': 1})
+    cmds = [('DATA UPDATE USERINFO', json.dumps(p)),
+            ('DATA DELETE BIODATA', json.dumps({'Pin': pin}))]
+    if not bio.device_versions(device):
+        # جهاز بالبروتوكول القديم (مابيبعتش BIODATA): الصوابع والوش بأوامرهم.
+        cmds += [('DATA DELETE FINGERTMP', json.dumps({'PIN': pin})),
+                 ('DATA DELETE FACE', json.dumps({'PIN': pin}))]
+    return cmds
+
+
 def adms_restrict(conn, device_id, pin, now=None):
-    """الموظّف ممنوع على جهاز ADMS ده: يتمسح منه (بعد ما بصماته تبقى عندنا).
-    يُرجع 'deleted' أو 'backup' (طلبنا بصماته من الجهاز الأوّل) أو None."""
+    """الموظّف ممنوع على جهاز ADMS ده (أو موقوف): **بصماته** بتتمسح منه والكارت والباسورد
+    بيتشالوا، وهو بيفضل متسجّل — بعد ما بصماته تبقى محفوظة عندنا (عشان ترجع لو اتسمح له).
+    يُرجع 'deleted' (اتمسحت بصماته) أو 'backup' (طلبنا بصماته من الجهاز الأوّل) أو None."""
     import json
     ensure_schema(conn)
     pin = str(pin).strip()
@@ -251,7 +269,8 @@ def adms_restrict(conn, device_id, pin, now=None):
                         (int(device_id), pin)).fetchone()
     timed_out = wait is not None and (_parse(wait['asked_at']) or now) <= now - timedelta(hours=RESTRICT_WAIT_HOURS)
     if _restorable(conn, device, pin) or timed_out:
-        _queue_once(conn, int(device_id), 'DATA DELETE USERINFO', json.dumps({'PIN': pin}))
+        for ctype, payload in adms_lock_commands(conn, device, pin):
+            _queue_once(conn, int(device_id), ctype, payload)
         conn.execute('DELETE FROM adms_restrict_waits WHERE device_id = ? AND user_id = ?', (int(device_id), pin))
         conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
                      (int(device_id), pin))
@@ -555,6 +574,14 @@ def _direct_devices(conn):
                         "AND COALESCE(is_adms, 0) = 0 AND COALESCE(device_ip, '') != ''").fetchall()
 
 
+def _remember_fp(conn, device, fp_ver):
+    try:
+        from utils import biometric_templates as bio
+        bio.remember_version(conn, device['id'], bio.FINGER, fp_ver)
+    except Exception:
+        pass
+
+
 def _fp_version(dev, conn=None, device=None):
     """إصدارُ خوارزمية البصمة على الجهاز — ويُحفظ له (لتعرف صفحةُ «مين يبصم فين»
     أيُّ بصمات الموظّف تنفع عليه)."""
@@ -574,19 +601,31 @@ def _fp_version(dev, conn=None, device=None):
     return v
 
 
-def backup_templates(conn, dev, device, user, fp_ver=None):
-    """بصماتُ مستخدمٍ من الجهاز إلى `fingerprint_templates` (لا تُستبدل بصمةٌ محفوظة)."""
-    saved = 0
+def _device_templates(dev, device):
+    """(كل بصمات الجهاز، رقمه التسلسلي) — مرة واحدة للجهاز، مش مرة لكل موظف."""
     try:
-        temps = dev.get_templates()
+        temps = dev.get_templates() or []
     except Exception as e:                      # noqa: BLE001
         logger.warning(f'get_templates failed on {device["device_ip"]}: {e}')
-        return 0
+        temps = None
     sn = None
     try:
         sn = dev.get_serialnumber()
     except Exception:
         pass
+    return temps, sn
+
+
+def backup_templates(conn, dev, device, user, fp_ver=None, temps=None, sn=None):
+    """بصماتُ مستخدمٍ من الجهاز إلى `fingerprint_templates` (لا تُستبدل بصمةٌ محفوظة).
+
+    `temps`/`sn`: بصمات الجهاز اللي اتسحبت قبل كده — كان بيسحب كل بصمات الجهاز من الأول لكل
+    موظف، فتعطيل ١٠٠ موظف = ١٠٠ سحب كامل، والقاعدة مقفولة طول الوقت ده."""
+    saved = 0
+    if temps is None:
+        temps, sn = _device_templates(dev, device)
+        if temps is None:
+            return 0
     for f in temps or []:
         if getattr(f, 'uid', None) != user.uid or not getattr(f, 'template', None):
             continue
@@ -608,6 +647,7 @@ def enforce_device(conn, device, blocked=None):
         return 0
     dev = _connect(device)
     removed = 0
+    done, temps, sn, fp_ver = [], None, None, None
     try:
         users = dev.get_users() or []
         targets = [u for u in users if str(u.user_id).strip() in off
@@ -615,17 +655,16 @@ def enforce_device(conn, device, blocked=None):
         if not targets:
             return 0
         dev.disable_device()
-        fp_ver = _fp_version(dev, conn, device)
+        fp_ver = _fp_version(dev)
+        # بصمات الجهاز كلها مرة واحدة (احتياطًا قبل أي تغيير)، وكل الكلام مع الجهاز الأول،
+        # والكتابة في القاعدة في الآخر مرة واحدة: كانت القاعدة مقفولة طول ما البرنامج بيكلّم
+        # الجهاز، فأجهزة ADMS ماتقدرش تحفظ بصماتها («database is locked») والبرنامج يتقل.
+        temps, sn = _device_templates(dev, device)
         try:
             for u in targets:
-                # احتياطًا: بصماتُه عندنا قبل أيّ تغيير على الجهاز.
-                backup_templates(conn, dev, device, u, fp_ver)
                 # يُعطَّل ولا يُحذف: يبقى ببصماته، والجهازُ يرفض بصمتَه.
                 write_user(dev, u, int(u.privilege or 0) | DISABLED_BIT)
-                conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
-                             (device['id'], str(u.user_id)))
-                removed += 1
-            conn.commit()
+                done.append(u)
         finally:
             try:
                 dev.enable_device()
@@ -636,6 +675,15 @@ def enforce_device(conn, device, blocked=None):
             dev.disconnect()
         except Exception:
             pass
+    if done:
+        for u in done:
+            if temps:
+                backup_templates(conn, None, device, u, fp_ver, temps=temps, sn=sn)
+            conn.execute('INSERT OR REPLACE INTO device_removed_users (device_id, user_id) VALUES (?, ?)',
+                         (device['id'], str(u.user_id)))
+            removed += 1
+        _remember_fp(conn, device, fp_ver)
+        conn.commit()
     return removed
 
 
@@ -655,10 +703,11 @@ def restore_device(conn, device):
     from zk.finger import Finger
     dev = _connect(device)
     restored = 0
+    done_ids = []           # بيتكتب في القاعدة بعد ما نخلص مع الجهاز — مش والقاعدة مقفولة
     try:
         dev.disable_device()
         try:
-            fp_ver = _fp_version(dev, conn, device)
+            fp_ver = _fp_version(dev)
             users = dev.get_users() or []
             used = {u.uid for u in users}
             by_id = {str(u.user_id): u for u in users}
@@ -669,8 +718,7 @@ def restore_device(conn, device):
                     if int(user.privilege or 0) & DISABLED_BIT:
                         # كان معطّلًا ببصماته: يُفكّ البتُّ فقط فيبصم كما كان.
                         write_user(dev, user, int(user.privilege or 0) & ~DISABLED_BIT)
-                        conn.execute('DELETE FROM device_removed_users WHERE device_id = ? AND user_id = ?',
-                                     (device['id'], uid_s))
+                        done_ids.append(uid_s)
                         restored += 1
                         continue
                 else:
@@ -701,10 +749,8 @@ def restore_device(conn, device):
                             dev.save_user_template(user, fingers)
                         except Exception as e:           # noqa: BLE001 — بصمةٌ بإصدارٍ آخر
                             logger.warning(f'save_user_template {uid_s}: {e}')
-                conn.execute('DELETE FROM device_removed_users WHERE device_id = ? AND user_id = ?',
-                             (device['id'], uid_s))
+                done_ids.append(uid_s)
                 restored += 1
-            conn.commit()
         finally:
             try:
                 dev.enable_device()
@@ -715,8 +761,11 @@ def restore_device(conn, device):
             dev.disconnect()
         except Exception:
             pass
+    if done_ids:
+        conn.executemany('DELETE FROM device_removed_users WHERE device_id = ? AND user_id = ?',
+                         [(device['id'], u) for u in done_ids])
+        conn.commit()
     return restored
-
 
 def enforce_all(conn=None):
     """على كلّ الأجهزة المباشرة: احذف الموقوفين، وأرجع من فُعّل. لا يُطلق استثناءً."""
@@ -755,8 +804,10 @@ def _delete_on_device(dev, user_ids, conn=None, device=None):
     targets = [u for u in dev.get_users() or [] if str(u.user_id).strip() in ids]
     if targets and conn is not None and device is not None:
         fp_ver = _fp_version(dev)
+        temps, sn = _device_templates(dev, device)
         for u in targets:
-            backup_templates(conn, dev, device, u, fp_ver)
+            if temps:
+                backup_templates(conn, dev, device, u, fp_ver, temps=temps, sn=sn)
     for u in targets:
         dev.delete_user(uid=u.uid)
     return len(targets)
