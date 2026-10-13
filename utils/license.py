@@ -210,7 +210,19 @@ def decode_license_payload_fernet(payload: str):
     except Exception:
         return None, None
 
+_LICENSE_TABLE_READY = set()
+
+
 def init_license_table(conn):
+    # مرة واحدة لكل قاعدة في التشغيل. كانت بتتنفّذ مع كل صفحة، وفيها كتابة (INSERT OR IGNORE)،
+    # فلو حاجة تانية ماسكة القاعدة (مزامنة جهاز في الخلفية مثلًا) أي صفحة كانت بتستنى لحد ٣٠
+    # ثانية — وده «البرنامج تقل جامد».
+    try:
+        _db = conn.execute('PRAGMA database_list').fetchone()[2]
+    except Exception:
+        _db = None
+    if _db and _db in _LICENSE_TABLE_READY:
+        return
     cur = conn.cursor()
     # Create table with new columns if it acts as a fresh create
     cur.execute('''
@@ -265,6 +277,8 @@ def init_license_table(conn):
         pass
 
     conn.commit()
+    if _db:
+        _LICENSE_TABLE_READY.add(_db)
 
 
 def _parse_dt(value):

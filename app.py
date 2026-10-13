@@ -505,18 +505,18 @@ def main():
     print("--- END STARTUP CHECK ---")
 
     # Start Background License Checker
-    checker_thread = threading.Thread(target=background_license_checker, daemon=True)
+    checker_thread = threading.Thread(target=background_license_checker, name='فحص-الرخصة', daemon=True)
     checker_thread.start()
 
-    backup_thread = threading.Thread(target=background_backup_worker, daemon=True)
+    backup_thread = threading.Thread(target=background_backup_worker, name='النسخ-الاحتياطي', daemon=True)
     backup_thread.start()
 
-    cloud_thread = threading.Thread(target=background_cloud_sync_worker, daemon=True)
+    cloud_thread = threading.Thread(target=background_cloud_sync_worker, name='الرفع-السحابي', daemon=True)
     cloud_thread.start()
 
     # «مزامنة الآن» و«مزامنة المستخدمين» وحدهما كلَّ ساعة (utils/device_autosync.py).
     from utils.device_autosync import background_worker as _device_autosync_worker
-    threading.Thread(target=_device_autosync_worker, daemon=True).start()
+    threading.Thread(target=_device_autosync_worker, name='مزامنة-الأجهزة-كل-ساعة', daemon=True).start()
 
     try:
         print(f"تشغيل خادم HR System على http://{host}:{port} (debug={debug})")

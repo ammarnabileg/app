@@ -136,3 +136,29 @@ def test_launcher_uses_waitress_and_no_default_oracle_settings():
     block = src[i:i + 4000]
     assert 'serve(adms_app' in block, 'سيرفر ADMS بـ waitress مش سيرفر التجارب'
     assert 'cfg.get("oracle_host", "localhost")' not in src, 'مايتحطش أوراكل افتراضي يخلّيه يحاول يتصل'
+
+
+def test_pages_do_not_write_for_the_license_check_every_time(env):
+    """كل صفحة كانت بتعمل INSERT في license_settings، فلو حاجة في الخلفية ماسكة القاعدة الصفحة
+    بتستنى لحد ٣٠ ثانية — «البرنامج تقل جامد»."""
+    db, con = env
+    import utils.license as lic
+    importlib.reload(lic)
+    c1 = sqlite3.connect(db.DB_PATH)
+    lic.init_license_table(c1)
+    seen = []
+    c2 = sqlite3.connect(db.DB_PATH)
+    c2.set_trace_callback(seen.append)
+    lic.init_license_table(c2)
+    assert not [q for q in seen if q.strip().upper().startswith(('INSERT', 'UPDATE', 'ALTER', 'CREATE', 'BEGIN'))], seen
+
+
+def test_device_poll_does_not_write_when_nothing_to_requeue(env):
+    db, con = env
+    import routes.adms_routes as R
+    importlib.reload(R)
+    seen = []
+    c = sqlite3.connect(db.DB_PATH)
+    c.set_trace_callback(seen.append)
+    R._requeue_unanswered(c, 1)
+    assert not [q for q in seen if q.strip().upper().startswith(('UPDATE', 'BEGIN'))], seen

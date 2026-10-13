@@ -604,7 +604,8 @@ def cdata():
                         # القاعدة مشغولة: مانقولش للجهاز OK — بيبعت الدفعة كلها تاني بعد شوية.
                         # كان بيكمّل ويرد OK فالبصمات دي بتضيع.
                         conn.rollback()
-                        logger.warning(f"BIODATA from {sn}: database busy — device will resend")
+                        logger.warning(f"BIODATA from {sn}: database busy — device will resend | "
+                                       f"شغّال دلوقتي: {_busy_threads()}")
                         return "ERROR"
                     except Exception as e:
                         logger.error(f"Template Save Error ({pin}): {e}", exc_info=True)
@@ -725,7 +726,8 @@ def cdata():
             
         return "OK"
     except Exception as e:
-        logger.error(f"ADMS Error: {e}", exc_info=True)
+        logger.error(f"ADMS Error: {e}" + (f" | شغّال دلوقتي: {_busy_threads()}" if 'locked' in str(e) else ''),
+                     exc_info=True)
         return "ERROR"
 
 def _save_face_template(conn, sn, pin, fid, tmp, valid=1):
@@ -1067,6 +1069,14 @@ ADMS_RESEND_AFTER_MIN = 15
 ADMS_MAX_ATTEMPTS = 3
 
 
+def _busy_threads():
+    """أسماء الخيوط الشغّالة — مع «database is locked» بتقول مين كان ماسك القاعدة (مزامنة، تعطيل…)."""
+    import threading
+    names = [t.name for t in threading.enumerate()
+             if t.name != 'MainThread' and not t.name.startswith(('waitress', 'Dummy', 'pydevd'))]
+    return ', '.join(names[:12]) or '—'
+
+
 def _commands_per_poll():
     """عدد الأوامر في الرد الواحد — من الإعداد adms_commands_per_poll لو موجود."""
     try:
@@ -1081,6 +1091,11 @@ def _requeue_unanswered(conn, device_id):
     """أمر اتبعت (SENT) ومارجعش ردّه في ربع ساعة: يرجع PENDING ويتبعت تاني، ٣ مرات بالكتير،
     وبعدها FAILED. مع ١٠٠٠ أمر في الرد، لو الجهاز اتقفل في النص مايضيعوش."""
     try:
+        # قراءة الأول — الكتابة بس لو فيه أوامر فعلًا (كل سؤال من الجهاز كان بيكتب حتى لو مفيش حاجة).
+        if not conn.execute(f"""SELECT 1 FROM adms_commands WHERE device_id = ? AND status = 'SENT'
+                                AND updated_at < datetime('now', '-{ADMS_RESEND_AFTER_MIN} minutes') LIMIT 1""",
+                            (device_id,)).fetchone():
+            return
         conn.execute(f"""UPDATE adms_commands SET status = 'FAILED (no reply)', updated_at = CURRENT_TIMESTAMP
                          WHERE device_id = ? AND status = 'SENT' AND COALESCE(attempts, 1) >= ?
                            AND updated_at < datetime('now', '-{ADMS_RESEND_AFTER_MIN} minutes')""",
@@ -1090,7 +1105,7 @@ def _requeue_unanswered(conn, device_id):
                            AND updated_at < datetime('now', '-{ADMS_RESEND_AFTER_MIN} minutes')""",
                      (device_id, ADMS_MAX_ATTEMPTS))
     except Exception as e:
-        logger.warning(f'requeue unanswered failed: {e}')
+        logger.warning(f'requeue unanswered failed: {e} | شغّال دلوقتي: {_busy_threads()}')
 
 
 @adms_bp.route('/devicecmd', methods=['POST'])

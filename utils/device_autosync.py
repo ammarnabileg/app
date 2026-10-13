@@ -360,7 +360,7 @@ def start_in_background(source='manual'):
     """«مزامنة الآن» بلا انتظار: False إن كانت مزامنةٌ جارية."""
     if busy():
         return False
-    threading.Thread(target=run_once, kwargs={'source': source}, daemon=True).start()
+    threading.Thread(target=run_once, kwargs={'source': source}, name='مزامنة-يدوية', daemon=True).start()
     return True
 
 

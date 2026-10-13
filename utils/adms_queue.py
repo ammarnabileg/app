@@ -71,6 +71,9 @@ def cleanup(conn, force=False):
     if not force and now - _last_cleanup[0] < CLEANUP_EVERY_SECONDS:
         return 0
     _last_cleanup[0] = now
+    if not conn.execute(f"SELECT 1 FROM adms_commands WHERE status != 'PENDING' "
+                        f"AND created_at < datetime('now', '-{KEEP_DAYS} days') LIMIT 1").fetchone():
+        return 0
     cur = conn.execute(f"DELETE FROM adms_commands WHERE status != 'PENDING' "
                        f"AND created_at < datetime('now', '-{KEEP_DAYS} days')")
     return cur.rowcount

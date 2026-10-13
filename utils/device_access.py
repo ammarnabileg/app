@@ -862,7 +862,7 @@ def delete_from_direct_now(employee_number, device_ids=None):
         employee_number = [str(n) for n in employee_number]
     else:
         employee_number = str(employee_number)
-    threading.Thread(target=delete_from_direct, args=(employee_number, device_ids),
+    threading.Thread(target=delete_from_direct, args=(employee_number, device_ids), name='مسح-من-أجهزة-IP',
                      daemon=True).start()
 
 
@@ -1072,7 +1072,7 @@ def push_direct(conn, device, employees, templates='all'):
 def apply_now():
     """بعد إيقاف موظّف أو تفعيله: الأجهزةُ المباشرة تُعالَج الآن في الخلفيّة —
     والجهازُ المقفول تُعالجه المزامنةُ التالية."""
-    threading.Thread(target=enforce_all, daemon=True).start()
+    threading.Thread(target=enforce_all, name='تعطيل-على-أجهزة-IP', daemon=True).start()
 
 
 def push_employee(employee_number, conn=None, templates='all'):
@@ -1093,6 +1093,7 @@ def push_employee(employee_number, conn=None, templates='all'):
         for d in _direct_devices(conn):
             try:
                 details, _ver = push_direct(conn, d, [emp], templates=templates)
+                conn.commit()           # قبل الجهاز اللي بعده — مانمسكش القاعدة وإحنا بنكلّمه
                 if details and details[0]['status'] != 'error':
                     out['pushed'] += 1
                 else:
@@ -1112,7 +1113,7 @@ def push_employee(employee_number, conn=None, templates='all'):
 
 
 def push_employee_now(employee_number, templates='all'):
-    threading.Thread(target=push_employee, args=(str(employee_number),),
+    threading.Thread(target=push_employee, args=(str(employee_number),), name='رفع-موظف-لأجهزة-IP',
                      kwargs={'templates': templates}, daemon=True).start()
 
 
