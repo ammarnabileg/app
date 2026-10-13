@@ -477,3 +477,36 @@ def test_adms_device_known_by_its_name_counts_as_backed_up(env):
     assert da.adms_restrict(con, 2, '201') == 'deleted'
     cells, _ = da.bio_readiness(con, con.execute('SELECT * FROM fingerprint_devices').fetchall())
     assert cells[('201', 2)] == 'ok'
+
+
+def test_accept_rejected_punches_and_optionally_allow_the_device(env, monkeypatch):
+    db, _da, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    import utils.device_access as da2
+    monkeypatch.setattr(da2, 'apply_now', lambda: None)
+    da2.set_allowed_devices(con, ['201'], [1])
+    for t in ('2026-10-12 08:00:00', '2026-10-12 17:00:00'):
+        da2.record_ignored(con, 1, 2, t, da2.WRONG_DEVICE_REASON)
+    con.commit()
+    client = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with client.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    page = client.get('/fingerprint/device-access').get_data(as_text=True)
+    assert 'احسب المحدّدة (سماح)' in page
+    ids = [r[0] for r in con.execute('SELECT id FROM ignored_punches ORDER BY id')]
+    j = client.post('/fingerprint/device-access/accept-punches', json={'ids': ids[:1]}).get_json()
+    assert j['accepted'] == 1 and j['allowed'] == 0
+    assert [r[0] for r in con.execute('SELECT check_time FROM attendance_records WHERE employee_id = 1')] == \
+        ['2026-10-12 08:00:00'], 'دخلت الحضور'
+    assert da2.restriction_map(con)['201'][1] == {1}, 'من غير السماح بالجهاز: لسه ممنوع'
+    j = client.post('/fingerprint/device-access/accept-punches', json={'ids': ids[1:], 'allow_device': True}).get_json()
+    assert j['accepted'] == 1 and j['allowed'] == 1
+    assert da2.restriction_map(con)['201'][1] == {1, 2}, 'اتسمح له بالجهاز'
+    assert con.execute('SELECT COUNT(*) FROM ignored_punches').fetchone()[0] == 0

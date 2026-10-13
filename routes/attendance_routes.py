@@ -108,10 +108,10 @@ def device_access_page():
     for e in employees:
         branch_counts[e['branch_location'] or ''] = branch_counts.get(e['branch_location'] or '', 0) + 1
     departments = sorted({e['department'] for e in employees if e['department']})
-    ignored = conn.execute('''SELECT i.check_time, i.created_at, e.employee_number, e.name, d.device_name
+    ignored = conn.execute('''SELECT i.id, i.check_time, i.created_at, e.employee_number, e.name, d.device_name
                                FROM ignored_punches i JOIN employees e ON e.id = i.employee_id
                                LEFT JOIN fingerprint_devices d ON d.id = i.device_id
-                              WHERE i.reason = ? ORDER BY i.id DESC LIMIT 50''',
+                              WHERE i.reason = ? ORDER BY i.id DESC LIMIT 500''',
                            (da.WRONG_DEVICE_REASON,)).fetchall()
     cells, labels = da.bio_readiness(conn, devices)
     readiness = {f"{pin}|{dev}": v for (pin, dev), v in cells.items()}
@@ -208,6 +208,21 @@ def device_access_remove_stopped():
     res = da.adms_remove_blocked(conn)
     conn.commit()
     da.apply_now()          # وأجهزة IP: الموقوف بيتعطّل عليها في الخلفية
+    return jsonify({'success': True, **res})
+
+
+@attendance_bp.route('/fingerprint/device-access/accept-punches', methods=['POST'])
+@login_required
+@require_permission('attendance.devices')
+def device_access_accept_punches():
+    """سماح: بصمات اترفضت لأنها من جهاز مش مسموح للموظف ← تدخل الحضور (وممكن يتسمح له بالجهاز)."""
+    from utils import device_access as da
+    data = request.get_json(silent=True) or {}
+    conn = get_db_connection()
+    res = da.accept_ignored(conn, data.get('ids') or [], bool(data.get('allow_device')))
+    conn.commit()
+    if res.get('allowed'):
+        da.apply_now()
     return jsonify({'success': True, **res})
 
 

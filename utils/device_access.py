@@ -1135,3 +1135,53 @@ def adms_remove_blocked(conn):
             elif res == 'backup':
                 out['backup'] += 1
     return out
+
+
+def accept_ignored(conn, ids, allow_device=False):
+    """بصمات اترفضت (جهاز مش مسموح للموظف، أو موقوف) ← تدخل الحضور. سماح من المسؤول.
+
+    - الشهر اللي كشفه اتقفل مابيتلمسش (الراتب اتصرف).
+    - بصمة موجودة أصلًا لنفس الموظف في نفس الوقت بتتشال من قائمة المرفوض بس.
+    - `allow_device`: والجهاز ده بيتضاف للأجهزة المسموحة للموظف، فبصماته الجاية منه بتتحسب.
+    يُرجع {'accepted', 'locked', 'allowed'}."""
+    ensure_schema(conn)
+    ids = [int(x) for x in ids if str(x).strip().isdigit()]
+    out = {'accepted': 0, 'locked': 0, 'allowed': 0}
+    if not ids:
+        return out
+    try:
+        from utils.payroll_engine import date_period_locked
+    except Exception:
+        date_period_locked = None
+    rows = conn.execute(f'''SELECT i.id, i.employee_id, i.device_id, i.check_time, e.employee_number
+                            FROM ignored_punches i JOIN employees e ON e.id = i.employee_id
+                            WHERE i.id IN ({','.join('?' * len(ids))})''', ids).fetchall()
+    to_allow = {}
+    for r in rows:
+        t = str(r['check_time'])[:19]
+        if date_period_locked:
+            try:
+                if date_period_locked(conn, t[:10]):
+                    out['locked'] += 1
+                    continue
+            except Exception:
+                pass
+        if not conn.execute('SELECT 1 FROM attendance_records WHERE employee_id = ? AND check_time = ?',
+                            (r['employee_id'], t)).fetchone():
+            conn.execute('''INSERT INTO attendance_records (employee_id, device_id, check_time, check_type, source, note)
+                            VALUES (?, ?, ?, 0, 'device', 'اتقبلت يدويًا: كانت مرفوضة')''',
+                         (r['employee_id'], r['device_id'] or 0, t))
+        conn.execute('DELETE FROM ignored_punches WHERE id = ?', (r['id'],))
+        out['accepted'] += 1
+        if allow_device and r['device_id']:
+            to_allow.setdefault(str(r['employee_number']).strip(), set()).add(int(r['device_id']))
+    if to_allow:
+        restr = restriction_map(conn)
+        changed = []
+        for num, devs in to_allow.items():
+            if num in restr and not devs <= restr[num][1]:
+                changed += set_allowed_devices(conn, [num], set(restr[num][1]) | devs)
+        if changed:
+            apply_rules_adms(conn, changed)
+            out['allowed'] = len(changed)
+    return out

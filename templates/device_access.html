@@ -189,14 +189,27 @@
 </div>
 
 {% if ignored %}
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-white"><i class="fas fa-ban me-2 text-danger"></i>آخر بصمات وصلت من جهاز مش مسموح للموظف (مااتحسبتش)</div>
-    <div class="table-responsive">
-        <table class="table table-sm mb-0">
-            <thead class="table-light"><tr><th>الموظف</th><th>الجهاز</th><th>وقت البصمة</th></tr></thead>
+<div class="card shadow-sm mb-4" id="ignored-card">
+    <div class="card-header bg-white d-flex flex-wrap align-items-center gap-2">
+        <span><i class="fas fa-ban me-2 text-danger"></i>بصمات وصلت من جهاز مش مسموح للموظف (مااتحسبتش) <span class="badge bg-secondary">{{ ignored|length }}</span></span>
+        <div class="ms-auto d-flex flex-wrap gap-2 align-items-center">
+            <label class="form-check form-check-inline mb-0 small">
+                <input class="form-check-input" type="checkbox" id="ign-allow">
+                <span class="form-check-label">وخلّيه يبصم على الجهاز ده من هنا ورايح</span>
+            </label>
+            <button class="btn btn-sm btn-success" onclick="acceptPunches()"><i class="fas fa-check me-1"></i>احسب المحدّدة (سماح)</button>
+        </div>
+    </div>
+    <div class="small text-muted px-3 pt-2">«احسب» بيدخّل البصمة في الحضور زي أي بصمة عادية. الشهور اللي كشفها اتقفل مابتتلمسش.</div>
+    <div class="table-responsive" style="max-height: 50vh;">
+        <table class="table table-sm mb-0 align-middle">
+            <thead class="table-light"><tr><th><input type="checkbox" class="form-check-input" id="ign-all"></th><th>الموظف</th><th>الجهاز</th><th>وقت البصمة</th><th></th></tr></thead>
             <tbody>
                 {% for r in ignored %}
-                <tr><td>{{ r['employee_number'] }} — {{ r['name'] }}</td><td>{{ r['device_name'] or '؟' }}</td><td>{{ r['check_time'] }}</td></tr>
+                <tr><td><input type="checkbox" class="form-check-input ign-row" value="{{ r['id'] }}"></td>
+                    <td>{{ r['employee_number'] }} — {{ r['name'] }}</td><td>{{ r['device_name'] or '؟' }}</td>
+                    <td dir="ltr">{{ r['check_time'] }}</td>
+                    <td><button class="btn btn-sm btn-link p-0" onclick="acceptPunches([{{ r['id'] }}])">احسبها</button></td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -340,6 +353,23 @@
         let msg = `${j.employees} موظف موقوف:\n- ${j.deleted} اتبعت لهم مسح البصمات (محفوظة عندنا)`;
         if (j.backup) msg += `\n- ${j.backup} لسه بنطلب بصماتهم من الجهاز الأول، وبتتمسح أول ما توصل`;
         alert(msg);
+    };
+    const ignAll = document.getElementById('ign-all');
+    if (ignAll) ignAll.addEventListener('change', e => document.querySelectorAll('.ign-row').forEach(b => b.checked = e.target.checked));
+    window.acceptPunches = async function (ids) {
+        ids = ids || Array.from(document.querySelectorAll('.ign-row:checked')).map(b => b.value);
+        if (!ids.length) return alert('حدّد بصمات الأول');
+        const allow = document.getElementById('ign-allow').checked;
+        if (!confirm(`${ids.length} بصمة هتدخل الحضور${allow ? '، والموظفين دول هيبقوا مسموح لهم يبصموا على الأجهزة دي' : ''}. تكمل؟`)) return;
+        const r = await fetch("{{ url_for('attendance.device_access_accept_punches') }}", {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: ids, allow_device: allow})
+        });
+        const j = await r.json();
+        let msg = `اتحسبت ${j.accepted} بصمة`;
+        if (j.locked) msg += `\n${j.locked} في شهر كشفه مقفول — ماتلمستش`;
+        if (j.allowed) msg += `\nواتسمح لـ ${j.allowed} موظف بالأجهزة دي`;
+        alert(msg);
+        location.reload();
     };
     window.printReport = function () {
         const p = new URLSearchParams({
