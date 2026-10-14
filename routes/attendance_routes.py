@@ -1386,11 +1386,29 @@ def sync_missing_to_oracle():
     from utils.oracle_db import is_oracle_enabled, backfill
     if not is_oracle_enabled():
         return jsonify({'success': False, 'message': gettext('x.oracle_is_disabled')})
-    since = (request.get_json(silent=True) or {}).get('since') or request.form.get('since') or None
+    from datetime import datetime as _dtm
+    body = request.get_json(silent=True) or {}
+
+    def pick(k):
+        return (str(body.get(k) or request.form.get(k) or '')).strip()[:10] or None
+    since, until = pick('since'), pick('until')
+    resend = str(body.get('resend') or request.form.get('resend') or '') in ('1', 'true', 'True', 'on')
+    for v in (since, until):
+        if v:
+            try:
+                _dtm.strptime(v, '%Y-%m-%d')
+            except ValueError:
+                return jsonify({'success': False, 'message': f'تاريخ غلط: {v}'})
+    if since and until and until < since:
+        return jsonify({'success': False, 'message': 'تاريخ النهاية قبل تاريخ البداية'})
     try:
-        added = backfill(since)
-        return jsonify({'success': True, 'message': f'تم إضافة {added} حركة جديدة إلى طابور المزامنة',
-                        'added_count': added})
+        added = backfill(since, until=until, resend=resend)
+        rng = (f' من {since}' if since else '') + (f' لحد {until}' if until else '')
+        msg = (f'اتحطّت {added} بصمة{rng} في الطابور تاني — اللي موجود في أوراكل بيتعدّى ومابيتكررش'
+               if resend else f'تم إضافة {added} حركة جديدة{rng} إلى طابور المزامنة')
+        return jsonify({'success': True, 'message': msg, 'added_count': added})
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 

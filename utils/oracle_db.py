@@ -604,8 +604,17 @@ def start_oracle_heartbeat():
 
 # ================= للشاشات =================
 
-def backfill(since=None, conn=None):
-    """«مزامنة الناقص»: بصمات أجهزة في الحضور ماتحطّتش في الطابور قبل كده (من `since` لو اتحدد)."""
+def backfill(since=None, conn=None, until=None, resend=False):
+    """«مزامنة الناقص»: بصمات أجهزة في الحضور ماتحطّتش في الطابور قبل كده (من `since` لحد `until` لو اتحددوا).
+
+    `resend=True`: «ابعت تاني من التاريخ ده» — حتى اللي اتبعت قبل كده (لجدول أوراكل جديد، أو لو حد مسح
+    من الجدول هناك). مابيتكررش في أوراكل: قبل كل إضافة العامل بيتأكد إن البصمة (الموظف + الوقت) مش
+    موجودة في الجدول (`oracle_dedupe`) — فاللي موجود بيتعدّى. ولازم تاريخ بداية: من غيره ده كل التاريخ.
+    """
+    if resend and not since:
+        raise ValueError('اختار تاريخ البداية — «ابعت تاني» من غير تاريخ معناه كل البصمات من أول يوم')
+    if resend and str(get_setting('oracle_dedupe', '') or '1').strip() == '0':
+        raise ValueError('منع التكرار في أوراكل مقفول (oracle_dedupe = 0) — «ابعت تاني» كده ممكن يكرر البصمات')
     own = conn is None
     c = conn or _local()
     try:
@@ -613,8 +622,16 @@ def backfill(since=None, conn=None):
         args = []
         where = ''
         if since:
-            where = 'AND ar.check_time >= ?'
-            args.append(str(since))
+            where += ' AND ar.check_time >= ?'
+            args.append(str(since)[:10])
+        if until:
+            # «لحد» شامل اليوم كله، والوقت ممكن يكون بـ T أو بمسافة: أقل من أول اليوم اللي بعده.
+            nxt = (datetime.datetime.strptime(str(until)[:10], '%Y-%m-%d')
+                   + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+            where += ' AND ar.check_time < ?'
+            args.append(nxt)
+        # العادي: اللي ماتبعتش ولا مستني. وإعادة الإرسال: اللي مش مستني بس (المتبعت يتبعت تاني).
+        done = "('PENDING')" if resend else "('PENDING', 'SYNCED')"
         cur = c.execute(f'''INSERT INTO oracle_sync_queue (user_id, check_time, check_type, verify_code, device_id, op, attendance_id)
                             SELECT e.employee_number, ar.check_time, COALESCE(ar.check_type, 0), ar.verify_code,
                                    ar.device_id, 'INSERT', ar.id
@@ -622,7 +639,7 @@ def backfill(since=None, conn=None):
                             WHERE (ar.source IS NULL OR ar.source IN {_SOURCES}) {where}
                               AND NOT EXISTS (SELECT 1 FROM oracle_sync_queue q
                                               WHERE q.user_id = e.employee_number AND q.check_time = ar.check_time
-                                                AND q.op = 'INSERT' AND q.status IN ('PENDING', 'SYNCED'))''', args)
+                                                AND q.op = 'INSERT' AND q.status IN {done})''', args)
         c.commit()
         wake()
         return cur.rowcount

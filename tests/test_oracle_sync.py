@@ -228,3 +228,57 @@ def test_worker_catches_up_when_sync_turns_on(env, monkeypatch):
     with pytest.raises(SystemExit):
         odb._worker_loop()
     assert len(ora.rows) == 1, 'اتبعتت في أول دورة'
+
+
+def test_sync_from_date_and_resend_to_new_table_without_duplicates(env):
+    """مزامنة من تاريخ لتاريخ، و«ابعت تاني» (جدول جديد) — ومفيش تكرار في أوراكل."""
+    db, odb, con = env
+    for d in ('2026-10-01 08:00:00', '2026-10-05T08:00:00', '2026-10-10 08:00:00', '2026-10-12 23:59:00'):
+        con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type) VALUES (1, 3, ?, 0)", (d,))
+    con.commit()
+    ora = FakeOra()
+    assert odb.process_sync_queue(ora) == 4
+    assert odb.backfill('2026-10-01') == 0, 'العادي: اللي اتبعت مايتبعتش تاني'
+    # جدول جديد فاضي: «ابعت تاني» من 5 لـ 10 (شامل اليومين، والوقت بـ T أو بمسافة)
+    new = FakeOra()
+    assert odb.backfill('2026-10-05', until='2026-10-10', resend=True) == 2
+    assert odb.backfill('2026-10-05', until='2026-10-10', resend=True) == 0, 'اللي مستني في الطابور مايتحطش تاني'
+    odb.process_sync_queue(new)
+    assert new.rows == {('365', odb._parse_time('2026-10-05T08:00:00')), ('365', odb._parse_time('2026-10-10 08:00:00'))}
+    # نفس الجدول القديم: «ابعت تاني» على اللي موجود هناك مابيكررش
+    assert odb.backfill('2026-10-01', resend=True) == 4
+    before = ora.calls.count('INSERT')
+    odb.process_sync_queue(ora)
+    assert ora.calls.count('INSERT') == before and len(ora.rows) == 4, 'كله موجود: اتعدّى من غير إضافة'
+    with pytest.raises(ValueError):
+        odb.backfill(resend=True)                       # من غير تاريخ بداية = كل التاريخ
+    db.set_setting('oracle_dedupe', '0')
+    with pytest.raises(ValueError):
+        odb.backfill('2026-10-01', resend=True)         # منع التكرار مقفول: مايتبعتش تاني
+
+
+def test_sync_range_endpoint(env):
+    db, odb, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    c = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with c.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type) VALUES (1, 3, '2026-10-01 08:00:00', 0)")
+    con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type) VALUES (1, 3, '2026-10-09 08:00:00', 0)")
+    con.commit()
+    odb.process_sync_queue(FakeOra())
+    url = '/attendance/api/oracle/sync_missing'
+    j = c.post(url, json={'since': '2026-10-05', 'resend': 1}).get_json()
+    assert j['success'] and j['added_count'] == 1 and 'من 2026-10-05' in j['message'], j
+    assert not c.post(url, json={'resend': 1}).get_json()['success'], 'لازم تاريخ بداية'
+    assert not c.post(url, json={'since': '2026-10-09', 'until': '2026-10-01'}).get_json()['success']
+    assert not c.post(url, json={'since': 'امبارح'}).get_json()['success']
+    page = c.get('/attendance/oracle').get_data(as_text=True)
+    assert 'مزامنة من تاريخ' in page and 'sync_resend' in page

@@ -71,7 +71,43 @@
                         <button type="button" class="btn btn-outline-success" onclick="syncMissing()">
                             <i class="fas fa-sync me-2"></i>{{ _('x.check_sync_missing') }}
                         </button>
-                        {% else %}
+                        {% endif %}
+                    </div>
+
+                    {% if enabled %}
+                    {# مزامنة من تاريخ: الناقص بس، أو «ابعت تاني» حتى المتبعت (جدول جديد) — ومفيش تكرار في أوراكل #}
+                    <div class="border rounded p-3 mt-3" id="oracle-sync-range">
+                        <h6 class="mb-2"><i class="fas fa-calendar-alt me-1"></i>مزامنة من تاريخ</h6>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-sm-4">
+                                <label class="form-label small mb-1" for="sync_since">من</label>
+                                <input type="date" class="form-control form-control-sm" id="sync_since">
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label small mb-1" for="sync_until">لحد (اختياري)</label>
+                                <input type="date" class="form-control form-control-sm" id="sync_until">
+                            </div>
+                            <div class="col-sm-4">
+                                <button type="button" class="btn btn-sm btn-success w-100" onclick="syncRange()">
+                                    <i class="fas fa-paper-plane me-1"></i>ابعت
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="sync_resend">
+                            <label class="form-check-label small" for="sync_resend">
+                                ابعت تاني حتى اللي اتبعت قبل كده (لجدول جديد، أو لو اتمسح حاجة من أوراكل)
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            من غير الاختيار ده: بيبعت اللي ماتبعتش بس. ومعاه أو من غيره <strong>مفيش تكرار</strong>:
+                            قبل كل بصمة بيتأكد إنها (نفس الموظف ونفس الوقت) مش موجودة في جدول أوراكل.
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex gap-2 flex-wrap">
+                        {% if not enabled %}
                         <form method="POST" action="{{ url_for('attendance.oracle_toggle') }}">
                             <input type="hidden" name="enable" value="1">
                             <button type="submit" class="btn btn-success">
@@ -178,6 +214,26 @@
                           d.alive ? 'success' : 'danger');
             })
             .catch(e => showAlert({{ _('x.oracle_dead')|tojson }}, 'danger'));
+    }
+    function syncRange() {
+        const since = document.getElementById('sync_since').value;
+        const until = document.getElementById('sync_until').value;
+        const resend = document.getElementById('sync_resend').checked;
+        if (resend && !since) {
+            showAlert('اختار تاريخ البداية الأول', 'danger');
+            return;
+        }
+        if (resend && !confirm('هيتبعت تاني كل البصمات' + (since ? ' من ' + since : '') + (until ? ' لحد ' + until : '')
+                               + '. اللي موجود في أوراكل هيتعدّى ومش هيتكرر. نكمل؟')) {
+            return;
+        }
+        fetch("{{ url_for('attendance.sync_missing_to_oracle') }}", {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({since: since, until: until, resend: resend ? 1 : 0})
+        })
+            .then(r => r.json())
+            .then(d => showAlert(d.message || {{ _('x.success')|tojson }}, d.success ? 'success' : 'danger'))
+            .catch(e => showAlert({{ _('x.error')|tojson }}, 'danger'));
     }
     function syncMissing() {
         fetch("{{ url_for('attendance.sync_missing_to_oracle') }}", { method: 'POST' })
