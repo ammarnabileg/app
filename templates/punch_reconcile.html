@@ -134,17 +134,20 @@
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0 rc-table">
                 <thead class="table-light"><tr>
-                    <th style="width:34px"><input type="checkbox" class="form-check-input" id="rcPickAll" title="كل أيام العمل الناقصة"></th>
+                    <th style="width:34px"><input type="checkbox" class="form-check-input" id="rcPickAll" title="كل الخانات الناقصة في أيام العمل"></th>
                     <th style="width:150px">اليوم</th><th>دخول</th><th>تواجد</th><th>خروج</th>
                 </tr></thead>
                 <tbody>
                 {% for day in data.calendar %}
                 <tr class="{{ 'rc-rest' if day.is_weekend }} {{ 'rc-holed' if day.holed }}">
-                    <td><input type="checkbox" class="form-check-input rc-pick" name="selected_days" value="{{ day.date }}" {{ 'data-hole=1' if day.holed }}></td>
+                    <td><input type="checkbox" class="form-check-input rc-pick" title="الخانات الناقصة في اليوم ده" {{ 'data-hole=1' if day.holed }}></td>
                     <td><div class="rc-mono small">{{ day.date }}</div><div class="small text-muted">{{ AR[day.dow] }}{{ ' · إجازة' if day.is_weekend }}</div></td>
                     {% for f, key, label in fields %}
                     {% set actual = day['actual_' ~ f] %}{% set sugg = day['s_' ~ f] %}
-                    <td>
+                    <td><div class="d-flex align-items-center gap-1">
+                        {# كل خانة لوحدها: اللي متعلّم عليها بس هي اللي بتتحفظ #}
+                        <input type="checkbox" class="form-check-input rc-cell flex-shrink-0" name="pick" value="{{ f }}_{{ day.date }}"
+                               title="سوّي {{ label }} اليوم ده" {{ 'data-missing=1' if not actual and not day.is_weekend }}>
                         {% if actual %}
                             <span class="rc-mono small rc-shown">{{ actual }}</span>
                             {% if day['adj_' ~ f] %}<span class="badge bg-info text-dark rc-adj rc-shown" title="تسوية سابقة">تسوية</span>{% endif %}
@@ -157,7 +160,7 @@
                         {% else %}
                             <input type="text" class="form-control form-control-sm rc-time" name="{{ f }}_{{ day.date }}" value="{{ sugg }}">
                         {% endif %}
-                    </td>
+                    </div></td>
                     {% endfor %}
                 </tr>
                 {% endfor %}
@@ -169,8 +172,9 @@
                 <span class="input-group-text">رقم الكتاب المعتمد</span>
                 <input name="book_no" class="form-control rc-mono" required placeholder="مطلوب">
             </div>
-            <button class="btn btn-success"><i class="fas fa-save me-1"></i>حفظ الأيام المحددة</button>
-            <small class="text-muted">الخانة الفاضية مابتتحفظش ومابتلغيش اللي موجود. الحفظ بيستبدل اللي في نفس النافذة لليوم ده (والقديم متسجّل في السجل).</small>
+            <button class="btn btn-success"><i class="fas fa-save me-1"></i>حفظ الخانات المحددة</button>
+            <small class="text-muted">بيتحفظ بس الخانة اللي عليها علامة (دخول أو تواجد أو خروج) — الباقي في اليوم مابيتلمسش.
+                علامة اليوم بتعلّم الخانات الناقصة فيه، وتقدر تشيل منها. الحفظ بيستبدل اللي في نفس النافذة (والقديم متسجّل في السجل).</small>
         </div>
     </div>
 </form>
@@ -223,21 +227,42 @@ document.querySelectorAll('.rc-edit').forEach(function (b) {
         inp.classList.remove('rc-hide'); inp.disabled = false;
         if (!inp.value) inp.value = inp.placeholder;
         inp.focus();
-        b.closest('tr').querySelector('.rc-pick').checked = true;
+        cell.querySelector('.rc-cell').checked = true;
     });
 });
+// الكتابة في خانة بتعلّم الخانة دي بس — مش اليوم كله.
 document.querySelectorAll('#rcSave input[type=text]').forEach(function (i) {
-    i.addEventListener('input', function () { i.closest('tr').querySelector('.rc-pick').checked = true; });
+    i.addEventListener('input', function () { i.closest('td').querySelector('.rc-cell').checked = true; });
+});
+// علامة الخانة على خانة موجودة (من غير «تعديل») بتفتحها للتعديل.
+document.querySelectorAll('.rc-cell').forEach(function (c) {
+    c.addEventListener('change', function () {
+        var inp = c.closest('td').querySelector('input[type=text]');
+        if (c.checked && inp && inp.disabled) {
+            c.closest('td').querySelectorAll('.rc-shown').forEach(function (el) { el.classList.add('rc-hide'); });
+            inp.classList.remove('rc-hide'); inp.disabled = false;
+            if (!inp.value) inp.value = inp.placeholder;
+        }
+    });
+});
+// علامة اليوم = الخانات الناقصة في اليوم ده (مش الموجودة).
+document.querySelectorAll('.rc-pick').forEach(function (d) {
+    d.addEventListener('change', function () {
+        d.closest('tr').querySelectorAll('.rc-cell[data-missing]').forEach(function (c) { c.checked = d.checked; });
+    });
 });
 var all = document.getElementById('rcPickAll');
 if (all) all.addEventListener('change', function () {
-    document.querySelectorAll('.rc-pick[data-hole]').forEach(function (c) { c.checked = all.checked; });
+    document.querySelectorAll('.rc-pick[data-hole]').forEach(function (d) {
+        d.checked = all.checked;
+        d.closest('tr').querySelectorAll('.rc-cell[data-missing]').forEach(function (c) { c.checked = all.checked; });
+    });
 });
 var f = document.getElementById('rcSave');
 if (f) f.addEventListener('submit', function (e) {
-    var n = document.querySelectorAll('.rc-pick:checked').length;
-    if (!n) { e.preventDefault(); alert('حدّد يوم واحد على الأقل قبل الحفظ.'); return; }
-    if (!confirm(n + ' يوم هيتسوّى بكتاب رقم ' + f.book_no.value + '. تكمل؟')) e.preventDefault();
+    var n = document.querySelectorAll('.rc-cell:checked').length;
+    if (!n) { e.preventDefault(); alert('علّم خانة واحدة على الأقل (دخول أو تواجد أو خروج) قبل الحفظ.'); return; }
+    if (!confirm(n + ' خانة هتتسوّى بكتاب رقم ' + f.book_no.value + '. تكمل؟')) e.preventDefault();
 });
 </script>
 {% endblock %}

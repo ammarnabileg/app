@@ -1262,8 +1262,14 @@ def punch_reconcile_page():
     conn = get_db_connection()
 
     if action == 'save' and not cfg_error and user_id:
-        days = request.form.getlist('selected_days')
-        values = {k: v for k, v in request.form.items() if k.startswith(('entry_', 'pres_', 'exit_'))}
+        # الخانات المتعلّم عليها بس (دخول أو تواجد أو خروج ليوم معيّن) — مش اليوم كله.
+        picks = set(request.form.getlist('pick'))
+        if picks:
+            values = {k: v for k, v in request.form.items() if k in picks}
+            days = sorted({k.split('_', 1)[1] for k in picks if '_' in k})
+        else:                                   # الشكل القديم: اليوم كله
+            days = request.form.getlist('selected_days')
+            values = {k: v for k, v in request.form.items() if k.startswith(('entry_', 'pres_', 'exit_'))}
         built = pr.build(conn, user_id, month, year, windows, codes, suggest)
         res = pr.save(conn, user_id, days, values, windows, built.get('codes', codes),
                       request.form.get('book_no'), session.get('user_id'))

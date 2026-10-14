@@ -104,3 +104,37 @@ def test_page_needs_its_own_password(env):
     assert _j.dumps('اتغيّر الباسورد')[1:-1] in c.post('/attendance/oracle/reconcile', data={
         'action': 'password', 'old_password': '11225588', 'new_password': '999888'}, follow_redirects=True).get_data(as_text=True)
     assert '11225588' not in open(os.path.join(ROOT, 'templates', 'punch_reconcile.html'), encoding='utf-8').read()
+
+
+def test_save_only_the_picked_cell(env):
+    """علامة على خانة الخروج بس: يتحفظ الخروج بس، حتى لو الدخول والتواجد فيهم وقت مقترح."""
+    db, pr, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    c = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with c.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    c.post('/attendance/oracle/reconcile', data={'action': 'unlock', 'password': '11225588'})
+    page = c.get('/attendance/oracle/reconcile?user_id=365&month=10&year=2026').get_data(as_text=True)
+    assert 'name="pick" value="exit_2026-10-06"' in page and 'حفظ الخانات المحددة' in page
+    base = {'action': 'save', 'user_id': '365', 'month': '10', 'year': '2026', 'book_no': '77',
+            'in_from': 5, 'in_to': 11, 'pres_from': 11, 'pres_to': 14, 'out_from': 14, 'out_to': 24,
+            'entry_2026-10-06': '08:00', 'pres_2026-10-06': '12:00', 'exit_2026-10-06': '16:30',
+            'selected_days': '2026-10-06'}
+    r = c.post('/attendance/oracle/reconcile', data=dict(base, pick='exit_2026-10-06'))
+    assert r.status_code == 302
+    got = [x[0] for x in con.execute("SELECT check_time FROM attendance_records WHERE source = 'adjustment'"
+                                     " AND check_time LIKE '2026-10-06%' ORDER BY check_time")]
+    assert got == ['2026-10-06 16:30:00'], got
+    # خانتين من يومين مختلفين
+    r = c.post('/attendance/oracle/reconcile', data=dict(base, pick=['entry_2026-10-07', 'pres_2026-10-08'],
+                                                         **{'entry_2026-10-07': '08:10', 'pres_2026-10-08': '12:10'}))
+    got = sorted(x[0] for x in con.execute("SELECT check_time FROM attendance_records WHERE source = 'adjustment'"
+                                           " AND check_time >= '2026-10-07'"))
+    assert got == ['2026-10-07 08:10:00', '2026-10-08 12:10:00'], got
