@@ -282,3 +282,29 @@ def test_sync_range_endpoint(env):
     assert not c.post(url, json={'since': 'امبارح'}).get_json()['success']
     page = c.get('/attendance/oracle').get_data(as_text=True)
     assert 'مزامنة من تاريخ' in page and 'sync_resend' in page
+
+
+def test_portal_and_field_punches_go_to_oracle(env):
+    """البوابة بالموبايل (GPS) ومشاوير ومحطات التطبيق الميداني بتروح أوراكل — واليدوي لأ."""
+    db, odb, con = env
+    for src, t in (('portal_mobile', '08:00:00'), ('field_trip', '09:00:00'), ('field_visit', '10:00:00'),
+                   ('manual', '11:00:00')):
+        con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type, source)"
+                    " VALUES (1, 0, ?, 0, ?)", ('2026-10-14 ' + t, src))
+    con.commit()
+    assert [r[2][11:] for r in _q(con)] == ['08:00:00', '09:00:00', '10:00:00'], _q(con)
+    # المشوار بيتعدّل وقته (أول دخول / آخر خروج): القديم يتمسح من أوراكل والجديد يتضاف
+    ora = FakeOra()
+    odb.process_sync_queue(ora)
+    con.execute("UPDATE attendance_records SET check_time = '2026-10-14 08:30:00' WHERE source = 'field_trip'")
+    con.commit()
+    odb.process_sync_queue(ora)
+    assert ('365', odb._parse_time('2026-10-14 09:00:00')) not in ora.rows
+    assert ('365', odb._parse_time('2026-10-14 08:30:00')) in ora.rows
+    assert odb.backfill('2026-10-14') == 0, 'مزامنة الناقص بتعرفهم برضه'
+
+
+def test_old_triggers_are_replaced(env):
+    db, odb, con = env
+    names = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_oracle%'")}
+    assert names == {'trg_oracle_att_insert_v3', 'trg_oracle_att_update_v3', 'trg_oracle_att_delete_v3'}, names

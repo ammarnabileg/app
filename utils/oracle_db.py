@@ -277,13 +277,14 @@ def ensure_schema(conn):
         conn.commit()           # مانسيبش القاعدة ماسكينها (اتصال تاني ممكن يكتب إعداد)
 
 
-# بصمة جهاز = مصدرها جهاز، أو تسوية بكتاب معتمد (utils/punch_reconcile) — مش إدخال يدوي عادي.
-_SOURCES = "('device', 'adms', '', 'adjustment')"
+# اللي بيروح أوراكل: بصمة جهاز (IP وADMS)، وتسوية بكتاب معتمد (utils/punch_reconcile)، وبصمة البوابة
+# بالموبايل (GPS)، ومشاوير ومحطات التطبيق الميداني (utils/field). مش الإدخال اليدوي العادي.
+_SOURCES = "('device', 'adms', '', 'adjustment', 'portal_mobile', 'field_trip', 'field_visit')"
 _DEVICE_SRC = "(%s.source IS NULL OR %s.source IN " + _SOURCES + ")"
 _ACTIVE = "(SELECT active FROM oracle_sync_state WHERE id = 1) = 1"
 _TRIGGERS = {
-    'trg_oracle_att_insert_v2': f'''
-        CREATE TRIGGER trg_oracle_att_insert_v2 AFTER INSERT ON attendance_records
+    'trg_oracle_att_insert_v3': f'''
+        CREATE TRIGGER trg_oracle_att_insert_v3 AFTER INSERT ON attendance_records
         WHEN {_ACTIVE} AND {_DEVICE_SRC % ('NEW', 'NEW')}
         BEGIN
             INSERT INTO oracle_sync_queue (user_id, check_time, check_type, verify_code, device_id, op, attendance_id)
@@ -291,8 +292,8 @@ _TRIGGERS = {
                    'INSERT', NEW.id
             FROM employees e WHERE e.id = NEW.employee_id;
         END''',
-    'trg_oracle_att_update_v2': f'''
-        CREATE TRIGGER trg_oracle_att_update_v2 AFTER UPDATE OF check_time, employee_id ON attendance_records
+    'trg_oracle_att_update_v3': f'''
+        CREATE TRIGGER trg_oracle_att_update_v3 AFTER UPDATE OF check_time, employee_id ON attendance_records
         WHEN {_ACTIVE} AND {_DEVICE_SRC % ('NEW', 'NEW')}
              AND (OLD.check_time != NEW.check_time OR OLD.employee_id != NEW.employee_id)
         BEGIN
@@ -305,8 +306,8 @@ _TRIGGERS = {
                    'INSERT', NEW.id
             FROM employees e WHERE e.id = NEW.employee_id;
         END''',
-    'trg_oracle_att_delete_v2': f'''
-        CREATE TRIGGER trg_oracle_att_delete_v2 AFTER DELETE ON attendance_records
+    'trg_oracle_att_delete_v3': f'''
+        CREATE TRIGGER trg_oracle_att_delete_v3 AFTER DELETE ON attendance_records
         WHEN {_ACTIVE} AND {_DEVICE_SRC % ('OLD', 'OLD')}
         BEGIN
             INSERT INTO oracle_sync_queue (user_id, check_time, check_type, verify_code, device_id, op, attendance_id)
@@ -317,7 +318,9 @@ _TRIGGERS = {
 }
 
 
-_OLD_TRIGGERS = ('trg_oracle_att_insert', 'trg_oracle_att_update', 'trg_oracle_att_delete')
+# المصادر اتغيّرت (v3: البوابة والتطبيق الميداني) — القديمة بتتشال وتتعمل الجديدة.
+_OLD_TRIGGERS = ('trg_oracle_att_insert', 'trg_oracle_att_update', 'trg_oracle_att_delete',
+                 'trg_oracle_att_insert_v2', 'trg_oracle_att_update_v2', 'trg_oracle_att_delete_v2')
 
 
 def _ensure_triggers(conn):

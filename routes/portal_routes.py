@@ -1174,16 +1174,8 @@ def api_punch():
     ''', (emp_id, check_time_str, check_type_code, note_str, session.get('user_id')))
     conn.commit()
 
-    # Optional sync to Oracle if enabled
-    try:
-        from routes.adms_routes import ORACLE_ENABLED
-        if ORACLE_ENABLED:
-            from utils.oracle_db import add_to_sync_queue
-            emp_row = conn.execute('SELECT employee_number FROM employees WHERE id = ?', (emp_id,)).fetchone()
-            u_id = emp_row['employee_number'] if emp_row and emp_row['employee_number'] else str(emp_id)
-            add_to_sync_queue(u_id, check_time_str, check_type_code, 15, client_ip, sqlite_conn=conn)
-    except Exception:
-        pass
+    # أوراكل: الـtrigger على attendance_records بيحطها في الطابور لوحده (utils/oracle_db، المصدر portal_mobile).
+    # كانت بتتحط هنا يدوي كمان — ومع الـtrigger كانت هتتحط مرتين.
 
     branch_display = f" ({matched_branch_name})" if matched_branch_name else ""
     return jsonify({
