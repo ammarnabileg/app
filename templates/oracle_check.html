@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}فحص أوراكل{% endblock %}
+
+{% block content %}
+{# فحص أوراكل: الجدول وصل لحد فين، ومن تاريخ لتاريخ عندنا قد إيه وهناك قد إيه، والناقص ورفعه. #}
+<div class="container-fluid" id="oracle-check">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h2 class="fw-bold mb-0"><i class="fas fa-clipboard-check text-success me-2"></i>فحص أوراكل</h2>
+            <div class="report-desc">بيقارن البصمات اللي عندنا (أجهزة، تسوية، بوابة، ميداني) باللي في جدول أوراكل فعلًا.</div>
+        </div>
+        <a href="{{ url_for('attendance.oracle_control') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-right me-1"></i>مركز أوراكل
+        </a>
+    </div>
+
+    {% if not enabled %}
+    <div class="alert alert-warning">{{ _('x.oracle_is_disabled') }}</div>
+    {% else %}
+
+    <!-- الجدول وصل لحد فين -->
+    <div class="row g-3 mb-3">
+        {% if summary and summary.ok %}
+        {% for label, value, sub in [
+            ('آخر بصمة في الجدول', summary.last.strftime('%Y-%m-%d %H:%M') if summary.last else '—', 'التيبل وصل لحد هنا'),
+            ('أول بصمة في الجدول', summary.first.strftime('%Y-%m-%d %H:%M') if summary.first else '—', ''),
+            ('عدد البصمات في الجدول', '{:,}'.format(summary.count), table),
+            ('مستني في الطابور', '{:,}'.format(stats.pending or 0), ('فاشل: ' ~ (stats.failed or 0)) if stats.failed else 'بيتبعت كل ثواني'),
+        ] %}
+        <div class="col-6 col-lg-3">
+            <div class="card h-100"><div class="card-body">
+                <div class="small text-muted">{{ label }}</div>
+                <div class="fs-5 fw-bold" dir="ltr" style="text-align:start">{{ value }}</div>
+                <div class="small text-muted">{{ sub }}</div>
+            </div></div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="col-12"><div class="alert alert-danger mb-0">
+            <i class="fas fa-plug me-1"></i>ماقدرناش نوصل لجدول أوراكل: <span dir="ltr">{{ summary.error if summary else '' }}</span>
+        </div></div>
+        {% endif %}
+    </div>
+
+    <!-- من تاريخ لتاريخ -->
+    <form method="GET" class="card card-body mb-3">
+        <input type="hidden" name="run" value="1">
+        <div class="row g-2 align-items-end">
+            <div class="col-sm-3">
+                <label class="form-label small mb-1" for="since">من</label>
+                <input type="date" class="form-control" id="since" name="since" value="{{ since }}" required>
+            </div>
+            <div class="col-sm-3">
+                <label class="form-label small mb-1" for="until">لحد</label>
+                <input type="date" class="form-control" id="until" name="until" value="{{ until }}" required>
+            </div>
+            <div class="col-sm-3">
+                <button class="btn btn-primary w-100"><i class="fas fa-search me-1"></i>افحص</button>
+            </div>
+            <div class="col-sm-3 small text-muted">لحد {{ max_days }} يوم في المرة.</div>
+        </div>
+    </form>
+
+    {% if error %}
+    <div class="alert alert-danger"><span dir="auto">{{ error }}</span></div>
+    {% endif %}
+
+    {% if result %}
+    <div class="row g-3 mb-3">
+        <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body">
+            <div class="small text-muted">عندنا</div><div class="fs-4 fw-bold">{{ '{:,}'.format(result.local) }}</div>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body">
+            <div class="small text-muted">في أوراكل</div><div class="fs-4 fw-bold">{{ '{:,}'.format(result.oracle) }}</div>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card h-100 {{ 'border-danger' if result.missing_count else 'border-success' }}"><div class="card-body">
+            <div class="small text-muted">ناقص في أوراكل</div>
+            <div class="fs-4 fw-bold {{ 'text-danger' if result.missing_count else 'text-success' }}">{{ '{:,}'.format(result.missing_count) }}</div>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body">
+            <div class="small text-muted">في أوراكل ومش عندنا</div>
+            <div class="fs-4 fw-bold">{{ '{:,}'.format(result.extra_in_oracle) }}</div>
+            <div class="small text-muted">من مصدر تاني أو اتمسحت عندنا — للعلم بس</div>
+        </div></div></div>
+    </div>
+
+    {% if result.missing_count %}
+    <form method="POST" action="{{ url_for('attendance.oracle_check_upload') }}" class="mb-3"
+          onsubmit="return confirm('هيترفع {{ result.missing_count }} بصمة ناقصة لأوراكل. نكمل؟')">
+        <input type="hidden" name="since" value="{{ result.since }}">
+        <input type="hidden" name="until" value="{{ result.until }}">
+        <button class="btn btn-success"><i class="fas fa-cloud-upload-alt me-1"></i>ارفع الناقص ({{ result.missing_count }})</button>
+        <span class="small text-muted ms-2">بيبعت الناقص بس، ومن غير تكرار.</span>
+    </form>
+    {% else %}
+    <div class="alert alert-success"><i class="fas fa-check-circle me-1"></i>كل البصمات من {{ result.since }} لحد {{ result.until }} موجودة في أوراكل.</div>
+    {% endif %}
+
+    <div class="row g-3">
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header bg-light fw-bold">يوم بيوم</div>
+                <div class="table-responsive" style="max-height:520px">
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead><tr><th>اليوم</th><th>عندنا</th><th>أوراكل</th><th>ناقص</th></tr></thead>
+                        <tbody>
+                        {% for d in result.days %}
+                        <tr class="{{ 'table-danger' if d.missing else '' }}">
+                            <td dir="ltr" style="text-align:start">{{ d.date }}</td>
+                            <td>{{ d.local }}</td><td>{{ d.oracle }}</td>
+                            <td class="fw-bold">{{ d.missing or '' }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            {% if result.missing %}
+            <div class="card">
+                <div class="card-header bg-light fw-bold">
+                    الناقص{% if result.missing_count > result.missing|length %} (أول {{ result.missing|length }} من {{ result.missing_count }}){% endif %}
+                </div>
+                <div class="table-responsive" style="max-height:520px">
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>الرقم</th><th>الموظف</th><th>الوقت</th><th>المصدر</th></tr></thead>
+                        <tbody>
+                        {% set src_ar = {'device': 'جهاز', 'adms': 'جهاز', 'adjustment': 'تسوية', 'portal_mobile': 'بوابة (GPS)',
+                                         'field_trip': 'مشوار', 'field_visit': 'محطة'} %}
+                        {% for m in result.missing %}
+                        <tr>
+                            <td>{{ m.employee_number }}</td><td>{{ m.name }}</td>
+                            <td dir="ltr" style="text-align:start">{{ m.check_time }}</td>
+                            <td>{{ src_ar.get(m.source, 'جهاز') }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

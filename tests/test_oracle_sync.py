@@ -308,3 +308,95 @@ def test_old_triggers_are_replaced(env):
     db, odb, con = env
     names = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_oracle%'")}
     assert names == {'trg_oracle_att_insert_v3', 'trg_oracle_att_update_v3', 'trg_oracle_att_delete_v3'}, names
+
+
+class RangeCursor(FakeCursor):
+    """يفهم كمان استعلامات الفحص: MIN/MAX/COUNT، والبصمات في فترة."""
+    def execute(self, sql, params=()):
+        s = ' '.join(sql.split()).upper()
+        if s.startswith('SELECT MIN('):
+            ts = [t for _u, t in self.db.rows]
+            self.result = (min(ts) if ts else None, max(ts) if ts else None, len(ts))
+            return
+        if s.startswith('SELECT USERID, CHECKTIME'):
+            a, b = params
+            self.many = [(int(u), t) for u, t in self.db.rows if a <= t < b]
+            return
+        super().execute(sql, params)
+
+    def fetchall(self):
+        return self.many
+
+
+class RangeOra(FakeOra):
+    def cursor(self):
+        return RangeCursor(self)
+
+
+def test_oracle_check_compare_and_upload_missing(env):
+    db, odb, con = env
+    times = ['2026-10-10 08:00:00', '2026-10-10T17:00:00', '2026-10-11 08:00:00', '2026-10-12 08:00:00']
+    for t in times:
+        con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type) VALUES (1, 3, ?, 0)", (t,))
+    con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type, source)"
+                " VALUES (1, 0, '2026-10-11 09:00:00', 0, 'manual')")       # يدوي: مش من المقارنة
+    con.commit()
+    con.execute("UPDATE oracle_sync_queue SET status = 'SYNCED'")           # كأنها اتبعتت
+    con.commit()
+    ora = RangeOra()
+    ora.rows.add(('365', odb._parse_time('2026-10-10 08:00:00')))
+    ora.rows.add(('365', odb._parse_time('2026-10-12 08:00:00')))
+    ora.rows.add(('365', odb._parse_time('2026-10-12 12:00:00')))          # في أوراكل بس
+    s = odb.oracle_table_summary(ora)
+    assert s['ok'] and s['count'] == 3 and s['last'] == odb._parse_time('2026-10-12 12:00:00')
+    r = odb.compare_with_oracle('2026-10-10', '2026-10-12', oracle_conn=ora)
+    assert r['ok'] and r['local'] == 4 and r['oracle'] == 3 and r['missing_count'] == 2 and r['extra_in_oracle'] == 1, r
+    assert [d['missing'] for d in r['days']] == [1, 1, 0]
+    assert sorted(m['check_time'] for m in r['missing']) == ['2026-10-10 17:00:00', '2026-10-11 08:00:00']
+    u = odb.upload_missing('2026-10-10', '2026-10-12', oracle_conn=ora)
+    assert u == {'ok': True, 'queued': 2, 'missing': 2}
+    assert odb.upload_missing('2026-10-10', '2026-10-12', oracle_conn=ora)['queued'] == 0, 'المستني مايتحطش تاني'
+    odb.process_sync_queue(ora)
+    assert odb.compare_with_oracle('2026-10-10', '2026-10-12', oracle_conn=ora)['missing_count'] == 0
+    assert ora.calls.count('INSERT') == 2, 'اترفع الناقص بس'
+    with pytest.raises(ValueError):
+        odb.compare_with_oracle('2026-01-01', '2026-10-12', oracle_conn=ora)   # فترة طويلة
+
+
+def test_oracle_check_leading_zeros_match(env):
+    """رقم الموظف «0365» عندنا = 365 في أوراكل (العمود رقم)."""
+    db, odb, con = env
+    con.execute("UPDATE employees SET employee_number = '0365' WHERE id = 1")
+    con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type) VALUES (1, 3, '2026-10-10 08:00:00', 0)")
+    con.commit()
+    ora = RangeOra()
+    ora.rows.add(('365', odb._parse_time('2026-10-10 08:00:00')))
+    assert odb.compare_with_oracle('2026-10-10', '2026-10-10', oracle_conn=ora)['missing_count'] == 0
+
+
+def test_oracle_check_page(env, monkeypatch):
+    db, odb, con = env
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    c = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with c.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type) VALUES (1, 3, '2026-10-10 08:00:00', 0)")
+    con.commit()
+    ora = RangeOra()
+    monkeypatch.setattr(odb, 'get_oracle_connection', lambda: ora)
+    page = c.get('/attendance/oracle/check?since=2026-10-10&until=2026-10-11&run=1').get_data(as_text=True)
+    assert 'فحص أوراكل' in page and 'ارفع الناقص (1)' in page and '2026-10-10 08:00:00' in page, page[:500]
+    r = c.post('/attendance/oracle/check/upload', data={'since': '2026-10-10', 'until': '2026-10-11'})
+    assert r.status_code == 302
+    odb.process_sync_queue(ora)
+    page = c.get('/attendance/oracle/check?since=2026-10-10&until=2026-10-11&run=1').get_data(as_text=True)
+    assert 'موجودة في أوراكل' in page
+    assert 'آخر بصمة في الجدول' in page and '2026-10-10 08:00' in page
+    assert 'فحص أوراكل' in c.get('/attendance/oracle').get_data(as_text=True)

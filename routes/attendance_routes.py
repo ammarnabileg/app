@@ -1412,6 +1412,55 @@ def sync_missing_to_oracle():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
+@attendance_bp.route('/attendance/oracle/check')
+@login_required
+@require_permission('page.oracle_control')
+def oracle_check():
+    """فحص أوراكل: الجدول وصل لحد فين، ومن تاريخ لتاريخ قد إيه عندنا وقد إيه هناك، والناقص."""
+    from datetime import date as _date, timedelta as _td
+    from utils import oracle_db as _odb
+    today = _date.today()
+    since = (request.args.get('since') or (today - _td(days=6)).isoformat())[:10]
+    until = (request.args.get('until') or today.isoformat())[:10]
+    enabled = _odb.is_oracle_enabled()
+    summary = result = None
+    error = None
+    if enabled:
+        summary = _odb.oracle_table_summary()
+        if request.args.get('run'):
+            try:
+                result = _odb.compare_with_oracle(since, until)
+            except ValueError as e:
+                error = str(e)
+            if result is not None and not result.get('ok'):
+                error, result = result.get('error'), None
+    return render_template('oracle_check.html', enabled=enabled, summary=summary, result=result,
+                           error=error, since=since, until=until, stats=_odb.get_sync_queue_stats(),
+                           table=_odb.table_name(), max_days=_odb.CHECK_MAX_DAYS)
+
+
+@attendance_bp.route('/attendance/oracle/check/upload', methods=['POST'])
+@login_required
+@require_permission('attendance.edit')
+def oracle_check_upload():
+    """«ارفع الناقص»: اللي الفحص لقاه مش في أوراكل يتبعت دلوقتي (ومن غير تكرار)."""
+    from utils import oracle_db as _odb
+    since, until = (request.form.get('since') or '')[:10], (request.form.get('until') or '')[:10]
+    if not _odb.is_oracle_enabled():
+        flash(gettext('x.oracle_is_disabled'), 'error')
+        return redirect(url_for('attendance.oracle_check'))
+    try:
+        r = _odb.upload_missing(since, until)
+    except ValueError as e:
+        r = {'ok': False, 'error': str(e)}
+    if r.get('ok'):
+        flash(f"اتحطّت {r['queued']} بصمة ناقصة في الطابور (من {r['missing']}) — بتتبعت خلال ثواني. "
+              "افحص تاني بعد شوية تتأكد.", 'success')
+    else:
+        flash(f"ماقدرناش نرفع الناقص: {r.get('error')}", 'error')
+    return redirect(url_for('attendance.oracle_check', since=since, until=until, run=1))
+
+
 @attendance_bp.route('/attendance/api/oracle/retry', methods=['POST'])
 @login_required
 @require_permission('attendance.edit')

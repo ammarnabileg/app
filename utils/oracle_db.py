@@ -667,6 +667,151 @@ def retry_failed(conn=None):
             c.close()
 
 
+# ================= فحص أوراكل: وصل لحد فين، والناقص، ورفعه =================
+
+CHECK_MAX_DAYS = 93         # الفحص بيقرا البصمات من الناحيتين — الفترة الطويلة تقيلة على الشاشة
+MISSING_LIST = 500          # كام بصمة ناقصة تتعرض بالتفاصيل (الرفع بياخدهم كلهم)
+
+
+def _uid_key(u):
+    """رقم الموظف للمقارنة: أرقام بس ومن غير أصفار على الشمال (جدول أوراكل بياخده رقم)."""
+    d = ''.join(ch for ch in str(u if u is not None else '') if ch.isdigit())
+    return d.lstrip('0') or ('0' if d else '')
+
+
+def _time_key(t):
+    if isinstance(t, datetime.datetime):
+        return t.replace(microsecond=0)
+    p = _parse_time(t)
+    return p if isinstance(p, datetime.datetime) else None
+
+
+def _range(since, until):
+    a = datetime.datetime.strptime(str(since)[:10], '%Y-%m-%d')
+    b = datetime.datetime.strptime(str(until)[:10], '%Y-%m-%d') + datetime.timedelta(days=1)
+    if b <= a:
+        raise ValueError('تاريخ النهاية قبل تاريخ البداية')
+    if (b - a).days > CHECK_MAX_DAYS:
+        raise ValueError(f'الفترة أطول من {CHECK_MAX_DAYS} يوم — قسّمها')
+    return a, b
+
+
+def oracle_table_summary(oracle_conn=None):
+    """جدول أوراكل وصل لحد فين: أول وآخر بصمة وعددها. {'ok', 'first', 'last', 'count'} أو {'ok': False, 'error'}."""
+    ora = oracle_conn or get_oracle_connection()
+    if ora is None:
+        st = get_sync_queue_stats()
+        return {'ok': False, 'error': st.get('last_error') or 'تعذّر الاتصال بأوراكل'}
+    try:
+        cur = ora.cursor()
+        cur.execute(f'SELECT MIN(CHECKTIME), MAX(CHECKTIME), COUNT(*) FROM {table_name()}')
+        first, last, count = cur.fetchone()
+        return {'ok': True, 'first': first, 'last': last, 'count': int(count or 0), 'table': table_name()}
+    except Exception as e:
+        code, msg = _ora_code(e)
+        return {'ok': False, 'error': f'ORA-{code}: {msg}' if code else str(msg)}
+    finally:
+        if oracle_conn is None:
+            _close(ora)
+
+
+def compare_with_oracle(since, until, oracle_conn=None, conn=None):
+    """البصمات اللي المفروض تروح أوراكل (أجهزة، تسوية، بوابة، ميداني) من `since` لحد `until` (شامل)،
+    قصاد اللي في جدول أوراكل فعلًا — يوم بيوم، والناقص.
+
+    المقارنة على (رقم الموظف، الوقت بالثانية) — نفس اللي العامل بيمنع بيه التكرار.
+    """
+    a, b = _range(since, until)
+    own_ora = oracle_conn is None
+    ora = oracle_conn or get_oracle_connection()
+    if ora is None:
+        st = get_sync_queue_stats()
+        return {'ok': False, 'error': st.get('last_error') or 'تعذّر الاتصال بأوراكل'}
+    own = conn is None
+    c = conn or _local()
+    try:
+        ensure_schema(c)
+        local = c.execute(f'''SELECT ar.id, e.employee_number, e.name, ar.check_time, ar.source
+                              FROM attendance_records ar JOIN employees e ON e.id = ar.employee_id
+                              WHERE (ar.source IS NULL OR ar.source IN {_SOURCES})
+                                AND ar.check_time >= ? AND ar.check_time < ?
+                              ORDER BY ar.check_time''',
+                          (a.strftime('%Y-%m-%d'), b.strftime('%Y-%m-%d'))).fetchall()
+        cur = ora.cursor()
+        cur.execute(f'SELECT USERID, CHECKTIME FROM {table_name()} WHERE CHECKTIME >= :1 AND CHECKTIME < :2', (a, b))
+        remote = set()
+        for uid, t in cur.fetchall():
+            tk = _time_key(t)
+            if tk is not None:
+                remote.add((_uid_key(uid), tk))
+        days, missing, local_keys = {}, [], set()
+        d = a
+        while d < b:
+            days[d.strftime('%Y-%m-%d')] = {'date': d.strftime('%Y-%m-%d'), 'local': 0, 'oracle': 0, 'missing': 0}
+            d += datetime.timedelta(days=1)
+        for _uid, t in remote:
+            k = t.strftime('%Y-%m-%d')
+            if k in days:
+                days[k]['oracle'] += 1
+        for r in local:
+            tk = _time_key(r['check_time'])
+            if tk is None:
+                continue
+            key = (_uid_key(r['employee_number']), tk)
+            if key in local_keys:
+                continue                    # نفس الموظف ونفس الثانية مرتين عندنا = بصمة واحدة هناك
+            local_keys.add(key)
+            day = days.get(tk.strftime('%Y-%m-%d'))
+            if day is None:
+                continue
+            day['local'] += 1
+            if key not in remote:
+                day['missing'] += 1
+                missing.append({'id': r['id'], 'employee_number': r['employee_number'], 'name': r['name'],
+                                'check_time': tk.strftime('%Y-%m-%d %H:%M:%S'), 'source': r['source'] or 'device'})
+        return {'ok': True, 'since': a.strftime('%Y-%m-%d'),
+                'until': (b - datetime.timedelta(days=1)).strftime('%Y-%m-%d'),
+                'days': list(days.values()), 'local': len(local_keys), 'oracle': len(remote),
+                'missing_count': len(missing), 'missing': missing[:MISSING_LIST], 'missing_ids': [m['id'] for m in missing],
+                'extra_in_oracle': len(remote - local_keys)}
+    except Exception as e:
+        code, msg = _ora_code(e)
+        return {'ok': False, 'error': f'ORA-{code}: {msg}' if code else str(msg)}
+    finally:
+        if own:
+            c.close()
+        if own_ora:
+            _close(ora)
+
+
+def upload_missing(since, until, oracle_conn=None, conn=None):
+    """«ارفع الناقص»: البصمات اللي الفحص لقاها مش في أوراكل تتحط في الطابور وتتبعت دلوقتي.
+    {'ok', 'queued', 'missing'} — واللي لسه مستني في الطابور مايتحطش تاني."""
+    r = compare_with_oracle(since, until, oracle_conn=oracle_conn, conn=conn)
+    if not r.get('ok'):
+        return r
+    own = conn is None
+    c = conn or _local()
+    queued = 0
+    try:
+        for att_id in r['missing_ids']:
+            cur = c.execute('''INSERT INTO oracle_sync_queue (user_id, check_time, check_type, verify_code, device_id, op, attendance_id)
+                               SELECT e.employee_number, ar.check_time, COALESCE(ar.check_type, 0), ar.verify_code,
+                                      ar.device_id, 'INSERT', ar.id
+                               FROM attendance_records ar JOIN employees e ON e.id = ar.employee_id
+                               WHERE ar.id = ?
+                                 AND NOT EXISTS (SELECT 1 FROM oracle_sync_queue q
+                                                 WHERE q.user_id = e.employee_number AND q.check_time = ar.check_time
+                                                   AND q.op = 'INSERT' AND q.status = 'PENDING')''', (att_id,))
+            queued += cur.rowcount
+        c.commit()
+    finally:
+        if own:
+            c.close()
+    wake()
+    return {'ok': True, 'queued': queued, 'missing': r['missing_count']}
+
+
 def get_sync_queue_stats():
     """أعداد الطابور وحالة المزامنة للشاشات."""
     try:
