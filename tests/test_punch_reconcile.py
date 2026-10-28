@@ -138,3 +138,93 @@ def test_save_only_the_picked_cell(env):
     got = sorted(x[0] for x in con.execute("SELECT check_time FROM attendance_records WHERE source = 'adjustment'"
                                            " AND check_time >= '2026-10-07'"))
     assert got == ['2026-10-07 08:10:00', '2026-10-08 12:10:00'], got
+
+
+class _OraCur:
+    def __init__(self, db):
+        self.db, self.rowcount, self._rows = db, 0, []
+
+    def execute(self, sql, params=()):
+        s = ' '.join(sql.split()).upper()
+        if s.startswith('SELECT CHECKTIME'):
+            uid, a, b = params
+            self._rows = sorted((t, typ) for u, t, typ in self.db.rows if u == uid and a <= t < b)
+        elif s.startswith('DELETE'):
+            uid, t = params
+            before = len(self.db.rows)
+            self.db.rows = [r for r in self.db.rows if not (r[0] == uid and r[1] == t)]
+            self.rowcount = before - len(self.db.rows)
+
+    def fetchall(self):
+        return self._rows
+
+
+class _Ora:
+    def __init__(self, rows):
+        self.rows = list(rows)
+
+    def cursor(self):
+        return _OraCur(self)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_delete_one_punch_from_oracle(env, monkeypatch):
+    """«امسح من أوراكل»: بصمة معيّنة تتشال من أوراكل بس — بكتاب، ومتسجّلة، والحضور عندنا زي ما هو."""
+    from datetime import datetime as D
+    db, pr, con = env
+    import utils.oracle_db as odb
+    importlib.reload(odb)
+    db.set_setting('oracle_enabled', '1')
+    db.set_setting('oracle_host', '10.0.0.50')
+    odb.refresh_state()
+    ora = _Ora([('365', D(2026, 10, 4, 7, 55), '0'), ('365', D(2026, 10, 4, 12, 10), '0'),
+                ('365', D(2026, 10, 9, 9, 0), '0'),        # في أوراكل بس
+                ('999', D(2026, 10, 4, 7, 55), '0')])       # موظف تاني، نفس الوقت
+    monkeypatch.setattr(odb, 'get_oracle_connection', lambda: ora)
+    # طابور: نفس البصمة مستنية تتبعت → تتلغي (وإلا ترجع)؛ وبصمة موظف تاني بنفس الوقت ماتتلمسش
+    con.execute("INSERT INTO oracle_sync_queue (user_id, check_time, check_type, op, status) VALUES "
+                "('365', '2026-10-04T07:55:00', '0', 'INSERT', 'PENDING'), ('999', '2026-10-04 07:55:00', '0', 'INSERT', 'PENDING')")
+    con.commit()
+    r = pr.delete_from_oracle(con, '365', '2026-10-04 07:55:00', '', None)
+    assert not r['ok'] and 'الكتاب' in r['error']
+    r = pr.delete_from_oracle(con, '365', '2026-10-04 07:55:00', 'ك-5', None)
+    assert r == {'ok': True, 'deleted': 1, 'cancelled': 1}, r
+    assert ('365', D(2026, 10, 4, 7, 55), '0') not in ora.rows and ('999', D(2026, 10, 4, 7, 55), '0') in ora.rows
+    assert con.execute("SELECT COUNT(*) FROM attendance_records WHERE check_time = '2026-10-04 07:55:00'").fetchone()[0] == 1, \
+        'الحضور عندنا ماتلمسش'
+    q = {r_['user_id']: r_['status'] for r_ in con.execute('SELECT user_id, status FROM oracle_sync_queue')}
+    assert q == {'365': 'CANCELLED', '999': 'PENDING'}, q
+    h = pr.history(con, '365')
+    assert h[0]['field'] == 'oracle_del' and h[0]['book_no'] == 'ك-5' and h[0]['new_time'] == '2026-10-04 07:55:00'
+    r = pr.delete_from_oracle(con, '365', '2026-10-04 07:55:00', 'ك-5', None)
+    assert not r['ok'] and 'مش موجودة' in r['error'], 'تاني مرة: مش موجودة'
+
+    # الصفحة: بصمات أوراكل للشهر، و«في أوراكل بس»، وزرار المسح، والمسح من الصفحة
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    monkeypatch.setattr(odb, 'get_oracle_connection', lambda: ora)
+    c = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with c.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    c.post('/attendance/oracle/reconcile', data={'action': 'unlock', 'password': '11225588'})
+    page = c.get('/attendance/oracle/reconcile?user_id=365&month=10&year=2026').get_data(as_text=True)
+    assert 'بصمات الموظف في أوراكل' in page and '2026-10-09 09:00:00' in page and 'في أوراكل بس' in page
+    assert 'امسح من أوراكل' in page and 'مسح من أوراكل' in page          # الزرار، والسجل
+    r = c.post('/attendance/oracle/reconcile', data={'action': 'oracle_delete', 'user_id': '365', 'month': '10',
+                                                     'year': '2026', 'check_time': '2026-10-09 09:00:00', 'book_no': '9'})
+    assert r.status_code == 302 and 'user_id=365' in r.headers['Location']
+    assert all(t != D(2026, 10, 9, 9, 0) for _u, t, _ in ora.rows)

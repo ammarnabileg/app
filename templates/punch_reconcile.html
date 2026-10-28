@@ -178,6 +178,57 @@
         </div>
     </div>
 </form>
+
+{# بصمات الموظف في أوراكل للشهر ده — مسح بصمة معيّنة من هناك بس (الحضور عندنا مابيتلمسش) #}
+{% if oracle %}
+<form method="post" class="card shadow-sm mt-3" id="rcOracle">
+    <input type="hidden" name="action" value="oracle_delete">
+    <input type="hidden" name="user_id" value="{{ user_id }}">
+    <input type="hidden" name="month" value="{{ month }}"><input type="hidden" name="year" value="{{ year }}">
+    {% for f, key, label in fields %}
+    <input type="hidden" name="{{ key }}_from" value="{{ windows[key][0] }}"><input type="hidden" name="{{ key }}_to" value="{{ windows[key][1] }}">
+    <input type="hidden" name="ct_{{ key }}" value="{{ codes[key] }}"><input type="hidden" name="suggest_{{ key }}" value="{{ suggest[key] }}">
+    {% endfor %}
+    <div class="card-header bg-white d-flex flex-wrap gap-2 align-items-center justify-content-between">
+        <span><i class="fas fa-database me-1"></i>بصمات الموظف في أوراكل — {{ '%02d'|format(month) }}/{{ year }}</span>
+        {% if oracle.ok and oracle.rows %}
+        <div class="input-group input-group-sm" style="max-width:260px">
+            <span class="input-group-text">رقم الكتاب</span>
+            <input name="book_no" class="form-control rc-mono" placeholder="مطلوب للمسح">
+        </div>
+        {% endif %}
+    </div>
+    {% if not oracle.ok %}
+    <div class="card-body text-danger small"><i class="fas fa-plug me-1"></i>ماقدرناش نقرا من أوراكل: <span dir="ltr">{{ oracle.error }}</span></div>
+    {% elif not oracle.rows %}
+    <div class="card-body text-muted small">مفيش بصمات للموظف ده في أوراكل في الشهر ده.</div>
+    {% else %}
+    <div class="table-responsive" style="max-height:360px">
+        <table class="table table-sm mb-0 small align-middle">
+            <thead class="table-light"><tr><th>الوقت في أوراكل</th><th>CHECKTYPE</th><th>عندنا</th><th></th></tr></thead>
+            <tbody>
+            {% for r in oracle.rows %}
+            <tr>
+                <td class="rc-mono" dir="ltr" style="text-align:start">{{ r.time }}</td>
+                <td class="rc-mono">{{ r.type }}</td>
+                <td>{% if r.local %}<span class="badge bg-success">موجودة</span>{% else %}<span class="badge bg-warning text-dark">في أوراكل بس</span>{% endif %}</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-danger rc-odel" name="check_time" value="{{ r.time }}">
+                        <i class="fas fa-trash-alt me-1"></i>امسح من أوراكل
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer bg-white small text-muted">
+        المسح من جدول أوراكل بس — الحضور عندنا زي ما هو، والمسح متسجّل في سجل التسويات برقم الكتاب.
+        لو البصمة «موجودة» عندنا، «فحص أوراكل» هيعتبرها ناقصة، و«ارفع الناقص» هيرجّعها.
+    </div>
+    {% endif %}
+</form>
+{% endif %}
 {% endif %}
 
 <div class="row g-3 mt-2">
@@ -191,7 +242,7 @@
                     {% for h in history %}
                     <tr><td class="rc-mono">{{ h['created_at'] }}</td><td>{{ h['username'] or '—' }}</td>
                         <td>{{ h['employee_number'] }} — {{ h['name'] }}</td><td class="rc-mono">{{ h['day'] }}</td>
-                        <td>{{ {'in':'دخول','pres':'تواجد','out':'خروج'}[h['field']] }}</td>
+                        <td>{{ {'in':'دخول','pres':'تواجد','out':'خروج','oracle_del':'مسح من أوراكل'}.get(h['field'], h['field']) }}</td>
                         <td class="rc-mono">{{ (h['old_times'] or '[]')|replace('[','')|replace(']','')|replace('"','') or '—' }}</td>
                         <td class="rc-mono">{{ h['new_time'][11:] }}</td><td class="rc-mono">{{ h['book_no'] }}</td></tr>
                     {% else %}
@@ -256,6 +307,14 @@ if (all) all.addEventListener('change', function () {
     document.querySelectorAll('.rc-pick[data-hole]').forEach(function (d) {
         d.checked = all.checked;
         d.closest('tr').querySelectorAll('.rc-cell[data-missing]').forEach(function (c) { c.checked = all.checked; });
+    });
+});
+// مسح من أوراكل: رقم الكتاب مطلوب، وتأكيد قبل المسح.
+document.querySelectorAll('.rc-odel').forEach(function (b) {
+    b.addEventListener('click', function (e) {
+        var form = document.getElementById('rcOracle');
+        if (!form.book_no.value.trim()) { e.preventDefault(); alert('اكتب رقم الكتاب المعتمد الأول.'); form.book_no.focus(); return; }
+        if (!confirm('تمسح بصمة ' + b.value + ' من أوراكل؟ (الحضور عندنا مش هيتلمس)')) e.preventDefault();
     });
 });
 var f = document.getElementById('rcSave');

@@ -1261,6 +1261,24 @@ def punch_reconcile_page():
     suggest = {k: src.get(f'suggest_{k}') for k in ('in', 'pres', 'out')}
     conn = get_db_connection()
 
+    keep = ('user_id', 'month', 'year', 'in_from', 'in_to', 'pres_from', 'pres_to', 'out_from', 'out_to',
+            'ct_in', 'ct_pres', 'ct_out', 'suggest_in', 'suggest_pres', 'suggest_out')
+    if action == 'oracle_delete' and user_id:
+        # «امسح من أوراكل»: بصمة معيّنة من جدول أوراكل بس، بكتاب معتمد ومتسجّلة.
+        from utils.oracle_db import is_oracle_enabled
+        if not is_oracle_enabled():
+            flash(gettext('x.oracle_is_disabled'), 'error')
+        else:
+            t = (request.form.get('check_time') or '').strip()
+            r = pr.delete_from_oracle(conn, user_id, t, request.form.get('book_no'), session.get('user_id'))
+            if r.get('ok'):
+                flash(f"اتمسحت بصمة {t} من أوراكل — كتاب رقم {request.form.get('book_no')}. "
+                      "الحضور عندنا زي ما هو.", 'success')
+            else:
+                flash(f"ماتمسحتش: {r.get('error')}", 'error')
+        return redirect(url_for('attendance.punch_reconcile_page',
+                                **{k: v for k, v in request.form.items() if k in keep}))
+
     if action == 'save' and not cfg_error and user_id:
         # الخانات المتعلّم عليها بس (دخول أو تواجد أو خروج ليوم معيّن) — مش اليوم كله.
         picks = set(request.form.getlist('pick'))
@@ -1295,8 +1313,26 @@ def punch_reconcile_page():
                 db_error, data = data['error'], {}
         except Exception as e:                  # noqa: BLE001
             db_error = str(e)[:300]
+    # بصمات الموظف في أوراكل للشهر ده — عشان يقدر يمسح بصمة معيّنة من هناك.
+    oracle = None
+    if data and data.get('employee'):
+        from utils import oracle_db as _odb
+        if _odb.is_oracle_enabled():
+            import calendar as _cal
+            from datetime import datetime as _dtm, timedelta as _td
+            a = _dtm(year, month, 1)
+            b = a + _td(days=_cal.monthrange(year, month)[1])
+            oracle = _odb.oracle_punches(data['employee']['employee_number'], a, b)
+            if oracle.get('ok'):
+                have = set()
+                for r in conn.execute('''SELECT check_time FROM attendance_records WHERE employee_id = ?
+                                         AND check_time >= ? AND check_time < ?''',
+                                      (data['employee']['id'], a.strftime('%Y-%m-%d'), b.strftime('%Y-%m-%d'))):
+                    have.add(str(r['check_time']).replace('T', ' ')[:19])
+                for row in oracle['rows']:
+                    row['local'] = row['time'] in have
     return render_template('punch_reconcile.html', locked=False, user_id=user_id, month=month, year=year,
-                           windows=windows, cfg_error=cfg_error, db_error=db_error, data=data,
+                           windows=windows, cfg_error=cfg_error, db_error=db_error, data=data, oracle=oracle,
                            codes=data.get('codes', codes), suggest=data.get('suggest', pr.DEFAULT_SUGGEST),
                            fields=pr.FIELDS, history=pr.history(conn, user_id or None, 30))
 

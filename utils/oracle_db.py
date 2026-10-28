@@ -784,6 +784,82 @@ def compare_with_oracle(since, until, oracle_conn=None, conn=None):
             _close(ora)
 
 
+def oracle_punches(user_id, start, end, oracle_conn=None):
+    """بصمات موظف في جدول أوراكل من `start` لـ`end` (datetime، النهاية مش داخلة).
+    {'ok', 'rows': [{'time', 'type'}]} أو {'ok': False, 'error'}."""
+    uid = ''.join(ch for ch in str(user_id or '') if ch.isdigit())
+    if not uid:
+        return {'ok': False, 'error': 'رقم الموظف مش أرقام — جدول أوراكل بياخد أرقام بس'}
+    ora = oracle_conn or get_oracle_connection()
+    if ora is None:
+        st = get_sync_queue_stats()
+        return {'ok': False, 'error': st.get('last_error') or 'تعذّر الاتصال بأوراكل'}
+    try:
+        cur = ora.cursor()
+        cur.execute(f'SELECT CHECKTIME, CHECKTYPE FROM {table_name()} WHERE USERID = :1 '
+                    f'AND CHECKTIME >= :2 AND CHECKTIME < :3 ORDER BY CHECKTIME', (uid, start, end))
+        rows = []
+        for t, typ in cur.fetchall():
+            tk = _time_key(t)
+            if tk is not None:
+                rows.append({'time': tk.strftime('%Y-%m-%d %H:%M:%S'), 'type': '' if typ is None else str(typ).strip()})
+        return {'ok': True, 'rows': rows}
+    except Exception as e:
+        code, msg = _ora_code(e)
+        return {'ok': False, 'error': f'ORA-{code}: {msg}' if code else str(msg)}
+    finally:
+        if oracle_conn is None:
+            _close(ora)
+
+
+def delete_from_oracle(user_id, check_time, oracle_conn=None, conn=None):
+    """يمسح بصمة معيّنة (الموظف + الوقت بالثانية) من جدول أوراكل — بإيد المسؤول من «تسوية البصمة».
+    ولو نفس البصمة لسه مستنية في الطابور تتبعت، بتتلغي (وإلا كانت هترجع تاني).
+    {'ok', 'deleted', 'cancelled'} أو {'ok': False, 'error'}. مابيلمسش الحضور عندنا."""
+    uid = ''.join(ch for ch in str(user_id or '') if ch.isdigit())
+    t = _time_key(check_time)
+    if not uid or t is None:
+        return {'ok': False, 'error': 'رقم الموظف أو الوقت غلط'}
+    ora = oracle_conn or get_oracle_connection()
+    if ora is None:
+        st = get_sync_queue_stats()
+        return {'ok': False, 'error': st.get('last_error') or 'تعذّر الاتصال بأوراكل'}
+    try:
+        cur = ora.cursor()
+        cur.execute(f'DELETE FROM {table_name()} WHERE USERID = :1 AND CHECKTIME = :2', (uid, t))
+        deleted = cur.rowcount if isinstance(getattr(cur, 'rowcount', None), int) else 0
+        ora.commit()
+    except Exception as e:
+        try:
+            ora.rollback()
+        except Exception:
+            pass
+        code, msg = _ora_code(e)
+        return {'ok': False, 'error': f'ORA-{code}: {msg}' if code else str(msg)}
+    finally:
+        if oracle_conn is None:
+            _close(ora)
+    own = conn is None
+    c = conn or _local()
+    try:
+        ensure_schema(c)
+        # الوقت في الطابور ممكن يكون بـT أو بمسافة، ورقم الموظف ممكن بأصفار على الشمال.
+        ts = t.strftime('%Y-%m-%d %H:%M:%S')
+        ids = [r['id'] for r in c.execute(
+            """SELECT id, user_id FROM oracle_sync_queue WHERE op = 'INSERT' AND status = 'PENDING'
+               AND substr(REPLACE(check_time, 'T', ' '), 1, 19) = ?""", (ts,))
+               if _uid_key(r['user_id']) == _uid_key(uid)]
+        for i in ids:
+            c.execute("UPDATE oracle_sync_queue SET status = 'CANCELLED', last_error = 'اتمسحت من أوراكل بإيد المسؤول' "
+                      "WHERE id = ?", (i,))
+        cancelled = len(ids)
+        c.commit()
+    finally:
+        if own:
+            c.close()
+    return {'ok': True, 'deleted': deleted, 'cancelled': cancelled}
+
+
 def upload_missing(since, until, oracle_conn=None, conn=None):
     """«ارفع الناقص»: البصمات اللي الفحص لقاها مش في أوراكل تتحط في الطابور وتتبعت دلوقتي.
     {'ok', 'queued', 'missing'} — واللي لسه مستني في الطابور مايتحطش تاني."""

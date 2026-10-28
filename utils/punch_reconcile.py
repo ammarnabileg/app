@@ -232,6 +232,31 @@ def save(conn, user_id, days, values, windows, codes, book_no, by_user=None):
     return out
 
 
+def delete_from_oracle(conn, user_id, check_time, book_no, by_user=None, oracle_conn=None):
+    """«امسح من أوراكل»: بصمة معيّنة تتشال من جدول أوراكل بس (الحضور عندنا مابيتلمسش)،
+    برقم كتاب معتمد، ومتسجّلة في `punch_adjustments` (field = 'oracle_del'). {'ok', 'deleted'} أو {'ok': False, 'error'}."""
+    ensure_schema(conn)
+    book_no = str(book_no or '').strip()
+    if not book_no:
+        return {'ok': False, 'error': 'رقم الكتاب المعتمد مطلوب'}
+    emp = _employee(conn, user_id)
+    if not emp:
+        return {'ok': False, 'error': f'مفيش موظف برقم {user_id}'}
+    from utils import oracle_db
+    r = oracle_db.delete_from_oracle(emp['employee_number'], check_time, oracle_conn=oracle_conn, conn=conn)
+    if not r.get('ok'):
+        return r
+    if not r.get('deleted'):
+        return {'ok': False, 'error': 'البصمة دي مش موجودة في أوراكل (يمكن اتمسحت قبل كده)'}
+    ts = str(check_time).replace('T', ' ')[:19]
+    conn.execute('''INSERT INTO punch_adjustments (batch, employee_id, day, field, old_times, new_time, check_type,
+                                                  book_no, user_id) VALUES (?, ?, ?, 'oracle_del', ?, ?, '', ?, ?)''',
+                 (datetime.now().strftime('%Y%m%d%H%M%S') + f'-{emp["id"]}-del', emp['id'], ts[:10],
+                  json.dumps([ts]), ts, book_no, by_user))
+    conn.commit()
+    return r
+
+
 def history(conn, user_id=None, limit=100):
     ensure_schema(conn)
     sql = '''SELECT a.*, e.employee_number, e.name, u.username FROM punch_adjustments a
