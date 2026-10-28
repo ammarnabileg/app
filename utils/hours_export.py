@@ -82,14 +82,16 @@ def build_hours_workbook(conn, month, year, dept=None, with_money=False, gettext
             _('x.hx_work_days'), _('x.hx_sick_emergency')]
     head += [f"{x.strftime('%d/%m')}{day_names[x.isoweekday() % 7]}" for x in days]
     tail = [_('x.hx_required'), _('x.hx_actual'), _('x.hx_missing'), _('x.hx_ot'),
-            _('x.hx_total'), _('x.hx_late'), _('x.hx_present'), _('x.hx_absent_days')]
+            # التأخير عمودين: الفعلي (الدقايق اللي اتأخرها)، والخصم حسب سياسة التأخير (ربع يوم = ربع
+            # شفت عن كل يوم تأخير مهما كانت المدة) — عمود واحد اسمه «التأخير» كان بيبيّن الخصم كأنه مدة.
+            _('x.hx_total'), 'التأخير الفعلي', 'خصم التأخير (حسب السياسة)', _('x.hx_present'), _('x.hx_absent_days')]
     if with_money:
         tail += [_('x.hx_basic'), _('x.hx_ot_value'), _('x.hx_deductions'), _('x.hx_net')]
     head += tail
     first_day_col = 7
     first_tail_col = first_day_col + len(days)
-    hours_cols = set(range(first_day_col, first_tail_col)) | set(range(first_tail_col, first_tail_col + 6))
-    money_cols = set(range(first_tail_col + 8, first_tail_col + 12)) if with_money else set()
+    hours_cols = set(range(first_day_col, first_tail_col)) | set(range(first_tail_col, first_tail_col + 7))
+    money_cols = set(range(first_tail_col + 9, first_tail_col + 13)) if with_money else set()
 
     wb = Workbook()
     ws = wb.active
@@ -146,7 +148,8 @@ def build_hours_workbook(conn, month, year, dept=None, with_money=False, gettext
                 cells.append((code, fill))
         row += [c[0] for c in cells]
         row += [excel_hours(req), excel_hours(act), excel_hours(missing), excel_hours(ot),
-                excel_hours(req - missing + ot), excel_hours((m.get('late_mins') or 0) / 60.0),
+                excel_hours(req - missing + ot), excel_hours((m.get('late_actual_mins') or 0) / 60.0),
+                excel_hours((m.get('late_mins') or 0) / 60.0),
                 m.get('actual_days', 0), m.get('absent_days', 0)]
         if with_money:
             pr = money.get(e['id']) or {}

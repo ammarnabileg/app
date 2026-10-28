@@ -108,9 +108,10 @@ def test_one_row_per_employee_with_every_day_of_the_period(web):
     head = _header(ws)
     assert head[:6] == ['رقم الملف', 'الاسم', 'القسم', 'المسمى الوظيفي', 'أيام العمل', 'المرضية/الطارئة']
     assert head[6] == start.strftime('%d/%m') + 'السبت'          # 1 أغسطس 2026 سبت
-    assert len(head) == 6 + n + 12
+    assert len(head) == 6 + n + 13
     assert head[6 + n:] == ['الساعات المطلوبة', 'الساعات الفعلية', 'الساعات الناقصة', 'إضافي',
-                            'الإجمالي', 'التأخير', 'الحضور', 'الغياب', 'الراتب الأساسي',
+                            'الإجمالي', 'التأخير الفعلي', 'خصم التأخير (حسب السياسة)', 'الحضور', 'الغياب',
+                            'الراتب الأساسي',
                             'قيمة الإضافي', 'إجمالي الخصومات', 'صافي الراتب']
     assert set(_rows(ws)) == {'1', '2'}
     assert ws.sheet_view.rightToLeft and ws.freeze_panes == 'G5'
@@ -159,7 +160,8 @@ def test_the_totals_match_the_engine(web):
     assert _hours(row['الساعات الناقصة']) == pytest.approx(m['required_hours'] - (m['actual_hours'] - 2))
     assert _hours(row['إضافي']) == pytest.approx(2.0)
     assert _hours(row['الإجمالي']) == pytest.approx(m['actual_hours']), 'لا يُعدّ الإضافيّ مرّتين'
-    assert _hours(row['التأخير']) == pytest.approx(20 / 60)
+    assert _hours(row['التأخير الفعلي']) == pytest.approx(20 / 60)
+    assert _hours(row['خصم التأخير (حسب السياسة)']) == pytest.approx(20 / 60), 'السياسة الافتراضية: الوقت الفعلي'
     assert (row['الحضور'], row['الغياب']) == (m['actual_days'], m['absent_days'])
     assert row['صافي الراتب'] == pytest.approx(pay['net'])
     assert row['إجمالي الخصومات'] == pytest.approx(pay['total_deductions'])
@@ -257,3 +259,19 @@ def test_an_incomplete_split_shift_day_is_a_missing_punch_not_hours(web):
     day = next(d for d in pe.compute_employee_days(conn, 2, MONTH, YEAR)['days'] if d['date'] == sun.isoformat())
     assert day['status'] == 'partial' and day['hours'] > 0
     assert _rows(_sheet(c))['2'][6 + (sun - start).days] == 'ن'
+
+
+def test_quarter_day_policy_shows_actual_late_and_the_charge_apart(web):
+    """سياسة «ربع يوم»: 3 أيام تأخير 20 دقيقة = تأخير فعلي ساعة، وخصم 6 ساعات (ربع شفت 8 ساعات × 3).
+    كان العمود الواحد «التأخير» بيبيّن الـ6 ساعات كأنها مدة تأخير — حتى لموظف ساعاته أكتر من المطلوب."""
+    c, conn, A, pe = web
+    conn.execute("INSERT OR REPLACE INTO salary_settings_v2 (setting_name, setting_value) VALUES ('late_arrival_policy', 'quarter_day')")
+    conn.commit()
+    start, _ = pe.resolve_period(conn, MONTH, YEAR)
+    sun = start + timedelta(days=(7 - start.isoweekday() % 7) % 7)
+    for i in range(3):
+        _punch(conn, 1, (sun + timedelta(days=i)).isoformat(), '08:20', '18:00')
+    ws = _sheet(c)
+    row = dict(zip(_header(ws), _rows(ws)['1']))
+    assert _hours(row['التأخير الفعلي']) == pytest.approx(1.0)
+    assert _hours(row['خصم التأخير (حسب السياسة)']) == pytest.approx(6.0)
