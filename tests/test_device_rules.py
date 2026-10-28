@@ -581,3 +581,46 @@ def test_fingerprint_settings_page_changes_mode_and_reapplies(env, monkeypatch):
     assert con.execute('SELECT lock_mode FROM fingerprint_devices WHERE id = 2').fetchone()[0] == 'disable'
     assert con.execute("SELECT 1 FROM adms_commands WHERE device_id = 2 AND payload LIKE '%\"Enabled\": 0%'").fetchone()
     assert da2.lock_mode(con.execute('SELECT * FROM fingerprint_devices WHERE id = 1').fetchone()) == 'disable', 'IP افتراضي: تعطيل'
+
+
+def test_punch_shift_whole_day_after_power_cut(env):
+    """الكهربا فصلت والجهاز بقى سابق بيوم: بصمات الخميس 1/10 اتسجّلت الجمعة 2/10 (إجازة) — «رجّع» يوم كامل."""
+    db, da, con = env
+    from utils import punch_shift as ps
+    for emp, t in ((1, '2026-10-02 07:58:00'), (1, '2026-10-02 16:03:00'), (2, '2026-10-02 08:10:00'),
+                   (1, '2026-10-03 08:00:00')):            # السبت 3/10 = الجمعة… لحد ما الساعة اتظبطت
+        con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type) VALUES (?, 2, ?, 0)",
+                    (emp, t))
+    con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type) "
+                "VALUES (2, 1, '2026-10-01 12:00:00', 0)")   # جهاز تاني ساعته سليمة: مايتلمسش
+    con.commit()
+    res = ps.apply(con, [2], '2026-10-02 00:00', '2026-10-02 23:59:59', -1440)
+    assert res['moved'] == 3, res
+    days = sorted(r[0] for r in con.execute("SELECT check_time FROM attendance_records WHERE device_id = 2"))
+    assert days == ['2026-10-01 07:58:00', '2026-10-01 08:10:00', '2026-10-01 16:03:00', '2026-10-03 08:00:00'], days
+    assert con.execute("SELECT COUNT(*) FROM attendance_records WHERE check_time LIKE '2026-10-02%'").fetchone()[0] == 0, \
+        'الجمعة (الإجازة) بقت فاضية'
+    assert con.execute("SELECT 1 FROM attendance_records WHERE device_id = 1 AND check_time = '2026-10-01 12:00:00'").fetchone()
+    assert ps.undo(con, res['batch']) == 3
+
+
+def test_punch_shift_page_takes_days(env):
+    db, da, con = env
+    import importlib
+    import utils.auth as auth
+    importlib.reload(auth)
+    auth.get_current_license_info = lambda: {'ok': True}
+    import app as A
+    importlib.reload(A)
+    A.app.before_request_funcs[None] = [f for f in A.app.before_request_funcs.get(None, [])
+                                        if f.__name__ not in ('check_license_globally', 'enforce_plan_features')]
+    c = A.app.test_client()
+    uid = con.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    with c.session_transaction() as s:
+        s.update({'user_id': uid, 'role': 'admin', 'username': 'admin'})
+    page = c.get('/fingerprint/punch-shift').get_data(as_text=True)
+    assert 'id="days"' in page and 'رجّع' in page
+    body = {'action': 'preview', 'devices': [2], 'date_from': '2026-10-02 00:00', 'date_to': '2026-10-09 23:59'}
+    assert c.post('/fingerprint/punch-shift', json=dict(body, minutes=-3 * 1440 - 90)).get_json()['success'], 'أيام وساعات'
+    j = c.post('/fingerprint/punch-shift', json=dict(body, minutes=-400 * 1440)).get_json()
+    assert not j['success'] and 'سنة' in j['message']

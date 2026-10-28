@@ -483,8 +483,9 @@ def punch_shift_page():
             minutes = int(data.get('minutes') or 0)
             if not devs or not minutes or not data.get('date_from') or not data.get('date_to'):
                 return jsonify({'success': False, 'message': 'اختار الأجهزة والفترة وعدد الدقائق'}), 400
-            if abs(minutes) > 24 * 60:
-                return jsonify({'success': False, 'message': 'أقصى تصحيح ٢٤ ساعة'}), 400
+            # الكهربا لما بتفصل ساعة الجهاز ممكن ترجع أيام — مش ساعة بس.
+            if abs(minutes) > 366 * 24 * 60:
+                return jsonify({'success': False, 'message': 'أقصى تصحيح سنة'}), 400
             if action == 'apply':
                 res = ps.apply(conn, devs, data['date_from'], data['date_to'], minutes, session.get('user_id'))
             else:

@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <div>
         <h1 class="h2"><i class="fas fa-history me-2"></i>تصحيح وقت البصمات</h1>
-        <div class="report-desc">لو ساعة جهاز كانت غلط (متقدّمة ساعة مثلًا)، كل البصمات اللي سجّلها في الفترة دي بتتزاح بعدد الدقائق اللي تختاره.
+        <div class="report-desc">لو ساعة جهاز كانت غلط (متقدّمة ساعة، أو يوم بعد ما الكهربا فصلت)، كل البصمات اللي سجّلها في الفترة دي بتتزاح بالمدة اللي تختارها.
             بتتصلّح بصمات الأجهزة بس، مش اللي اتدخّلت باليد. الشهور اللي كشف رواتبها اتقفل مابتتلمسش. وكل تصحيح ينفع يترجع.</div>
     </div>
     <div class="btn-toolbar mb-2 mb-md-0">
@@ -38,12 +38,23 @@
                 <label class="form-label small">لحد</label>
                 <input type="datetime-local" id="d-to" class="form-control form-control-sm" step="1">
             </div>
-            <div class="col-md-2">
-                <label class="form-label small">الإزاحة بالدقايق</label>
-                <input type="number" id="minutes" class="form-control form-control-sm" value="-60" step="1">
-                <div class="form-text">‎-60 = ترجّع ساعة</div>
+            <div class="col-md-4">
+                <label class="form-label small">الإزاحة</label>
+                <div class="input-group input-group-sm">
+                    <select id="dir" class="form-select" style="max-width:96px">
+                        <option value="-1" selected>رجّع</option>
+                        <option value="1">قدّم</option>
+                    </select>
+                    <input type="number" id="days" class="form-control" value="0" min="0" max="366" step="1" title="أيام">
+                    <span class="input-group-text">يوم</span>
+                    <input type="number" id="hours" class="form-control" value="1" min="0" max="23" step="1" title="ساعات">
+                    <span class="input-group-text">س</span>
+                    <input type="number" id="mins" class="form-control" value="0" min="0" max="59" step="1" title="دقايق">
+                    <span class="input-group-text">د</span>
+                </div>
+                <div class="form-text">مثلًا: الجهاز سجّل بصمات الخميس على إنها الجمعة ← «رجّع» 1 يوم.</div>
             </div>
-            <div class="col-md-4 d-flex gap-2">
+            <div class="col-md-2 d-flex gap-2">
                 <button class="btn btn-outline-primary btn-sm" onclick="run('preview')"><i class="fas fa-eye me-1"></i>معاينة</button>
                 <button class="btn btn-danger btn-sm" id="apply-btn" onclick="run('apply')" disabled><i class="fas fa-check me-1"></i>صلّح</button>
             </div>
@@ -63,7 +74,9 @@
                 <td>{{ b['id'] }}</td>
                 <td>{{ b['device_names'] }}</td>
                 <td dir="ltr" class="small">{{ b['date_from'] }} → {{ b['date_to'] }}</td>
-                <td dir="ltr">{{ b['minutes'] }} min</td>
+                {% set m = b['minutes']|int %}{% set a = m|abs %}
+                <td>{{ 'رجّع' if m < 0 else 'قدّم' }}
+                    {% if a // 1440 %}{{ a // 1440 }} يوم {% endif %}{% if (a % 1440) // 60 %}{{ (a % 1440) // 60 }} ساعة {% endif %}{% if a % 60 %}{{ a % 60 }} دقيقة{% endif %}</td>
                 <td>{{ b['moved'] }}</td>
                 <td dir="ltr" class="small">{{ b['created_at'] }}</td>
                 <td>{% if b['undone_at'] %}<span class="badge bg-secondary">اترجع {{ b['undone_at'] }}</span>
@@ -87,10 +100,13 @@ function params() {
         devices: Array.from(document.querySelectorAll('.dev:checked')).map(b => b.value),
         date_from: document.getElementById('d-from').value.replace('T', ' '),
         date_to: document.getElementById('d-to').value.replace('T', ' '),
-        minutes: parseInt(document.getElementById('minutes').value || '0', 10),
+        minutes: parseInt(document.getElementById('dir').value, 10) * (
+            (parseInt(document.getElementById('days').value || '0', 10) * 1440) +
+            (parseInt(document.getElementById('hours').value || '0', 10) * 60) +
+            parseInt(document.getElementById('mins').value || '0', 10)),
     };
 }
-['d-from', 'd-to', 'minutes'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+['d-from', 'd-to', 'dir', 'days', 'hours', 'mins'].forEach(id => document.getElementById(id).addEventListener('change', () => {
     document.getElementById('apply-btn').disabled = true;
 }));
 document.querySelectorAll('.dev').forEach(b => b.addEventListener('change', () => {
