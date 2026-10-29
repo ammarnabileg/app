@@ -275,3 +275,27 @@ def test_quarter_day_policy_shows_actual_late_and_the_charge_apart(web):
     row = dict(zip(_header(ws), _rows(ws)['1']))
     assert _hours(row['التأخير الفعلي']) == pytest.approx(1.0)
     assert _hours(row['خصم التأخير (حسب السياسة)']) == pytest.approx(6.0)
+
+
+def test_overtime_net_of_late_is_optional(web):
+    """جه 9:00 بدل 8:00 ومشي 18:00 بدل 16:00: الافتراضي ساعتين إضافي، ومع «يتخصم منه التأخير» ساعة."""
+    c, conn, A, pe = web
+    start, _ = pe.resolve_period(conn, MONTH, YEAR)
+    sun = start + timedelta(days=(7 - start.isoweekday() % 7) % 7)
+    _punch(conn, 1, sun.isoformat(), '09:00', '18:00')
+    assert pe.compute_month_metrics(conn, MONTH, YEAR)[1]['ot_weekday_mins'] == 120
+    days = pe.compute_employee_days(conn, 1, MONTH, YEAR)['days']
+    assert next(d for d in days if d['date'] == sun.isoformat()).get('ot_mins', 120) == 120
+    conn.execute("INSERT OR REPLACE INTO salary_settings_v2 (setting_name, setting_value) VALUES ('overtime_net_of_late', '1')")
+    conn.commit()
+    assert pe.compute_month_metrics(conn, MONTH, YEAR)[1]['ot_weekday_mins'] == 60
+    days = pe.compute_employee_days(conn, 1, MONTH, YEAR)['days']
+    assert next(d for d in days if d['date'] == sun.isoformat())['ot_mins'] == 60, 'كشف الأيام نفس الحساب'
+    # جه بدري ومشي متأخر: مفيش تأخير يتخصم
+    _punch(conn, 1, (sun + timedelta(days=1)).isoformat(), '07:50', '17:00')
+    assert pe.compute_month_metrics(conn, MONTH, YEAR)[1]['ot_weekday_mins'] == 120
+    # التأخير أكتر من الإضافي: صفر، مش بالسالب
+    _punch(conn, 1, (sun + timedelta(days=2)).isoformat(), '10:00', '17:00')
+    assert pe.compute_month_metrics(conn, MONTH, YEAR)[1]['ot_weekday_mins'] == 120
+    page = c.get('/settings').get_data(as_text=True)
+    assert 'overtime_net_of_late' in page

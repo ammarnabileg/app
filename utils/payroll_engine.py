@@ -402,6 +402,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
         _ge = int(float(sal.get('early_departure_grace_minutes',
                                 sal.get('grace_early_minutes', 5)) or 5))
         _ot_step = int(float(sal.get('overtime_round_to_minutes', 0) or 0))
+        # اختياري: الإضافي يتخصم منه تأخير الصبح (اللي جه متأخر ساعة ومشي متأخر ساعة مالوش إضافي).
+        _ot_net_late = str(sal.get('overtime_net_of_late', '0')).strip() == '1'
 
         _pend = None   # [ds, kind, note, rec, snap] — يوم ينتظر التفريغ
 
@@ -554,6 +556,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
                 _d_ot = 0
                 if flex == 'none' and rec[2]:
                     _ot_raw = _t2m(rec[2], '00:00') - _sh_e
+                    if _ot_net_late and rec[1]:
+                        _ot_raw -= max(0, _t2m(rec[1], '00:00') - _sh_s)
                     if _ot_raw > 0:
                         _d_ot = _ot_round(_ot_raw, _ot_step)
                 elif flex == 'fixed_hours' and span > hpd:
@@ -1975,6 +1979,7 @@ def compute_employee_days(conn, employee_id, month, year):
             span_h = float(ev['hours_per_day'] or 8)
 
         _ot_step_d = int(float(sal.get('overtime_round_to_minutes', 0) or 0))
+        _ot_net_late_d = str(sal.get('overtime_net_of_late', '0')).strip() == '1'
         if recs and span_h > 0:
             if status == 'weekly_off':
                 d_ot = _ot_round(span_h * 60, _ot_step_d); d_ot_kind = 'weekend'
@@ -1984,6 +1989,9 @@ def compute_employee_days(conn, employee_id, month, year):
                 if flex == 'none' and last_t:
                     _she2 = _t2m(ev['shift_end'], (ev['default_end_time'] or '16:00'))
                     _raw = _t2m(last_t, '00:00') - _she2
+                    if _ot_net_late_d and first_t:
+                        _raw -= max(0, _t2m(first_t, '00:00')
+                                    - _t2m(ev['shift_start'], (ev['default_start_time'] or '08:00')))
                     if _raw > 0:
                         d_ot = _ot_round(_raw, _ot_step_d); d_ot_kind = 'weekday'
                 elif flex == 'fixed_hours':

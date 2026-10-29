@@ -218,7 +218,7 @@ def update_settings():
 
     live_keys = ['grace_late_minutes', 'grace_early_minutes', 'early_departure_grace_minutes',
                  'weekday_ot_multiplier', 'weekend_ot_multiplier', 'holiday_ot_multiplier',
-                 'overtime_round_to_minutes', 'overtime_cap_monthly_hours',
+                 'overtime_round_to_minutes', 'overtime_cap_monthly_hours', 'overtime_net_of_late',
                  'rounding_display_decimals', 'daily_rate_basis',
                  'late_arrival_policy', 'early_departure_policy', 'missing_punch_policy',
                  'leave_earned_per_month', 'leave_migration_cutoff_date', 'sick_tier_year_basis', 'missing_punch_penalty_1', 'missing_punch_penalty_2', 'missing_punch_penalty_3', 'presence_missing_policy', 'presence_penalty_day_fraction', 'presence_penalty_1', 'presence_penalty_2', 'presence_penalty_3', 'presence_penalty_monthly_cap_days', 'hourly_perm_max_hours_per_day', 'hourly_perm_max_days_per_month',
