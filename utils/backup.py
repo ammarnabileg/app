@@ -85,6 +85,16 @@ def list_tables():
 
 
 def database_size():
+    from utils.db import is_postgres
+    if is_postgres():
+        try:
+            conn = get_db_connection()
+            return int(conn.execute(
+                "SELECT COALESCE(SUM(pg_total_relation_size(c.oid)), 0) FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() "
+                "AND c.relkind = 'r'").fetchone()[0])
+        except Exception:
+            return 0
     try:
         return os.path.getsize(get_db_path())
     except OSError:
@@ -100,6 +110,17 @@ def snapshot_file(dest_path):
     فيه معاملة الآن يعطي ملفًا نصفُه قبلها ونصفُه بعدها — ولا يُكتشف ذلك
     إلا يوم الحاجة إليه.
     """
+    from utils.db import is_postgres
+    if is_postgres():
+        # PostgreSQL: الـ schema بتتصدّر لملف SQLite بنفس شكل النسخ — نفس الصفحة ونفس الاسترجاع
+        from utils import pgcopy
+        from utils.db import connect
+        pg = connect()
+        try:
+            pgcopy.pg_to_sqlite(pg, dest_path)
+        finally:
+            pg.close()
+        return dest_path
     src = sqlite3.connect(get_db_path())
     try:
         dst = sqlite3.connect(dest_path)
@@ -194,7 +215,14 @@ def dump_sql(tables=None, with_data=True):
     مولِّد لا نصّ واحد: قاعدة فيها سنوات من البصمات تتجاوز الذاكرة
     المتاحة لعملية PHP/بايثون على استضافة عادية.
     """
-    conn = sqlite3.connect(get_db_path())
+    from utils.db import is_postgres
+    tmp = None
+    if is_postgres():
+        import tempfile
+        fd, tmp = tempfile.mkstemp(suffix='.db', dir=_data_dir())
+        os.close(fd)
+        snapshot_file(tmp)
+    conn = sqlite3.connect(tmp or get_db_path())
     conn.row_factory = sqlite3.Row
     try:
         available = [r['name'] for r in conn.execute(
@@ -234,6 +262,11 @@ def dump_sql(tables=None, with_data=True):
         yield '\nCOMMIT;\nPRAGMA foreign_keys=ON;\n'
     finally:
         conn.close()
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def _insert_lines(conn, table):
@@ -550,6 +583,28 @@ def _restore_from_db(conn, path, wanted):
     """ينسخ الجداول المختارة من ملف قاعدة مرفوع."""
     ran = skipped = 0
     errors = []
+
+    from utils.dbcompat import PgConnection
+    if isinstance(conn, PgConnection):
+        # PostgreSQL: البيانات بتدخل الجداول القائمة (بالأعمدة المشتركة) — شكل الجداول الحالي باقي
+        from utils import pgcopy
+        src = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            names = [r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                                               "AND name NOT LIKE 'sqlite_%'")]
+        finally:
+            src.close()
+        chosen = [n for n in names if n in wanted]
+        skipped = len(names) - len(chosen)
+        try:
+            rep = pgcopy.sqlite_to_pg(path, conn, tables=chosen)
+            ran = len(rep['tables'])
+            errors = list(rep['errors'])
+            for k, n in rep['coerced'].items():
+                errors.append(f'{k}: {n} قيمة مش من نوع العمود اتحطّت فاضية/0')
+        except Exception as e:
+            errors.append(str(e)[:200])
+        return ran, skipped, errors
 
     conn.execute("ATTACH DATABASE ? AS src", (path,))
     try:
