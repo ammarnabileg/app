@@ -71,8 +71,16 @@ def record_punch(conn, device_id, punch, blocked=None, da=None, source='device')
                     (emp[0], when)).fetchone():
         return 'duplicate'
     conn.execute('''INSERT INTO attendance_records (employee_id, device_id, check_time, check_type, verify_code)
-                    VALUES (?, ?, ?, ?, ?)''', (emp[0], device_id, when, punch.check_type, punch.verify))
+                    VALUES (?, ?, ?, ?, ?)''', (emp[0], device_id, when, _int(punch.check_type), _int(punch.verify)))
     return 'saved'
+
+
+def _int(v):
+    """سوّاق ممكن يرجّع '' أو نص — العمود رقم (SQLite كان بيقبل أي حاجة، PostgreSQL لأ)."""
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def record_many(conn, device_id, punches, source='device'):

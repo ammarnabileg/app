@@ -952,6 +952,15 @@ CREATE OR REPLACE FUNCTION sqlite_compat.date(v text, VARIADIC mods text[] DEFAU
   LANGUAGE sql STABLE AS $$ SELECT to_char(sqlite_compat._mods(sqlite_compat._ts(v), mods), 'YYYY-MM-DD') $$;
 CREATE OR REPLACE FUNCTION sqlite_compat.time(v text, VARIADIC mods text[] DEFAULT '{}') RETURNS text
   LANGUAGE sql STABLE AS $$ SELECT to_char(sqlite_compat._mods(sqlite_compat._ts(v), mods), 'HH24:MI:SS') $$;
+CREATE OR REPLACE FUNCTION sqlite_compat.json_extract(j text, path text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $f$
+BEGIN
+  -- '$.a.b' بس (اللي البرنامج بيستخدمه)؛ JSON بايظ = NULL زي SQLite ما بيرجّع خطأ — أهون من وقوع الطلب
+  IF j IS NULL OR path IS NULL OR left(path, 1) <> '$' THEN RETURN NULL; END IF;
+  RETURN (j::jsonb) #>> string_to_array(nullif(substr(path, 3), ''), '.');
+EXCEPTION WHEN others THEN RETURN NULL;
+END $f$;
+
 CREATE OR REPLACE FUNCTION sqlite_compat.julianday(v text, VARIADIC mods text[] DEFAULT '{}') RETURNS double precision
   LANGUAGE sql STABLE AS $$
   SELECT extract(epoch FROM sqlite_compat._mods(sqlite_compat._ts(v), mods))::double precision / 86400.0 + 2440587.5 $$;
@@ -1095,7 +1104,7 @@ def ensure_schema(pg, schema):
         _ready.add(key)
 
 
-_COMPAT_VERSION = 'compat-3'
+_COMPAT_VERSION = 'compat-4'
 
 
 def _COMPAT_VERSION_CHANGED(c):

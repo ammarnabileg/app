@@ -127,7 +127,10 @@ def health(now=None):
         # آخر ١٠٠٠ صفّ بالترتيب (rowid) لا الجدول كلّه: check_time بلا فهرس، والتقرير مع كل فحص ترخيص.
         'SELECT MAX(check_time) FROM (SELECT check_time FROM attendance_records ORDER BY id DESC LIMIT 1000)'
     ).fetchone()[0]))
-    _try(lambda: out.__setitem__('db_mb', round(os.path.getsize(DB_PATH) / 1048576, 1)))
+    def _db_mb():
+        from utils.backup import database_size          # ملف SQLite، أو schema الشركة على PostgreSQL
+        out['db_mb'] = round(database_size() / 1048576, 1)
+    _try(_db_mb)
     _try(lambda: out.__setitem__('disk_free_mb', int(shutil.disk_usage(os.path.dirname(DB_PATH)).free / 1048576)))
 
     def _backup():
