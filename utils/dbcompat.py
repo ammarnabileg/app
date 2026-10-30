@@ -706,7 +706,7 @@ class PgConnection:
         cols = [c.strip().strip('"').lower() for c in (m.group(5) or '').split(',')] if m.group(4) else None
         mode = 'REPLACE' if 'REPLACE' in verb else ('IGNORE' if 'IGNORE' in verb else None)
         body = text[m.end():]
-        head = 'INSERT INTO ' + m.group(3) + (' ' + m.group(4) if m.group(4) else '')
+        head = 'INSERT INTO ' + m.group(3) + (' ' + m.group(4) if m.group(4) else '') + ' '
         has_conflict = re.search(r'\bON\s+CONFLICT\b', body, re.I)
         has_returning = re.search(r'\bRETURNING\b', body, re.I)
         try:

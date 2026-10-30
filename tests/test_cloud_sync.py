@@ -142,7 +142,7 @@ def test_a_backdated_punch_is_not_skipped(live):
 
     conn.execute('INSERT INTO attendance_records (employee_id, device_id, '
                  'check_time, check_type) VALUES (?, 1, ?, ?)',
-                 (eid, '2026-09-19 08:00:00', 'IN'))
+                 (eid, '2026-09-19 08:00:00', 0))
     conn.commit()
     _drain_baseline(conn, cs, ob)
     batch = cs.build_batch(conn)
@@ -151,7 +151,7 @@ def test_a_backdated_punch_is_not_skipped(live):
     # البصمة المتأخّرة: تاريخُها أقدم، وإدراجُها أحدث.
     conn.execute('INSERT INTO attendance_records (employee_id, device_id, '
                  'check_time, check_type) VALUES (?, 1, ?, ?)',
-                 (eid, '2026-09-18 08:00:00', 'IN'))
+                 (eid, '2026-09-18 08:00:00', 0))
     conn.commit()
 
     batch = cs.build_batch(conn)

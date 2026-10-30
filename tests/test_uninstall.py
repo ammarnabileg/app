@@ -9,6 +9,12 @@ import os
 import sqlite3
 import sys
 
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    (os.environ.get('HR_DB_URL') or '').startswith(('postgres://', 'postgresql://')),
+    reason='أداة الإزالة بتشتغل على ملف SQLite (المكاتب)')
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tools.uninstall import resolve_data_dir, snapshot, uninstall, verify
