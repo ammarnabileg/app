@@ -342,6 +342,8 @@ def _map_error(e):
     msg = str(getattr(e, 'diag', None) and e.diag.message_primary or e)
     if psycopg is None:
         return sqlite3.DatabaseError(msg)
+    if isinstance(e, (pgerr.LockNotAvailable, pgerr.DeadlockDetected)):
+        return sqlite3.OperationalError('database is locked: ' + msg)
     if isinstance(e, pgerr.UniqueViolation):
         return sqlite3.IntegrityError('UNIQUE constraint failed: ' + msg)
     if isinstance(e, pgerr.NotNullViolation):
@@ -476,6 +478,8 @@ class PgConnection:
         with self._pg.cursor() as c:
             c.execute(f'SET search_path TO {_q(schema)}, {COMPAT_SCHEMA}, pg_catalog')
             c.execute(_local_tz_sql())
+            # زي timeout بتاع sqlite3.connect: مايستناش قفل للأبد — بعد 30 ثانية «database is locked».
+            c.execute("SET lock_timeout = '30s'")
         self._pg.commit()
 
     # --- sqlite3 API
