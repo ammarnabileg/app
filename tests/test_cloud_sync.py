@@ -412,7 +412,7 @@ def test_the_first_upload_does_not_wait_two_minutes_per_batch(live):
     conn, ob, cs, db, _ = live
     for i in range(cs.BATCH_SIZE + 50):
         conn.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)"
-                     " VALUES (1, 'D', ?, 'I')", (f'2026-01-01 08:{i // 60:02d}:{i % 60:02d}',))
+                     " VALUES (1, 1, ?, 0)", (f'2026-01-01 08:{i // 60:02d}:{i % 60:02d}',))
     # بياناتٌ سبقت تفعيلَ الرفع: في القاعدة لا في الدفتر
     conn.execute(f'DELETE FROM {ob.OUTBOX_TABLE}')
     conn.commit()
@@ -481,7 +481,7 @@ def test_the_shift_history_is_sent_again_once_an_old_server_learns_it(live):
     assert ob.pending_count(conn) == 0 and ob.baseline_done(conn)
 
     conn.execute('INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)'
-                 " VALUES (?, 'T', '2026-07-01 22:00:00', 'IN')", (eid,))
+                 " VALUES (?, 1, '2026-07-01 22:00:00', 0)", (eid,))
     conn.commit()
     new = _AcceptingServer(list(ob.SYNC_TABLES))
     drain(new)
@@ -489,7 +489,7 @@ def test_the_shift_history_is_sent_again_once_an_old_server_learns_it(live):
     assert {r['employee_id'] for r in got.values()} == {eid}, list(new.got)
 
     conn.execute('INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)'
-                 " VALUES (?, 'T', '2026-07-02 06:00:00', 'OUT')", (eid,))
+                 " VALUES (?, 1, '2026-07-02 06:00:00', 1)", (eid,))
     conn.commit()
     again = _AcceptingServer(list(ob.SYNC_TABLES))
     drain(again)

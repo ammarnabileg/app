@@ -37,7 +37,12 @@ def _pg_cleanup():
     import psycopg
     from utils import dbcompat
     # كل HR_DATA_DIR اتفتح في العملية دي (البرنامج كمان بيفتح من غير sqlite3.connect)
+    dbcompat.close_all()
     with psycopg.connect(os.environ['HR_DB_URL'], autocommit=True) as c:
+        c.execute("SET lock_timeout = '10s'")
         for s in _mine | {k[1] for k in dbcompat._ready}:
             if s.startswith('t_'):
-                c.execute(f'DROP SCHEMA IF EXISTS "{s}" CASCADE')
+                try:
+                    c.execute(f'DROP SCHEMA IF EXISTS "{s}" CASCADE')
+                except Exception as e:          # التنضيف مايوقعش الاختبارات
+                    print(f'[pg cleanup] {s}: {e}')

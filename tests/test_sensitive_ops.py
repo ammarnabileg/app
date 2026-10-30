@@ -42,7 +42,7 @@ def web(tmp_path, monkeypatch):
     con.execute("INSERT INTO fingerprint_devices (id, device_name, device_ip, is_active, is_adms)"
                 " VALUES (2, 'SNADMS1', '10.0.0.5', 1, 1)")
     con.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type, source)"
-                " VALUES (2, 1, '2026-10-01 08:00:00', 'in', 'device')")
+                " VALUES (2, 1, '2026-10-01 08:00:00', 0, 'device')")
     con.commit()
     # الحذفُ من الأجهزة المباشرة في الخلفيّة — هنا متزامنًا لنراه.
     calls = []

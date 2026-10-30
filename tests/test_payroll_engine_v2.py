@@ -72,7 +72,7 @@ def _set(conn, **kw):
 def _punch(conn, eid, *stamps):
     for s in stamps:
         conn.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)"
-                     " VALUES (?, 'T', ?, 'I')", (eid, s))
+                     " VALUES (?, 1, ?, 0)", (eid, s))
     conn.commit()
 
 

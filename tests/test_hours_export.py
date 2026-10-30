@@ -67,7 +67,7 @@ def web(tmp_path, monkeypatch):
 def _punch(conn, eid, day, *times):
     for t in times:
         conn.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)"
-                     " VALUES (?, 'T1', ?, 'I')", (eid, f'{day} {t}'))
+                     " VALUES (?, 1, ?, 0)", (eid, f'{day} {t}'))
     conn.commit()
 
 

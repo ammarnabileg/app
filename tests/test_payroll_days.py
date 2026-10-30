@@ -60,7 +60,7 @@ def _punch(conn, emp, day, *times):
         conn.execute(
             'INSERT INTO attendance_records (employee_id, device_id, check_time,'
             ' check_type) VALUES (?,?,?,?)',
-            (emp, 'T1', f'2026-03-{day:02d} {t}:00', 'I'))
+            (emp, 1, f'2026-03-{day:02d} {t}:00', 0))
 
 
 def _month(conn):
@@ -507,7 +507,7 @@ def _sync(conn, cs, server):
     فحوصُ «لم يُعَد» لأنه لم يُرسَل شيءٌ أصلًا.
     """
     conn.execute('INSERT INTO attendance_records (employee_id, device_id,'
-                 " check_time, check_type) VALUES (2, 'T1', ?, 'I')",
+                 " check_time, check_type) VALUES (2, 1, ?, 0)",
                  (f'2026-04-01 08:{next(_traffic) % 60:02d}:00',))
     conn.commit()
     before = len(server.got.get('attendance_records', {}))

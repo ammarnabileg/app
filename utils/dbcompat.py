@@ -289,7 +289,22 @@ _CAST_REAL = re.compile(r'\bAS\s+REAL\b', re.I)
 _CAST_INT = re.compile(r'\bCAST\s*\(', re.I)
 
 
+_CURRENT = [
+    (re.compile(r'\bCURRENT_TIMESTAMP\b', re.I), "to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD HH24:MI:SS')"),
+    (re.compile(r'\bCURRENT_DATE\b', re.I), "to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD')"),
+    (re.compile(r'\bCURRENT_TIME\b', re.I), "to_char((now() AT TIME ZONE 'UTC'), 'HH24:MI:SS')"),
+]
+
+
+# DATE(x)/TIME(x) بقيمة واحدة: PostgreSQL بيعتبرها تحويل لنوع date/time، مش دالة SQLite — فبالاسم الكامل.
+_QUALIFY = re.compile(r'(?<![\w.])(date|time|datetime|strftime|julianday)\s*\(', re.I)
+
+
 def _code_rules(t):
+    t = _QUALIFY.sub(lambda m: f'{COMPAT_SCHEMA}.{m.group(1).lower()}(', t)
+    # CURRENT_TIMESTAMP في SQLite نص 'YYYY-MM-DD HH:MM:SS' بتوقيت UTC — مش timestamptz
+    for pat, repl in _CURRENT:
+        t = pat.sub(repl, t)
     t = _WORD_LIKE.sub('ILIKE', t)
     t = _EQEQ.sub('=', t)
     t = _IS_VALUE.sub(lambda m: 'IS DISTINCT FROM ' if m.group(1) else 'IS NOT DISTINCT FROM ', t)
@@ -394,6 +409,17 @@ class _Catalog:
 
 _catalogs = {}
 
+import weakref as _weakref
+_open = _weakref.WeakSet()          # الاتصالات المفتوحة في العملية — للقفل الجماعي (اختبارات/إيقاف)
+
+
+def close_all():
+    for c in list(_open):
+        try:
+            c.close()
+        except Exception:
+            pass
+
 
 class PgCursor:
     def __init__(self, conn):
@@ -473,8 +499,12 @@ class PgConnection:
         self.text_factory = str
         self._sp = 0
         self.total_changes = 0
+        self._last_changes = 0
+        self._last_rowid = None
+        self._trace = None
         ensure_schema(self._pg, schema)
         self._cat = _catalogs.setdefault((dsn, schema), _Catalog())
+        _open.add(self)
         with self._pg.cursor() as c:
             c.execute(f'SET search_path TO {_q(schema)}, {COMPAT_SCHEMA}, pg_catalog')
             c.execute(_local_tz_sql())
@@ -526,6 +556,9 @@ class PgConnection:
     def create_function(self, *a, **k):
         pass                              # الدوال متعرّفة في sqlite_compat
 
+    def set_trace_callback(self, fn):
+        self._trace = fn
+
     def __enter__(self):
         return self
 
@@ -572,6 +605,11 @@ class PgConnection:
             self._cat.clear()
         elif kind[0] == 'CREATE' and kind[1] in ('INDEX', 'UNIQUE'):
             text = re.sub(r'\bCOLLATE\s+NOCASE\b', '', text, flags=re.I)
+        # changes() / last_insert_rowid() / total_changes(): من آخر استعلام على الاتصال ده (زي SQLite)
+        if 'changes()' in text.lower() or 'last_insert_rowid()' in text.lower():
+            text = re.sub(r'\btotal_changes\(\)', str(self.total_changes), text, flags=re.I)
+            text = re.sub(r'\bchanges\(\)', str(self._last_changes), text, flags=re.I)
+            text = re.sub(r'\blast_insert_rowid\(\)', str(self._last_rowid or 0), text, flags=re.I)
         returning_id = False
         if kind[0] in ('INSERT', 'REPLACE'):
             text, returning_id = self._translate_insert(text)
@@ -580,6 +618,11 @@ class PgConnection:
             self._after_create_table(text)
 
     def _exec(self, cur, text, returning_id=False):
+        if self._trace is not None:
+            try:
+                self._trace(text)
+            except Exception:
+                pass
         self._sp += 1
         sp = f'sp{self._sp}'
         pc = self._pg.cursor()
@@ -606,7 +649,11 @@ class PgConnection:
                 cur._rows, cur.description = [], None
             cur._pos = 0
             pc.execute(f'RELEASE SAVEPOINT {sp}')
-            if cur.rowcount and cur.rowcount > 0:
+            if pc.description is None or returning_id:
+                self._last_changes = max(cur.rowcount, 0)
+            if returning_id and cur.lastrowid is not None:
+                self._last_rowid = cur.lastrowid
+            if cur.rowcount and cur.rowcount > 0 and (pc.description is None or returning_id):
                 self.total_changes += cur.rowcount
         except sqlite3.Error:
             raise
@@ -632,11 +679,12 @@ class PgConnection:
                           WHERE n.nspname = %s AND c.relname = %s AND a.attnum > 0 AND NOT a.attisdropped
                           ORDER BY a.attnum""", (self.schema, key))
             cols = pc.fetchall()
-            pc.execute("""SELECT i.indisprimary, array_agg(a.attname ORDER BY k.ord)
+            # كل مفتاح فريد بأعمدته — أو تعابيره (COALESCE(…)) زي ما هي، لأن ON CONFLICT محتاجها بالظبط
+            pc.execute("""SELECT i.indisprimary,
+                                 array_agg(pg_get_indexdef(i.indexrelid, k.ord::int, true) ORDER BY k.ord)
                           FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid
                           JOIN pg_namespace n ON n.oid = c.relnamespace
-                          CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum, ord)
-                          JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.attnum
+                          CROSS JOIN LATERAL generate_series(1, i.indnkeyatts) k(ord)
                           WHERE n.nspname = %s AND c.relname = %s AND i.indisunique AND i.indpred IS NULL
                           GROUP BY i.indexrelid, i.indisprimary""", (self.schema, key))
             uniques = [(bool(p), list(c)) for p, c in pc.fetchall()]
@@ -672,15 +720,19 @@ class PgConnection:
             else:
                 use = cols or [c[0] for c in info['cols']]
                 target = None
-                for _pk, ucols in sorted(info['uniques'], key=lambda u: (not u[0], len(u[1]))):
-                    if all(u in use for u in ucols):
-                        target = ucols
+                def refs(k):           # الأعمدة اللي المفتاح (عمود أو تعبير) بيعتمد عليها
+                    return {w.strip('"').lower() for w in re.findall(r'"[^"]+"|[A-Za-z_]\w*', k)} & set(use)
+                for _pk, ukeys in sorted(info['uniques'], key=lambda u: (not u[0], len(u[1]))):
+                    simple = [k for k in ukeys if re.fullmatch(r'"?\w+"?', k)]
+                    if all(k.strip('"').lower() in use for k in simple) and all(refs(k) for k in ukeys):
+                        target = ukeys
                         break
                 if target:
-                    upd = [c for c in use if c not in target]
+                    used = set().union(*(refs(k) for k in target))
+                    upd = [c for c in use if c not in used]
                     sets = ', '.join(f'{_q(c)} = EXCLUDED.{_q(c)}' for c in upd)
-                    tail = (f' ON CONFLICT ({", ".join(_q(c) for c in target)}) '
-                            + (f'DO UPDATE SET {sets}' if sets else 'DO NOTHING'))
+                    tgt = ', '.join(k if not re.fullmatch(r'\w+', k) else _q(k) for k in target)
+                    tail = f' ON CONFLICT ({tgt}) ' + (f'DO UPDATE SET {sets}' if sets else 'DO NOTHING')
         returning_id = False
         if info.get('identity') and not has_returning:
             tail += f' RETURNING {_q(info["identity"])}'
@@ -803,7 +855,8 @@ class PgConnection:
         elif name == 'foreign_keys':
             names, rows = ['foreign_keys'], [(0,)]
         elif name == 'database_list':
-            names, rows = ['seq', 'name', 'file'], [(0, 'main', '')]
+            # الكود بيستخدم «الملف» مفتاحًا للقاعدة (كاش لكل قاعدة) — فمفتاح فريد لكل schema
+            names, rows = ['seq', 'name', 'file'], [(0, 'main', f'pg:{self.schema}')]
         elif name in ('user_version', 'schema_version'):
             names, rows = [name], [(0,)]
         if names:

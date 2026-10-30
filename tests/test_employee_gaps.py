@@ -212,7 +212,7 @@ def test_payment_method_drives_the_sheet_and_the_bank_file(web):
         for d in range(3, 8):
             for t in ('08:00', '16:00'):
                 conn.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)"
-                             " VALUES (?, 'T', ?, 'I')", (eid, f'2026-08-{d:02d} {t}'))
+                             " VALUES (?, 1, ?, 0)", (eid, f'2026-08-{d:02d} {t}'))
     conn.execute("UPDATE employees SET salary = 100 WHERE id = 3")
     conn.execute("UPDATE employee_salary_history SET salary = 100 WHERE employee_id = 3")
     conn.commit()

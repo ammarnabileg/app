@@ -63,7 +63,7 @@ def env(tmp_path, monkeypatch):
     for d, a, b in punches:
         for t in (a, b):
             conn.execute("INSERT INTO attendance_records (employee_id, device_id, check_time, check_type)"
-                         " VALUES (1, 'T', ?, 'I')", (f'{d.isoformat()} {t}',))
+                         " VALUES (1, 1, ?, 0)", (f'{d.isoformat()} {t}',))
     conn.commit()
     return conn, pe
 
