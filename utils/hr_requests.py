@@ -8,7 +8,10 @@
 | `letter`   خطاب (شهادة راتب، لمن يهمه الأمر، خبرة…) | يُرقَّم ويصير جاهزًا للطباعة من البوابة وشاشة الموارد البشريّة |
 | `expense`  مصروف بفاتورة (أو بدل مسافة)             | بندُ «استرداد مصاريف» في رواتب أوّل شهرٍ غير مقفول |
 | `loan`     سلفة                                     | سلفةٌ في «السلف» تبدأ أقساطُها الشهرَ التالي |
-| `overtime` أوفرتايم مسبق                            | موافقةٌ مسجَّلة تظهر في شاشة الطلبات (الحساب من الحضور كما هو) |
+| `overtime` أوفرتايم مسبق                            | موافقةٌ مسجَّلة — ولو «الإضافي بموافقة» مفعّل، الإضافي في اليوم ده مايعدّيش الساعات المعتمدة |
+| `salary_advance` سلفة على الراتب (نفس الشهر)        | تتصرف دلوقتي، وتتخصم مرة واحدة من رواتب أوّل شهرٍ غير مقفول |
+
+بدل المسافة (مصروف من الرحلات) بينزل بند «بدل مسافة» لوحده، مش «استرداد مصاريف».
 
 الإجازات والاستئذانات **لا تمرّ من هنا** — مسارُها القائم كما هو.
 
@@ -31,13 +34,19 @@ TYPES = {
     'expense': 'مصروف',
     'loan': 'سلفة',
     'overtime': 'أوفرتايم',
+    'salary_advance': 'سلفة على الراتب',
 }
 DEFAULT_CHAINS = {
     'letter': ['hr'],
     'expense': ['manager', 'hr'],
     'loan': ['manager', 'hr'],
     'overtime': ['manager'],
+    'salary_advance': ['manager', 'hr'],
 }
+# بنود في الكشف بتتعمل من الطلبات (لو قاعدة قديمة مافيهاش البند).
+_ITEMS = (('mileage', 'بدل مسافة', 'Mileage Allowance', 'earning', 49),
+          ('salary_advance', 'سلفة على الراتب', 'Salary Advance', 'deduction', 88))
+ADVANCE_MAX_PCT = 50       # الافتراضي: نص الراتب الأساسي — إعداد salary_advance_max_pct
 STEP_LABELS = {'manager': 'المدير المباشر', 'dept_manager': 'مدير القسم', 'hr': 'الموارد البشرية'}
 STATUS_LABELS = {'pending': 'قيد المراجعة', 'approved': 'معتمد', 'rejected': 'مرفوض', 'cancelled': 'ملغي'}
 PERMISSION = 'hr.requests'
@@ -90,6 +99,13 @@ def ensure_schema(conn):
                      (code, json.dumps(DEFAULT_CHAINS[code])))
     for code, name, body in DEFAULT_LETTERS:
         conn.execute('INSERT OR IGNORE INTO letter_templates (code, name, body) VALUES (?, ?, ?)', (code, name, body))
+    try:
+        for code, ar, en, kind, sort in _ITEMS:
+            conn.execute('''INSERT OR IGNORE INTO payroll_item_types (code, name_ar, name_en, kind, species, affects,
+                            is_system, is_active, sort_order) VALUES (?, ?, ?, ?, 'transaction', 'monthly', 1, 1, ?)''',
+                         (code, ar, en, kind, sort))
+    except Exception:                               # قاعدة من غير جداول الرواتب (اختبارات قديمة)
+        pass
     conn.commit()
 
 
@@ -221,6 +237,25 @@ def validate(conn, rtype, payload):
         if not p['work_date']:
             raise ValueError('اختار اليوم')
         p['reason'] = (p.get('reason') or '').strip()[:300]
+    elif rtype == 'salary_advance':
+        emp_id = p.pop('_employee_id', None)
+        amt = _amount(p.get('amount'))
+        if amt <= 0:
+            raise ValueError('المبلغ لازم يكون أكبر من صفر')
+        row = conn.execute('SELECT salary FROM employees WHERE id = ?', (emp_id,)).fetchone()
+        basic = float((row[0] if row else 0) or 0)
+        pct = advance_max_pct(conn)
+        cap = round(basic * pct / 100.0, 3)
+        if amt > cap + 1e-9:
+            raise ValueError(f'أقصى سلفة على الراتب {cap:g} ({pct:g}% من الأساسي)')
+        m, y = _payroll_month(conn)
+        dup = conn.execute('''SELECT 1 FROM hr_requests WHERE employee_id = ? AND type = 'salary_advance'
+                              AND status IN ('pending', 'approved') AND json_extract(payload, '$.month_key') = ?''',
+                           (emp_id, f'{y}-{m:02d}')).fetchone()
+        if dup:
+            raise ValueError('فيه سلفة على راتب الشهر ده قبل كده')
+        p.update(amount=amt, month_key=f'{y}-{m:02d}')
+        p['reason'] = (p.get('reason') or '').strip()[:300]
     else:
         raise ValueError('نوع غير معروف')
     return p
@@ -274,6 +309,8 @@ def create(conn, employee_id, rtype, payload, created_by=None):
     payload = dict(payload or {})
     if rtype == 'expense' and payload.get('mileage_month'):
         payload['employee_id_for_mileage'] = employee_id
+        payload['_employee_id'] = employee_id
+    if rtype == 'salary_advance':
         payload['_employee_id'] = employee_id
     p = validate(conn, rtype, payload)
     cur = conn.execute('INSERT INTO hr_requests (employee_id, type, payload, created_by) VALUES (?, ?, ?, ?)',
@@ -344,6 +381,8 @@ def summary(req):
         return f"{p.get('amount')} على {p.get('months')} شهر (قسط {p.get('installment')})"
     if t == 'overtime':
         return f"{p.get('hours')} ساعة يوم {p.get('work_date')}"
+    if t == 'salary_advance':
+        return f"{p.get('amount')} — تتخصم من رواتب {p.get('month_key', '')}"
     return ''
 
 
@@ -439,7 +478,7 @@ def _apply(conn, req):
                          (f'L-{y}-%',)).fetchone()[0] + 1
         return f'L-{y}-{n:04d}'
     if t == 'expense':
-        item = _item_type(conn, 'expense_reimb')
+        item = _item_type(conn, 'mileage' if p.get('mileage_month') else 'expense_reimb')
         m, y = _payroll_month(conn)
         conn.execute('''INSERT INTO payroll_transactions (employee_id, item_type_id, month, year, amount, reason,
                         reference) VALUES (?, ?, ?, ?, ?, ?, ?)''',
@@ -455,7 +494,24 @@ def _apply(conn, req):
         return f'أول قسط {m}/{y}'
     if t == 'overtime':
         return 'موافقة مسبقة'
+    if t == 'salary_advance':
+        m, y = _payroll_month(conn)
+        conn.execute('''INSERT INTO payroll_transactions (employee_id, item_type_id, month, year, amount, reason,
+                        reference) VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                     (req['employee_id'], _item_type(conn, 'salary_advance'), m, y, p['amount'],
+                      p.get('reason') or 'سلفة على الراتب', f"REQ-{req['id']}"))
+        return f'تتصرف دلوقتي — وتتخصم من رواتب {m}/{y}'
     return None
+
+
+def advance_max_pct(conn):
+    """إعداد «أقصى سلفة على الراتب» من إعدادات الرواتب (salary_settings_v2)."""
+    try:
+        from utils.settings_utils import get_salary_settings_v2
+        v = float(get_salary_settings_v2(conn).get('salary_advance_max_pct', ADVANCE_MAX_PCT) or 0)
+        return min(max(v, 0.0), 100.0)
+    except (TypeError, ValueError):
+        return float(ADVANCE_MAX_PCT)
 
 
 # ------------------------------------------------------------ القوائم

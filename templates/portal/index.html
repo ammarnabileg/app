@@ -1741,6 +1741,11 @@
                     <div class="form-group"><label>عدد الشهور</label><input type="number" min="1" max="60" class="form-control-ios" name="months" value="6"></div>
                     <div class="form-group"><label>السبب</label><input class="form-control-ios" name="reason"></div>
                 </div>
+                <div class="hr-f" data-for="salary_advance">
+                    <div class="form-group"><label>المبلغ</label><input type="number" step="0.001" min="0" class="form-control-ios" name="amount" inputmode="decimal"></div>
+                    <small style="color: var(--ios-subtext);">بتتصرف دلوقتي، وتتخصم مرة واحدة من راتب الشهر ده.</small>
+                    <div class="form-group"><label>السبب</label><input class="form-control-ios" name="reason"></div>
+                </div>
                 <div class="hr-f" data-for="overtime">
                     <div class="form-group"><label>اليوم</label><input type="date" class="form-control-ios" name="work_date" value="{{ today_date }}"></div>
                     <div class="form-group"><label>عدد الساعات</label><input type="number" step="0.5" min="0.5" max="24" class="form-control-ios" name="hours"></div>

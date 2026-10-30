@@ -1748,6 +1748,7 @@ def init_db():
             ('arrears', 'متأخرات / فروقات راتب', 'Salary Arrears', 'earning', 'transaction', 'monthly', 0, 1, 44),
             ('per_diem', 'بدل انتداب / مهمة', 'Per Diem', 'earning', 'transaction', 'monthly', 0, 1, 45),
             ('expense_reimb', 'استرداد مصاريف', 'Expense Reimbursement', 'earning', 'transaction', 'monthly', 0, 1, 46),
+            ('mileage', 'بدل مسافة', 'Mileage Allowance', 'earning', 'transaction', 'monthly', 1, 1, 49),
             ('thirteenth_salary', 'راتب الشهر الثالث عشر', '13th Month Salary', 'earning', 'transaction', 'annual', 0, 0, 47),
             ('profit_share', 'حصة أرباح سنوية', 'Profit Sharing', 'earning', 'transaction', 'annual', 0, 0, 48),
             ('leave_encashment', 'تصفية رصيد إجازات', 'Leave Encashment', 'earning', 'transaction', 'final', 0, 1, 60),
@@ -1766,6 +1767,7 @@ def init_db():
             ('medical_insurance_emp', 'تأمين طبي (حصة الموظف)', 'Medical Insurance (Employee)', 'deduction', 'transaction', 'monthly', 0, 1, 85),
             ('suspension_unpaid', 'إيقاف عن العمل بدون أجر', 'Unpaid Suspension', 'deduction', 'transaction', 'monthly', 0, 1, 86),
             ('tax', 'ضريبة دخل', 'Income Tax', 'deduction', 'transaction', 'monthly', 0, 0, 87),
+            ('salary_advance', 'سلفة على الراتب', 'Salary Advance', 'deduction', 'transaction', 'monthly', 1, 1, 88),
         ]
         cursor.executemany('''
             INSERT OR IGNORE INTO payroll_item_types

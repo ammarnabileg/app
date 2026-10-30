@@ -280,6 +280,45 @@ def resolve_period(conn, month, year):
     return start, end
 
 
+def approved_ot_minutes(conn, start_iso, end_iso, employee_ids=None):
+    """{(employee_id, 'YYYY-MM-DD'): دقايق} من طلبات الأوفرتايم المعتمدة (utils/hr_requests).
+
+    بيُستخدم لما إعداد «الإضافي بموافقة» (`overtime_requires_approval`) مفعّل: الإضافي في اليوم
+    مايعدّيش المعتمد، ويوم من غير طلب معتمد = صفر إضافي. الحضور نفسه زي ما هو."""
+    out = {}
+    try:
+        rows = conn.execute("""SELECT employee_id, payload FROM hr_requests
+                               WHERE type = 'overtime' AND status = 'approved'""").fetchall()
+    except Exception:
+        return out
+    ids = set(int(i) for i in employee_ids) if employee_ids is not None else None
+    for r in rows:
+        try:
+            p = json.loads(r['payload'] or '{}')
+            d = str(p.get('work_date') or '')[:10]
+            mins = int(round(float(p.get('hours') or 0) * 60))
+        except (TypeError, ValueError):
+            continue
+        if not (start_iso <= d <= end_iso) or mins <= 0:
+            continue
+        if ids is not None and int(r['employee_id']) not in ids:
+            continue
+        k = (int(r['employee_id']), d)
+        out[k] = out.get(k, 0) + mins
+    return out
+
+
+def ot_needs_approval(sal):
+    return str((sal or {}).get('overtime_requires_approval', '0')).strip() == '1'
+
+
+def cap_ot(mins, approved, emp_id, ds):
+    """الإضافي بعد سقف الموافقة (approved = None يعني الإعداد مقفول)."""
+    if approved is None or mins <= 0:
+        return mins
+    return min(mins, approved.get((int(emp_id), ds), 0))
+
+
 def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
     """
     Deterministic monthly metrics per active employee, computed ONLY from
@@ -317,6 +356,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
     if employees is None:
         employees = fetch_payroll_employees(conn, period=(p_start, p_end))
     sal = get_salary_settings_v2(conn)
+    _ot_ok = (approved_ot_minutes(conn, start_iso, end_iso, [e['id'] for e in employees])
+              if ot_needs_approval(sal) else None)
 
     holidays = {
         r['date'][:10] for r in conn.execute(
@@ -463,7 +504,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
                 if _worked:
                     m['actual_days'] += 1
                     m['actual_hours'] += span
-                    m['ot_weekend_mins'] += _ot_round(span * 60, _ot_step)
+                    m['ot_weekend_mins'] += cap_ot(_ot_round(span * 60, _ot_step), _ot_ok, emp_id, ds)
                 _day_log.append((_wk, 'rest', _worked))
                 continue
             if ds in holidays:
@@ -473,7 +514,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
                 if _worked:
                     m['actual_days'] += 1
                     m['actual_hours'] += span
-                    m['ot_holiday_mins'] += _ot_round(span * 60, _ot_step)
+                    m['ot_holiday_mins'] += cap_ot(_ot_round(span * 60, _ot_step), _ot_ok, emp_id, ds)
                 _day_log.append((_wk, 'rest', _worked))
                 continue
 
@@ -562,6 +603,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
                         _d_ot = _ot_round(_ot_raw, _ot_step)
                 elif flex == 'fixed_hours' and span > hpd:
                     _d_ot = _ot_round((span - hpd) * 60, _ot_step)
+                _d_ot = cap_ot(_d_ot, _ot_ok, emp_id, ds)
                 if _d_ot > 0:
                     m['ot_weekday_mins'] += _d_ot
                     m['ot_days'] += 1
@@ -1841,6 +1883,8 @@ def compute_employee_days(conn, employee_id, month, year):
 
     p_start, p_end = resolve_period(conn, month, year)
     start_iso, end_iso = p_start.isoformat(), p_end.isoformat()
+    _ot_ok_d = (approved_ot_minutes(conn, start_iso, end_iso, [employee_id])
+                if ot_needs_approval(sal) else None)
     hire_dt = _parse_d(emp['hire_date'])
     eos_dt = (_parse_d(emp['end_of_service_date'])
               if 'end_of_service_date' in emp.keys() else None)
@@ -1999,6 +2043,8 @@ def compute_employee_days(conn, employee_id, month, year):
                     if span_h > _hpdx:
                         d_ot = _ot_round((span_h - _hpdx) * 60, _ot_step_d); d_ot_kind = 'weekday'
 
+        if d_ot and _ot_ok_d is not None:
+            d_ot = cap_ot(d_ot, _ot_ok_d, employee_id, ds)
         _hp_pres = False
         if hp and pres_on:
             _pf = _t2m(_wday.rotate(ev, hp['from']), '00:00')

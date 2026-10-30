@@ -79,6 +79,8 @@ def get_salary_settings_v2(conn):
             'grace_late_minutes': '10',
             'overtime_round_to_minutes': '0',
             'overtime_net_of_late': '0',
+            'overtime_requires_approval': '0',
+            'salary_advance_max_pct': '50',
             'overtime_cap_monthly_hours': '60',
             'weekday_ot_multiplier': '1.25',
             'weekend_ot_multiplier': '1.5',

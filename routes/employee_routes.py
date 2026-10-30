@@ -1613,6 +1613,18 @@ def _effective(field):
         return None, gettext('x.f_invalid_dates')
 
 
+def _flash_retro(conn, employee_id, user_id):
+    """تغيير راتب بأثر رجعي في شهور مقفولة: الفرق ينزل في أوّل شهر مفتوح (utils/pay_history)."""
+    from utils.pay_history import retro_arrears
+    r = retro_arrears(conn, employee_id, user_id)
+    if r['skipped']:
+        flash(f"الفرق بأثر رجعي ماتحسبش: {r['skipped']}", 'warning')
+    elif r['items']:
+        tot = sum(d for _, _, d in r['items'])
+        flash(f"فرق بأثر رجعي عن {len(r['items'])} شهر = {tot:+.3f} — نازل في رواتب {r['month'][0]}/{r['month'][1]}",
+              'success')
+
+
 def _locked_msg(conn, eff):
     from utils.payroll_engine import date_period_locked
     if date_period_locked(conn, eff):
@@ -1650,11 +1662,15 @@ def _apply_history(conn, employee_id, before):
                             previous=before['shift_type'])
     if abs(float(after['salary'] or 0) - float(before['salary'] or 0)) > 0.0005:
         eff, err = _effective('salary_effective_from')
-        err = err or _locked_msg(conn, eff)
+        retro = request.form.get('salary_retro') == '1'
+        err = err or (None if retro else _locked_msg(conn, eff))
         if err:
             return err
         record_salary_change(conn, employee_id, after['salary'], eff, uid,
                              previous=before['salary'])
+        if retro:
+            sync_current(conn, employee_id)
+            _flash_retro(conn, employee_id, uid)
     sync_current(conn, employee_id)
     return None
 
@@ -1713,7 +1729,8 @@ def add_salary_history(id):
     except ValueError:
         err = err or gettext('x.f_salary_must_be_number')
         val = None
-    err = err or _locked_msg(conn, eff)
+    retro = request.form.get('retro') == '1'
+    err = err or (None if retro else _locked_msg(conn, eff))
     if err:
         flash(err, 'error')
     else:
@@ -1721,6 +1738,8 @@ def add_salary_history(id):
         record_salary_change(conn, id, val, eff, session.get('user_id'),
                              previous=cur['salary'] if cur else None)
         sync_current(conn, id)
+        if retro:
+            _flash_retro(conn, id, session.get('user_id'))
         conn.commit()
         flash(gettext('x.f_history_saved'), 'success')
     return redirect(url_for('employee.edit_employee', id=id) + '#history')
