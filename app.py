@@ -40,9 +40,12 @@ def background_backup_worker():
     while True:
         try:
             from utils.backup import run_auto_backup
-            ok, msg = run_auto_backup()
-            if ok:
-                print(f'[backup] نسخة تلقائية: {msg}')
+            from utils import tenancy
+            for slug, r in tenancy.for_each(run_auto_backup).items():   # لكل شركة (أو مرة في وضع الشركة الواحدة)
+                if isinstance(r, Exception):
+                    print(f'[backup] {slug}: {r}')
+                elif r and r[0]:
+                    print(f'[backup] {slug} نسخة تلقائية: {r[1]}')
         except Exception as e:
             # لا يُسمح لخطأ بقتل الخيط: خيطٌ مات يعني نسخًا توقّفت بصمت،
             # ولا يُكتشف ذلك إلا يوم الحاجة إلى نسخة.
@@ -62,7 +65,21 @@ def background_cloud_sync_worker():
     """
     time.sleep(60)          # لا يُزاحم الإقلاع
 
+    from utils import tenancy
     while True:
+        delays = [d for d in tenancy.for_each(_cloud_cycle).values() if isinstance(d, (int, float))]
+        delay = min(delays) if delays else 120
+        # نومٌ يُقطع إن فُعِّل الرفعُ من الإعدادات: فيبدأ الآن لا بعد ١٠ دقائق
+        try:
+            from utils.cloud_sync import sleep_or_wake
+            sleep_or_wake(delay)
+        except Exception:
+            time.sleep(delay)
+
+
+def _cloud_cycle():
+    """دورة واحدة لشركة واحدة: أوامر البوابة، والرفع، والرسائل. ترجع كام ثانية لحد الدورة الجاية."""
+    if True:
         delay = 120
         # أوامرُ بوّابة الشركة أوّلًا (تجهيزُ كشف، اعتمادُه، مزامنةُ الأجهزة) — في
         # حراسةٍ خاصّة بها، وقبل الرفع: ما يُغيّره الاعتمادُ يخرج في الرفع الذي يليه.
@@ -119,13 +136,7 @@ def background_cloud_sync_worker():
                 delay = min(delay, 30)
         except Exception as e:
             print(f'[msg] خطأ في بوّابة الرسائل: {e}')
-
-        # نومٌ يُقطع إن فُعِّل الرفعُ من الإعدادات: فيبدأ الآن لا بعد ١٠ دقائق
-        try:
-            from utils.cloud_sync import sleep_or_wake
-            sleep_or_wake(delay)
-        except Exception:
-            time.sleep(delay)
+        return delay
 
 
 def background_license_checker():
@@ -142,9 +153,10 @@ def background_license_checker():
             time.sleep(120) 
             try:
                 from utils.license import get_current_license_info
+                from utils import tenancy
                 # This triggers verify_license_full_flow -> check_online_license_secure
-                # If blocked, it deletes the key from DB.
-                get_current_license_info()
+                # If blocked, it deletes the key from DB. — لكل شركة بترخيصها
+                tenancy.for_each(get_current_license_info)
             except Exception as e:
                 # Silent fail (e.g. no internet)
                 pass 
@@ -318,6 +330,39 @@ ADMS_DEVICE_ENDPOINTS = frozenset(
 
 
 @app.before_request
+def resolve_tenant():
+    """Multi-tenant (utils/tenancy): الشركة من الدومين — أول حاجة في كل طلب، قبل الترخيص وأي قاعدة.
+
+    دومين مش معروف = 404 (مفيش شركة افتراضية). وجهاز ADMS بيتعرف من الـ SN.
+    والجلسة مربوطة بالشركة: كوكي جاي من شركة تانية بيتمسح بدل ما يدخّل صاحبه هنا."""
+    from utils import tenancy
+    if not tenancy.enabled():
+        return None
+    from flask import g, session, abort
+    if request.endpoint in ADMS_DEVICE_ENDPOINTS:
+        # الجهاز بالـ SN المتسجّل بس — مش بالدومين: أي جهاز يعرف الدومين مايدخّلش بصمات لشركة
+        slug = tenancy.resolve_device(request.args.get('SN') or request.args.get('sn'))
+    else:
+        slug = tenancy.resolve_host(request.host)
+    if not slug:
+        abort(404)
+    g._tenant_token = tenancy.set_current(slug)
+    if session.get('_tenant') != slug:
+        session.clear()
+        session['_tenant'] = slug
+    return None
+
+
+@app.teardown_request
+def _reset_tenant(exc=None):
+    from flask import g
+    tok = g.pop('_tenant_token', None)
+    if tok is not None:
+        from utils import tenancy
+        tenancy.reset(tok)
+
+
+@app.before_request
 def check_license_globally():
     # Allow assets, static files, login/logout, and the license page itself
     if request.endpoint in ['main.license_page', 'auth.login', 'auth.logout', 'auth.reset_password', 'static'] or request.path.startswith('/static/'):
@@ -479,8 +524,9 @@ def internal_server_error(e):
 
 def main():
     """تشغيل التطبيق مع تهيئة القاعدة وقراءة الإعدادات."""
-    # Initialize Database
-    init_db()
+    # Initialize Database — لكل شركة في وضع multi-tenant (utils/tenancy)
+    from utils import tenancy
+    tenancy.for_each(init_db)
 
     default_host = '0.0.0.0'
     default_port = 5000
@@ -504,7 +550,7 @@ def main():
 
     try:
         from utils.license import get_current_license_info
-        info = get_current_license_info()
+        info = tenancy.for_each(get_current_license_info)
         print(f"Startup Check Result: {info}")
     except Exception as e:
         print(f"Startup Check Error: {e}")

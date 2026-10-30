@@ -298,7 +298,7 @@ def update_settings():
 
     conn.commit()
     import utils.settings_utils as _su
-    _su._SETTINGS_CACHE = None
+    _su.invalidate_settings_cache()
     flash(_('msg.settings_saved'), 'success')
     return redirect(url_for('main.settings'))
 
@@ -524,7 +524,7 @@ def setup_wizard_save():
     set_setting('setup_wizard_completed', '1')
 
     import utils.settings_utils as _su
-    _su._SETTINGS_CACHE = None
+    _su.invalidate_settings_cache()
 
     flash('تهانينا! تم ضبط إعدادات الشركة ولائحة الجزاءات والسياسات بنجاح. النظام جاهز للعمل الآن.', 'success')
     return redirect(url_for('main.index'))

@@ -29,6 +29,7 @@ import time
 import zipfile
 
 from utils.db import DB_PATH
+from utils.tenancy import bind as _tenancy_bind  # الخيط ياخد شركة الطلب (multi-tenant)
 
 DEFAULT_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 DEFAULT_ATTRIBUTION = '© OpenStreetMap'
@@ -375,7 +376,7 @@ def download(bboxes, zmin=MIN_ZOOM, zmax=MAX_ZOOM, conn=None):
                 if not _state['message'] or _state['message'].startswith('يبدأ'):
                     _state['message'] = f'تمّ: {ok} مربّعًا'
 
-    threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=_tenancy_bind(worker), daemon=True).start()
     return True, f'بدأ تنزيل {len(todo):,} مربّعًا'
 
 

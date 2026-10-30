@@ -30,9 +30,18 @@ def connect(path=None, timeout=30):
     كل الكود اللي كان بيعمل sqlite3.connect(DB_PATH) يعدّي من هنا."""
     from utils import dbcompat
     if dbcompat.pg_url():
-        return dbcompat.connect(path or DB_PATH)
+        return _pg_connection(path)
     conn = sqlite3.connect(path or DB_PATH, timeout=timeout)
     return conn
+
+
+def _pg_connection(path=None):
+    """PostgreSQL: schema الشركة الحالية (multi-tenant — ومن غير شركة: خطأ، مش schema حد تاني)،
+    أو schema القاعدة الواحدة."""
+    from utils import dbcompat, tenancy
+    if tenancy.enabled():
+        return dbcompat.PgConnection(dbcompat.pg_url(), tenancy.schema_of(tenancy.require()))
+    return dbcompat.connect(path or DB_PATH)
 
 
 def is_postgres():
@@ -43,7 +52,7 @@ def is_postgres():
 def _create_new_connection():
     from utils import dbcompat
     if dbcompat.pg_url():
-        return dbcompat.connect(DB_PATH)
+        return _pg_connection()
     # Add timeout to prevent "database is locked" errors when multiple connections access the DB
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.execute('PRAGMA journal_mode=WAL')

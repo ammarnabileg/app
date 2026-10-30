@@ -34,6 +34,7 @@ import base64
 import logging
 import threading
 from datetime import datetime, timedelta
+from utils.tenancy import bind as _tenancy_bind  # الخيط ياخد شركة الطلب (multi-tenant)
 
 logger = logging.getLogger(__name__)
 
@@ -921,7 +922,7 @@ def delete_from_direct_now(employee_number, device_ids=None):
         employee_number = [str(n) for n in employee_number]
     else:
         employee_number = str(employee_number)
-    threading.Thread(target=delete_from_direct, args=(employee_number, device_ids), name='مسح-من-أجهزة-IP',
+    threading.Thread(target=_tenancy_bind(delete_from_direct), args=(employee_number, device_ids), name='مسح-من-أجهزة-IP',
                      daemon=True).start()
 
 
@@ -1131,7 +1132,7 @@ def push_direct(conn, device, employees, templates='all'):
 def apply_now():
     """بعد إيقاف موظّف أو تفعيله: الأجهزةُ المباشرة تُعالَج الآن في الخلفيّة —
     والجهازُ المقفول تُعالجه المزامنةُ التالية."""
-    threading.Thread(target=enforce_all, name='تعطيل-على-أجهزة-IP', daemon=True).start()
+    threading.Thread(target=_tenancy_bind(enforce_all), name='تعطيل-على-أجهزة-IP', daemon=True).start()
 
 
 def push_employee(employee_number, conn=None, templates='all'):
@@ -1172,7 +1173,7 @@ def push_employee(employee_number, conn=None, templates='all'):
 
 
 def push_employee_now(employee_number, templates='all'):
-    threading.Thread(target=push_employee, args=(str(employee_number),), name='رفع-موظف-لأجهزة-IP',
+    threading.Thread(target=_tenancy_bind(push_employee), args=(str(employee_number),), name='رفع-موظف-لأجهزة-IP',
                      kwargs={'templates': templates}, daemon=True).start()
 
 

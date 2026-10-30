@@ -30,6 +30,7 @@ import json
 import logging
 import threading
 import time
+from utils.tenancy import bind as _tenancy_bind  # الخيط ياخد شركة الطلب (multi-tenant)
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +285,7 @@ def execute(conn, cmd, just_reported=()):
         _RUNNING.add(cid)
         target = _prepare if ctype == 'prepare_payroll' else _device_sync
         args = (cid, payload) if ctype == 'prepare_payroll' else (cid,)
-        threading.Thread(target=_guarded, args=(cid, target, args), daemon=True).start()
+        threading.Thread(target=_tenancy_bind(_guarded), args=(cid, target, args), daemon=True).start()
     else:
         _finish(cid, False, 'أمرٌ لا يعرفه هذا الإصدار — حدّث البرنامج.')
 
@@ -407,7 +408,7 @@ def poll_soon():
             logger.warning(f'remote commands poll failed: {e}')
         finally:
             lock.release()
-    threading.Thread(target=_go, daemon=True).start()
+    threading.Thread(target=_tenancy_bind(_go), daemon=True).start()
 
 
 def _agent_version():

@@ -43,6 +43,10 @@ BOUND_TO_MACHINE = {'license_settings'}
 
 
 def _data_dir():
+    # multi-tenant: النسخ في فولدر الشركة — شركة ماتشوفش ولا تنزّل نسخ شركة تانية
+    from utils import tenancy
+    if tenancy.enabled():
+        return tenancy.data_dir()
     return os.path.dirname(get_db_path())
 
 

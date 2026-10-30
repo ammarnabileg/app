@@ -754,7 +754,7 @@ def sync_users():
             device_autosync.log_run('manual', started, device_autosync.SKIP, res)
         from utils import remote_commands
         remote_commands.poll_soon()
-    thread = threading.Thread(target=_users_logged, daemon=True)
+    thread = threading.Thread(target=__import__("utils.tenancy", fromlist=["bind"]).bind(_users_logged), daemon=True)
     thread.start()
     
     return jsonify({

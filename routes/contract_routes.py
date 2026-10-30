@@ -8,6 +8,7 @@ from utils.rbac import require_permission
 from werkzeug.utils import secure_filename
 from docxtpl import DocxTemplate
 import json
+from utils import tenancy as _tenancy  # فولدر مرفقات الشركة (multi-tenant)
 
 contract_bp = Blueprint('contract', __name__, url_prefix='/contracts')
 
@@ -64,7 +65,7 @@ def upload_excel():
         
     if file and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
         filename = secure_filename(file.filename)
-        filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+        filepath = os.path.join(_tenancy.upload_folder(), filename)
         file.save(filepath)
         
         try:
@@ -186,6 +187,12 @@ def generate_contract(id):
         flash("لم يتم العثور على العقد", "danger")
         return redirect(url_for('contract.index'))
         
+    # الشركة ليها قالبها وفولدر عقودها (multi-tenant)؛ في وضع الشركة الواحدة نفس المسارات القديمة
+    _tdir = os.path.join(_tenancy.data_dir(), 'templates')
+    _odir = os.path.join(_tenancy.data_dir(), 'generated_contracts')
+    os.makedirs(_tdir, exist_ok=True)
+    os.makedirs(_odir, exist_ok=True)
+    DEFAULT_TEMPLATE = os.path.join(_tdir, 'contract_template.docx')
     if not os.path.exists(DEFAULT_TEMPLATE):
         flash("قالب العقد غير موجود. يرجى التأكد من رفع القالب.", "danger")
         return redirect(url_for('contract.index'))
@@ -209,7 +216,7 @@ def generate_contract(id):
         doc.render(context)
         
         filename = f"Contract_{contract['civil_id'] or contract['id']}.docx"
-        output_path = os.path.join(CONTRACT_OUTPUT_DIR, filename)
+        output_path = os.path.join(_odir, filename)
         doc.save(output_path)
         
         return send_file(output_path, as_attachment=True, download_name=filename)

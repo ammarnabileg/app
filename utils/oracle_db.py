@@ -42,8 +42,19 @@ MAX_RETRIES = 20
 _PERMANENT_ORA = {904, 942, 1722, 12899, 1400, 1438, 1830, 1840, 1841, 1843, 1847, 1858, 1861}
 
 # ================= MASTER SWITCH =================
-_oracle_enabled_cache = {'value': None, 'ts': 0}
-_oracle_configured_cache = {'value': None, 'ts': 0}
+# كاش لكل شركة (multi-tenant): {مفتاح الشركة: {'value', 'ts'}}
+_oracle_enabled_cache = {}
+_oracle_configured_cache = {}
+
+
+def _oec():
+    from utils.tenancy import cache_key
+    return _oracle_enabled_cache.setdefault(cache_key(), {'value': None, 'ts': 0})
+
+
+def _occ():
+    from utils.tenancy import cache_key
+    return _oracle_configured_cache.setdefault(cache_key(), {'value': None, 'ts': 0})
 _unconfigured_said = {'done': False}
 
 # ما يدلّ على أن أحدًا ضبط أوراكل فعلًا — إعدادًا مخزَّنًا أو متغيّر بيئة.
@@ -75,8 +86,8 @@ if not oracle_logger.handlers:
 def oracle_configured():
     """أضبط أحدٌ أوراكل على هذا النظام؟ (مضيف أو مستخدم أو باسورد أو خدمة — إعداد أو متغيّر بيئة)."""
     now = time.time()
-    if (_oracle_configured_cache['value'] is None
-            or (now - _oracle_configured_cache['ts']) > 30):
+    if (_occ()['value'] is None
+            or (now - _occ()['ts']) > 30):
         found = False
         for key, env_key in _ORACLE_CONF_KEYS:
             try:
@@ -89,8 +100,8 @@ def oracle_configured():
             if str(os.environ.get(env_key, '') or '').strip():
                 found = True
                 break
-        _oracle_configured_cache['value'] = found
-        _oracle_configured_cache['ts'] = now
+        _occ()['value'] = found
+        _occ()['ts'] = now
         if not found and not _unconfigured_said['done']:
             _unconfigured_said['done'] = True
             oracle_logger.info(
@@ -98,7 +109,7 @@ def oracle_configured():
                 'مستخدم في الإعدادات ولا في متغيّرات البيئة. فلا تُحاوَل '
                 'اتصالات ولا يُكتب طابور. اضبطها من شاشة أوراكل إن كانت '
                 'مطلوبة، أو أطفئها لتختفي هذه الرسالة.')
-    return _oracle_configured_cache['value']
+    return _occ()['value']
 
 
 def _free_edition():
@@ -112,20 +123,20 @@ def _free_edition():
 def is_oracle_enabled():
     """مفتوحة من الشاشة ومضبوطة. لو لأ: لا اتصال ولا طابور ولا ضجّة في اللوج."""
     now = time.time()
-    if _oracle_enabled_cache['value'] is None or (now - _oracle_enabled_cache['ts']) > 10:
+    if _oec()['value'] is None or (now - _oec()['ts']) > 10:
         try:
-            _oracle_enabled_cache['value'] = str(get_setting('oracle_enabled', '1')).strip() == '1'
+            _oec()['value'] = str(get_setting('oracle_enabled', '1')).strip() == '1'
         except Exception:
-            _oracle_enabled_cache['value'] = True
-        _oracle_enabled_cache['ts'] = now
-    if _oracle_enabled_cache['value'] and _free_edition():
+            _oec()['value'] = True
+        _oec()['ts'] = now
+    if _oec()['value'] and _free_edition():
         return False                # النسخة المجانية: أوراكل مقفول
-    return _oracle_enabled_cache['value'] and oracle_configured()
+    return _oec()['value'] and oracle_configured()
 
 
 def invalidate_caches():
-    _oracle_enabled_cache['ts'] = 0
-    _oracle_configured_cache['ts'] = 0
+    _oec()['ts'] = 0
+    _occ()['ts'] = 0
 
 
 def _oracle_conf(key, env_key, default):
@@ -553,47 +564,54 @@ CATCHUP_DAYS = 3
 
 
 def _worker_loop():
-    ora = None
-    down_said = False
-    was_on = False
+    """بيلف كل SYNC_SECONDS (أو أول ما حد يصحّيه) — على كل شركة في وضع multi-tenant، وكل شركة
+    ليها حالتها (الاتصال، واتقال إنه واقع، وكانت مفتوحة) لوحدها."""
+    from utils import tenancy
+    states = {}
     time.sleep(5)
     while True:
-        try:
-            enabled = is_oracle_enabled()
-            _set_state(active=enabled)
-            if enabled and not was_on:
-                # أول ما المزامنة تشتغل (تشغيل البرنامج، أو فتحها من الشاشة): بصمات آخر ٣ أيام اللي
-                # ماراحتش أوراكل — زي بصمات أجهزة IP قبل ٢.٣٧.٢٠ — تتحط في الطابور.
-                try:
-                    since = (datetime.datetime.now() - datetime.timedelta(days=CATCHUP_DAYS)).strftime('%Y-%m-%d')
-                    n = backfill(since)
-                    if n:
-                        oracle_logger.info(f"Catch-up: {n} punch(es) from the last {CATCHUP_DAYS} days queued for Oracle.")
-                except Exception as e:
-                    oracle_logger.error(f"Oracle catch-up failed: {e}")
-            was_on = enabled
-            if enabled:
-                if ora is None:
-                    ora = get_oracle_connection()
-                    if ora is None and not down_said:
-                        oracle_logger.error("Oracle unreachable — punches stay queued and are sent when it is back.")
-                        down_said = True
-                if ora is not None:
-                    if down_said:
-                        oracle_logger.info("Oracle is reachable again — sending the queue.")
-                        down_said = False
-                    if process_sync_queue(ora) is False:
-                        _close(ora)
-                        ora = None
-            elif ora is not None:
-                _close(ora)
-                ora = None
-        except Exception as e:
-            oracle_logger.error(f"Oracle worker error: {e}")
-            _close(ora)
-            ora = None
+        tenancy.for_each(_worker_cycle, states)
         _wake.wait(SYNC_SECONDS)
         _wake.clear()
+
+
+def _worker_cycle(states):
+    from utils.tenancy import cache_key
+    st = states.setdefault(cache_key(), {'ora': None, 'down_said': False, 'was_on': False})
+    try:
+        enabled = is_oracle_enabled()
+        _set_state(active=enabled)
+        if enabled and not st['was_on']:
+            # أول ما المزامنة تشتغل (تشغيل البرنامج، أو فتحها من الشاشة): بصمات آخر ٣ أيام اللي
+            # ماراحتش أوراكل — زي بصمات أجهزة IP قبل ٢.٣٧.٢٠ — تتحط في الطابور.
+            try:
+                since = (datetime.datetime.now() - datetime.timedelta(days=CATCHUP_DAYS)).strftime('%Y-%m-%d')
+                n = backfill(since)
+                if n:
+                    oracle_logger.info(f"Catch-up: {n} punch(es) from the last {CATCHUP_DAYS} days queued for Oracle.")
+            except Exception as e:
+                oracle_logger.error(f"Oracle catch-up failed: {e}")
+        st['was_on'] = enabled
+        if enabled:
+            if st['ora'] is None:
+                st['ora'] = get_oracle_connection()
+                if st['ora'] is None and not st['down_said']:
+                    oracle_logger.error("Oracle unreachable — punches stay queued and are sent when it is back.")
+                    st['down_said'] = True
+            if st['ora'] is not None:
+                if st['down_said']:
+                    oracle_logger.info("Oracle is reachable again — sending the queue.")
+                    st['down_said'] = False
+                if process_sync_queue(st['ora']) is False:
+                    _close(st['ora'])
+                    st['ora'] = None
+        elif st['ora'] is not None:
+            _close(st['ora'])
+            st['ora'] = None
+    except Exception as e:
+        oracle_logger.error(f"Oracle worker error: {e}")
+        _close(st['ora'])
+        st['ora'] = None
 
 
 def start_oracle_heartbeat():

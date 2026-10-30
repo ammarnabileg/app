@@ -83,7 +83,13 @@ LABELS = {
     'portal': 'بوّابة الموظّفين', 'whatsapp': 'إشعارات واتساب',
 }
 
-_CACHE = {'at': 0.0, 'value': None, 'key': None, 'data': None}
+# كاش لكل تركيب/شركة: {مفتاح: {'at', 'value', 'data'}} — شركتين على نفس العملية مايشوفوش رخصة بعض.
+_CACHE = {}
+
+
+def _ckey():
+    from utils.tenancy import cache_key
+    return (os.environ.get('HR_DATA_DIR', ''), cache_key())
 _TTL = 60
 
 # ------------------------------------------------------------ النسخة المجانية (من onz.one)
@@ -135,7 +141,7 @@ FREE_FEATURES = frozenset({'attendance', 'devices', 'otp_required'})
 def _license_data():
     """بيانات الرخصة الموقَّعة (dict) — أو None. نفس كاش المزايا."""
     licensed_features()
-    return _CACHE['data']
+    return (_CACHE.get(_ckey()) or {}).get('data')
 
 
 def _parse_day(v):
@@ -186,9 +192,10 @@ def licensed_features():
     now = time.time()
     # مفتاحُه مجلّدُ البيانات: عمليّةٌ واحدة قد تخدم تركيبين (الاختبارات، أو
     # نقلُ مجلّد البيانات) — ولا تُقرأ مزايا تركيبٍ من كاش آخر.
-    key = os.environ.get('HR_DATA_DIR', '')
-    if now - _CACHE['at'] < _TTL and _CACHE['key'] == key:
-        return _CACHE['value']
+    key = _ckey()
+    hit = _CACHE.get(key)
+    if hit and now - hit['at'] < _TTL:
+        return hit['value']
     value = None
     data = None
     try:
@@ -200,12 +207,12 @@ def licensed_features():
             value = frozenset(str(f) for f in feats)
     except Exception as e:
         print(f"[features] تعذّر قراءة مزايا الخطّة: {e}")
-    _CACHE['at'], _CACHE['value'], _CACHE['key'], _CACHE['data'] = now, value, key, data
+    _CACHE[key] = {'at': now, 'value': value, 'data': data}
     return value
 
 
 def invalidate():
-    _CACHE['at'] = 0.0
+    _CACHE.pop(_ckey(), None)
 
 
 def has_feature(feature):

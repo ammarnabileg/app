@@ -51,8 +51,7 @@ def oracle(tmp_path, monkeypatch):
 
 def _bust(o):
     """يُبطل الكاش بين الحالات — عمرُه ثلاثون ثانية."""
-    o._oracle_configured_cache['ts'] = 0
-    o._oracle_enabled_cache['ts'] = 0
+    o.invalidate_caches()
 
 
 # ------------------------------------------------ الصمت

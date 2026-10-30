@@ -17,9 +17,35 @@ app.register_blueprint(adms_bp, url_prefix='', name='adms_stripped')
 # ثواني والسيرفر يقع («filedescriptor out of range»).
 app.teardown_appcontext(close_db_connection)
 
+
+@app.before_request
+def _resolve_tenant():
+    """Multi-tenant: الجهاز بيتعرف من الـ SN (متسجّل لشركة واحدة في hr_platform.device_routes).
+    جهاز مش متسجّل = 404 — بصماته مابتدخلش شركة غلط."""
+    from utils import tenancy
+    if not tenancy.enabled():
+        return None
+    from flask import request, g, abort
+    slug = tenancy.resolve_device(request.args.get('SN') or request.args.get('sn'))
+    if not slug:
+        abort(404)
+    g._tenant_token = tenancy.set_current(slug)
+    return None
+
+
+@app.teardown_request
+def _reset_tenant(exc=None):
+    from flask import g
+    tok = g.pop('_tenant_token', None)
+    if tok is not None:
+        from utils import tenancy
+        tenancy.reset(tok)
+
+
 if __name__ == '__main__':
-    # Initialize DB (Validation)
-    init_db()
+    from utils import tenancy as _tenancy
+    # Initialize DB (Validation) — لكل شركة في وضع multi-tenant
+    _tenancy.for_each(init_db)
     try:
         from utils.oracle_db import start_oracle_heartbeat
         start_oracle_heartbeat()

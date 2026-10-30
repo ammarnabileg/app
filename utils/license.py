@@ -398,9 +398,8 @@ def invalidate_license_cache():
     صفحة الترخيص — أي أن التفعيل ينجح والمستخدم يبقى محبوسًا في الصفحة
     نفسها حتى تنقضي المدة.
     """
-    global _LICENSE_CACHE, _LICENSE_CACHE_TIME
-    _LICENSE_CACHE = None
-    _LICENSE_CACHE_TIME = 0
+    from utils.tenancy import cache_key
+    _LICENSE_CACHE.pop(cache_key(), None)
     # ومزايا الخطّة من الرخصة نفسِها — تُقرأ من جديد بعد تفعيلٍ أو تغيير.
     try:
         from utils.plan_features import invalidate
@@ -799,17 +798,19 @@ def check_online_license_secure(key):
             try: pass # conn.close() removed to prevent leak in Flask g
             except: pass
 
-_LICENSE_CACHE = None
-_LICENSE_CACHE_TIME = 0
+# كاش لكل شركة (multi-tenant): {مفتاح الشركة: (النتيجة، الوقت)}
+_LICENSE_CACHE = {}
 _LICENSE_CACHE_TTL = 60 # 1 minute cache
 
 def get_current_license_info():
-    global _LICENSE_CACHE, _LICENSE_CACHE_TIME
+    from utils.tenancy import cache_key
+    _ck = cache_key()
     
     # Check cache
     now = time.time()
-    if _LICENSE_CACHE and (now - _LICENSE_CACHE_TIME < _LICENSE_CACHE_TTL):
-        return _LICENSE_CACHE
+    _hit = _LICENSE_CACHE.get(_ck)
+    if _hit and _hit[0] and (now - _hit[1] < _LICENSE_CACHE_TTL):
+        return _hit[0]
 
     details = get_saved_license_details()
     chosen_key = details.get('key')
@@ -834,8 +835,7 @@ def get_current_license_info():
     ok, err = verify_license_full_flow(chosen_key)
     if not ok:
         res = {'ok': False, 'message': err}
-        _LICENSE_CACHE = res
-        _LICENSE_CACHE_TIME = now
+        _LICENSE_CACHE[_ck] = (res, now)
         return res
 
     # بعد التجديد يبقى تاريخ المفتاح الأصليّ مكتوبًا فيه؛ التاريخ الحقيقي
@@ -859,8 +859,7 @@ def get_current_license_info():
     res = {'ok': True, 'expiry': expiry, 'days_left': days_left, 'username': username, 'max_devices': max_devices, 'active_devices': current_active}
     
     # Update cache
-    _LICENSE_CACHE = res
-    _LICENSE_CACHE_TIME = now
+    _LICENSE_CACHE[_ck] = (res, now)
     
     return res
 

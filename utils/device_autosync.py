@@ -20,6 +20,7 @@ import threading
 import time
 from datetime import datetime
 from utils.db import connect as _db_connect  # SQLite أو PostgreSQL (HR_DB_URL)
+from utils.tenancy import bind as _tenancy_bind  # الخيط ياخد شركة الطلب (multi-tenant)
 
 SETTING_ENABLED = 'device_autosync_enabled'     # '1' افتراضًا
 SETTING_LAST = 'device_autosync_last'           # آخرُ تشغيلٍ تلقائيّ
@@ -361,7 +362,7 @@ def start_in_background(source='manual'):
     """«مزامنة الآن» بلا انتظار: False إن كانت مزامنةٌ جارية."""
     if busy():
         return False
-    threading.Thread(target=run_once, kwargs={'source': source}, name='مزامنة-يدوية', daemon=True).start()
+    threading.Thread(target=_tenancy_bind(run_once), kwargs={'source': source}, name='مزامنة-يدوية', daemon=True).start()
     return True
 
 
@@ -370,8 +371,14 @@ def background_worker():
     time.sleep(START_DELAY)
     while True:
         try:
-            if enabled() and _has_active_devices() and due():
-                run_once()
+            from utils import tenancy
+
+            def _cycle():
+                if enabled() and _has_active_devices() and due():
+                    run_once()
+            for slug, r in tenancy.for_each(_cycle).items():      # لكل شركة
+                if isinstance(r, Exception):
+                    print(f'[device-autosync] {slug}: {r}')
         except Exception as e:                   # noqa: BLE001
             # لا يُسمح لخطأ بقتل الخيط: خيطٌ مات يعني مزامنةً توقّفت بصمت.
             print(f'[device-autosync] خطأ: {e}')

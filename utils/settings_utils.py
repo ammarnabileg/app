@@ -2,18 +2,25 @@ import sqlite3
 import time
 from utils.db import get_db_connection
 
-_SETTINGS_CACHE = None
-_SETTINGS_CACHE_TIME = 0
+# كاش لكل شركة (multi-tenant): {مفتاح الشركة: (الإعدادات، الوقت)}
+_SETTINGS_CACHE = {}
 _SETTINGS_CACHE_TTL = 60 # 1 minute
+
+
+def invalidate_settings_cache():
+    from utils.tenancy import cache_key
+    _SETTINGS_CACHE.pop(cache_key(), None)
+
 
 def get_system_settings():
     """جلب إعدادات النظام من قاعدة البيانات"""
-    global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
-    
+    from utils.tenancy import cache_key
+    key = cache_key()
     # Check cache
     now = time.time()
-    if _SETTINGS_CACHE and (now - _SETTINGS_CACHE_TIME < _SETTINGS_CACHE_TTL):
-        return _SETTINGS_CACHE
+    hit = _SETTINGS_CACHE.get(key)
+    if hit and hit[0] and (now - hit[1] < _SETTINGS_CACHE_TTL):
+        return hit[0]
 
     try:
         conn = get_db_connection()
@@ -22,8 +29,7 @@ def get_system_settings():
         
         if settings:
             res = dict(settings)
-            _SETTINGS_CACHE = res
-            _SETTINGS_CACHE_TIME = now
+            _SETTINGS_CACHE[key] = (res, now)
             return res
         return {}
     except Exception as e:

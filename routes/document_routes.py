@@ -9,6 +9,7 @@ from utils.auth import login_required
 from utils.common import allowed_file
 from utils.document_utils import get_document_expiry_alerts
 from utils.rbac import require_permission
+from utils import tenancy as _tenancy  # فولدر مرفقات الشركة (multi-tenant)
 
 document_bp = Blueprint('document', __name__)
 
@@ -72,7 +73,7 @@ def upload_document():
             return redirect(url_for('document.documents'))
         
         # إنشاء مجلد للموظف
-        employee_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], str(employee['employee_number']))
+        employee_folder = os.path.join(_tenancy.upload_folder(), str(employee['employee_number']))
         if not os.path.exists(employee_folder):
             os.makedirs(employee_folder)
         
@@ -124,13 +125,13 @@ def download_document(filename):
     pass # conn.close() removed to prevent leak in Flask g
     
     if document:
-        employee_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], str(document['employee_number']))
+        employee_folder = os.path.join(_tenancy.upload_folder(), str(document['employee_number']))
         file_path = os.path.join(employee_folder, filename)
         
         if os.path.exists(file_path):
             return send_from_directory(employee_folder, filename)
         else:
-            return send_from_directory(current_app.config['UPLOAD_FOLDER'], filename)
+            return send_from_directory(_tenancy.upload_folder(), filename)
     
     return "الملف غير موجود", 404
 
@@ -184,18 +185,18 @@ def edit_document(document_id):
                 file_changed = True
                 
                 old_filename = current_doc['filename']
-                archive_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], 'archive')
+                archive_folder = os.path.join(_tenancy.upload_folder(), 'archive')
                 if not os.path.exists(archive_folder):
                     os.makedirs(archive_folder)
                 
-                old_path = os.path.join(current_app.config['UPLOAD_FOLDER'], old_filename)
+                old_path = os.path.join(_tenancy.upload_folder(), old_filename)
                 if os.path.exists(old_path):
                     archive_filename = f"old_{int(time.time())}_{old_filename}"
                     archive_path = os.path.join(archive_folder, archive_filename)
                     shutil.move(old_path, archive_path)
                 
                 employee = conn.execute('SELECT employee_number FROM employees WHERE id = ?', (employee_id,)).fetchone()
-                employee_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], str(employee['employee_number']))
+                employee_folder = os.path.join(_tenancy.upload_folder(), str(employee['employee_number']))
                 if not os.path.exists(employee_folder):
                     os.makedirs(employee_folder)
                 
@@ -263,13 +264,13 @@ def delete_document(document_id):
     ''', (document_id,)).fetchone()
     
     if document:
-        employee_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], str(document['employee_number']))
+        employee_folder = os.path.join(_tenancy.upload_folder(), str(document['employee_number']))
         file_path = os.path.join(employee_folder, document['filename'])
         
         if os.path.exists(file_path):
             os.remove(file_path)
         else:
-            old_file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], document['filename'])
+            old_file_path = os.path.join(_tenancy.upload_folder(), document['filename'])
             if os.path.exists(old_file_path):
                 os.remove(old_file_path)
         

@@ -25,6 +25,7 @@
 """
 import json
 import logging
+from utils.tenancy import bind as _tenancy_bind  # الخيط ياخد شركة الطلب (multi-tenant)
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,7 @@ def reupload_employee(emp_id, device_ids):
             except Exception:
                 pass
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=_tenancy_bind(run), daemon=True).start()
 
 
 def bin_items(conn, show_restored=False, limit=500):
