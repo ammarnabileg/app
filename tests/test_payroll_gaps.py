@@ -153,3 +153,71 @@ def test_final_settlement_after_a_closed_month_does_not_pay_the_salary_again(web
     conn.commit()
     fs = fsm.settle(conn, 1, (ps + timedelta(days=10)).isoformat(), 'termination')
     assert fs['last_salary']['already_paid'] and fs['total'] == pytest.approx(fs['eos_net'])
+
+
+# ------------------------------------------------------------ ١ العمولات
+
+def test_commissions_from_a_file_land_once_and_skip_locked_months(web):
+    c, conn, A, pe = web
+    import io
+    csv_text = ('رقم الموظف,المبلغ,الشهر,السنة,المرجع\n'
+                f'1,12.5,{MONTH},{YEAR},INV-1\n'
+                f'2,7,{MONTH},{YEAR},\n'
+                '999,5,,,\n'
+                f'1,3,6,{YEAR},INV-OLD\n')
+    conn.execute("INSERT INTO payroll_runs (month, year, status) VALUES (6, ?, 'approved')", (YEAR,))
+    conn.commit()
+    r = c.post('/payroll/commissions', data={'file': (io.BytesIO(csv_text.encode()), 'c.csv')},
+               content_type='multipart/form-data')
+    page = r.get_data(as_text=True)
+    assert r.status_code == 200 and 'اتسجّل 2 عمولة' in page and '999' in page and '6/' in page
+    c.post('/payroll/commissions', data={'file': (io.BytesIO(csv_text.encode()), 'c.csv')},
+           content_type='multipart/form-data')
+    rows = conn.execute("SELECT employee_id, amount FROM payroll_transactions t JOIN payroll_item_types it "
+                        "ON it.id = t.item_type_id WHERE it.code = 'commission' ORDER BY employee_id").fetchall()
+    assert [tuple(r) for r in rows] == [(1, 12.5), (2, 7.0)], 'نفس الملف مرتين = مرة واحدة'
+    line = next(r for r in pe.compute_monthly_payroll(conn, MONTH, YEAR)['rows'] if r['employee_id'] == 1)
+    assert any(a['code'] == 'commission' and a['amount'] == 12.5 for a in line['allowances'])
+
+
+def test_commissions_api_needs_the_key_and_is_idempotent(web):
+    c, conn, A, pe = web
+    from utils import commissions as CM
+    body = {'items': [{'employee_number': '1', 'amount': 20, 'month': MONTH, 'year': YEAR, 'reference': 'onz-55'}]}
+    anon = A.app.test_client()
+    assert anon.post('/api/payroll/commissions', json=body).status_code == 401
+    with A.app.app_context():
+        key = CM.new_api_key()
+    assert anon.post('/api/payroll/commissions', json=body, headers={'X-Commission-Key': 'wrong'}).status_code == 401
+    r = anon.post('/api/payroll/commissions', json=body, headers={'Authorization': f'Bearer {key}'})
+    assert r.status_code == 200 and r.get_json()['added'] == 1
+    r = anon.post('/api/payroll/commissions', json=body, headers={'X-Commission-Key': key})
+    assert r.get_json()['added'] == 0 and r.get_json()['duplicate'] == 1
+
+
+# ------------------------------------------------------------ ٥ ملف البنك
+
+def test_kuwaiti_iban_check():
+    from utils.bank_file import iban_ok
+    assert iban_ok('KW81CBKU0000000000001234560101')            # المثال الرسمي لـ IBAN الكويت
+    assert not iban_ok('KW82CBKU0000000000001234560101')
+    assert not iban_ok('') and not iban_ok('KW81CBKU00000000000012345601')
+
+
+def test_bank_file_follows_the_saved_layout_and_flags_bad_ibans(web):
+    c, conn, A, pe = web
+    conn.execute("UPDATE employees SET payment_method = 'Bank Transfer', bank_iban = 'KW81CBKU0000000000001234560101' WHERE id = 1")
+    conn.execute("UPDATE employees SET payment_method = 'Bank Transfer', bank_iban = 'KW00BAD' WHERE id = 2")
+    conn.commit()
+    for d in range(1, 20):
+        for eid in (1, 2):
+            _punch(conn, eid, pe.resolve_period(conn, MONTH, YEAR)[0].replace(day=d).isoformat(), '08:00', '16:00')
+    c.post('/payroll/monthly/bank_file', data={'format': 'csv', 'delimiter': 'semicolon', 'header': '0',
+                                               'columns': 'iban,amount_fils,reference,bogus'})
+    r = c.get(f'/payroll/monthly/bank_file?month={MONTH}&year={YEAR}')
+    assert r.status_code == 200 and 'IBAN غلط' in r.get_data(as_text=True), 'مايصدّرش وفيه IBAN غلط'
+    r = c.get(f'/payroll/monthly/bank_file?month={MONTH}&year={YEAR}&force=1')
+    lines = r.data.decode().strip().splitlines()
+    assert r.mimetype == 'text/csv' and len(lines) == 2
+    first = lines[0].split(';')
+    assert first[0] == 'KW81CBKU0000000000001234560101' and first[1].isdigit() and first[2] == f'Salary {MONTH:02d}/{YEAR}'

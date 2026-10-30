@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}ملف البنك{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2"><i class="fas fa-university me-2"></i>ملف البنك</h1>
+        <div class="report-desc">ظبط الصيغة مرة واحدة على عينة ملف البنك بتاعك (ترتيب الأعمدة، والفاصل، وسطر العنوان)،
+            وبعدها «ملف البنك» من شاشة الرواتب بيطلع بيها. بيشمل اللي طريقة دفعهم «تحويل بنكي» بس.</div>
+    </div>
+
+    {% if problems %}
+    <div class="alert alert-danger">
+        <b>{{ problems|length }} موظف IBAN بتاعهم ناقص أو غلط</b> — البنك هيرفض التحويل ده. صلّحهم من ملف الموظف:
+        <ul class="mb-2 mt-1">
+        {% for p in problems %}<li>{{ p.employee_number }} — {{ p.name }}: {{ p.why }} <span dir="ltr">{{ p.iban }}</span></li>{% endfor %}
+        </ul>
+        <a class="btn btn-sm btn-outline-danger"
+           href="{{ url_for('payroll.bank_file', month=month, year=year, force=1) }}">صدّر برضه</a>
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('payroll.bank_file') }}" class="card" style="max-width: 900px">
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-md-3"><label class="form-label">نوع الملف</label>
+                    <select name="format" class="form-select">
+                        <option value="csv" {{ 'selected' if layout.format == 'csv' }}>CSV / TXT</option>
+                        <option value="xlsx" {{ 'selected' if layout.format == 'xlsx' }}>Excel</option>
+                    </select></div>
+                <div class="col-md-3"><label class="form-label">الفاصل (CSV)</label>
+                    <select name="delimiter" class="form-select">
+                        <option value="comma" {{ 'selected' if layout.delimiter == ',' }}>فاصلة ,</option>
+                        <option value="semicolon" {{ 'selected' if layout.delimiter == ';' }}>فاصلة منقوطة ;</option>
+                        <option value="tab" {{ 'selected' if layout.delimiter == '\t' }}>Tab</option>
+                        <option value="pipe" {{ 'selected' if layout.delimiter == '|' }}>|</option>
+                    </select></div>
+                <div class="col-md-3"><label class="form-label">سطر عناوين؟</label>
+                    <select name="header" class="form-select">
+                        <option value="1" {{ 'selected' if layout.header }}>أيوه</option>
+                        <option value="0" {{ 'selected' if not layout.header }}>لأ</option>
+                    </select></div>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-md-6"><label class="form-label">حساب الشركة المدين</label>
+                    <input name="debit_account" class="form-control" dir="ltr" value="{{ layout.debit_account }}"></div>
+                <div class="col-md-6"><label class="form-label">كود الشركة عند البنك</label>
+                    <input name="company_code" class="form-control" dir="ltr" value="{{ layout.company_code }}"></div>
+            </div>
+            <label class="form-label">الأعمدة بالترتيب (اضغط على العمود عشان تضيفه، و× عشان تشيله)</label>
+            <input type="hidden" name="columns" id="bfCols" value="{{ layout.columns|join(',') }}">
+            <div id="bfChosen" class="d-flex flex-wrap gap-1 mb-2 p-2 border rounded" style="min-height: 42px"></div>
+            <div class="d-flex flex-wrap gap-1">
+                {% for k, label in fields.items() %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="bfAdd('{{ k }}')">{{ label }}</button>
+                {% endfor %}
+            </div>
+            <button class="btn btn-primary mt-3">حفظ الصيغة</button>
+        </div>
+    </form>
+</div>
+<script>
+const BF_LABELS = {{ fields|tojson }};
+function bfRender() {
+    const cols = document.getElementById('bfCols').value.split(',').filter(Boolean);
+    document.getElementById('bfChosen').innerHTML = cols.map((c, i) =>
+        `<span class="badge bg-primary">${i + 1}. ${BF_LABELS[c] || c} <a href="#" class="text-white ms-1" onclick="bfDel(${i}); return false;">×</a></span>`).join('');
+}
+function bfAdd(k) { const el = document.getElementById('bfCols'); el.value = (el.value ? el.value + ',' : '') + k; bfRender(); }
+function bfDel(i) { const el = document.getElementById('bfCols'); const c = el.value.split(','); c.splice(i, 1); el.value = c.join(','); bfRender(); }
+bfRender();
+</script>
+{% endblock %}

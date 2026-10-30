@@ -35,6 +35,8 @@
                 <ul class="dropdown-menu">
                     <li><a class="dropdown-item" href="#" onclick="pmExportDetailed(); return false;">{{ _('x.pm_export_detailed') }}</a></li>
                     <li><a class="dropdown-item" href="#" id="pmBankLink" onclick="pmBank(); return false;">{{ _('x.ps_bank_file') }}</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="pmBankFile(); return false;">ملف البنك (بصيغة البنك)</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="window.location = {{ url_for('payroll.bank_file_setup')|tojson }} + '?' + pmQuery(); return false;">ظبط صيغة ملف البنك</a></li>
                     <li><a class="dropdown-item" href="{{ url_for('payroll.provisions_export') }}" id="pmProvLink">{{ _('x.ps_provisions') }}</a></li>
                 </ul>
             </div>
@@ -467,6 +469,9 @@
     function pmPayslips(emp) {
         window.open({{ url_for('payroll.payslips')|tojson }} + '?' + pmQuery()
                     + (emp ? '&employee_id=' + emp : ''), '_blank');
+    }
+    function pmBankFile() {
+        window.location = {{ url_for('payroll.bank_file')|tojson }} + '?' + pmQuery();
     }
     function pmBank() {
         window.location = {{ url_for('payroll.bank_export')|tojson }} + '?' + pmQuery();

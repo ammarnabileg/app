@@ -994,6 +994,15 @@
                             </a>
                         </li>
                         {% endif %}
+                        {% if has_permission('salary.calculate') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'commission.page' %}active{% endif %}"
+                                href="{{ url_for('commission.page') }}">
+                                <i class="fas fa-percent"></i>
+                                العمولات
+                            </a>
+                        </li>
+                        {% endif %}
                         {% if has_permission('page.loans') %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'payroll.loans' %}active{% endif %}"

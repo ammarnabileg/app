@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}العمولات{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2"><i class="fas fa-percent me-2"></i>العمولات</h1>
+        <div class="report-desc">العمولة بتنزل بند «عمولة مبيعات» في كشف الرواتب، وبتتصرف معاه.
+            نفس الملف أو نفس المرجع لو اتبعت تاني مابيتسجّلش مرتين، والشهر المقفول مابيتلمسش.</div>
+    </div>
+
+    {% if report %}
+    <div class="alert {{ 'alert-success' if report.added else 'alert-warning' }}">
+        <b>اتسجّل {{ report.added }} عمولة بإجمالي {{ '%.3f'|format(report.total) }}</b>
+        {% if report.duplicate %} — {{ report.duplicate }} متسجّلة قبل كده (اتسابت){% endif %}
+        {% if report.unknown %}<div class="mt-1">موظفين مش موجودين:
+            {% for line, pin in report.unknown %}<span class="badge bg-danger me-1">سطر {{ line }}: {{ pin }}</span>{% endfor %}</div>{% endif %}
+        {% if report.locked %}<div class="mt-1">شهر مقفول:
+            {% for line, pin, m in report.locked %}<span class="badge bg-secondary me-1">سطر {{ line }}: {{ pin }} ({{ m }})</span>{% endfor %}</div>{% endif %}
+        {% if report.invalid %}<div class="mt-1">سطور فيها مبلغ أو شهر غلط: {{ report.invalid|join('، ') }}</div>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <form method="POST" enctype="multipart/form-data" class="card">
+                <div class="card-header"><i class="fas fa-file-excel me-2"></i>استيراد من ملف (Excel أو CSV)</div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">الأعمدة: <b>رقم الموظف</b>، <b>المبلغ</b> — واختياري: الشهر، السنة، المرجع، السبب.
+                        الشهر والسنة لو مش في الملف بياخدوا اللي تحت.</p>
+                    <input type="file" name="file" class="form-control mb-2" accept=".xlsx,.csv" required>
+                    <div class="d-flex gap-2 mb-2">
+                        <input type="number" name="month" min="1" max="12" class="form-control" placeholder="الشهر">
+                        <input type="number" name="year" min="2000" max="2100" class="form-control" placeholder="السنة">
+                    </div>
+                    <button class="btn btn-primary">استيراد</button>
+                </div>
+            </form>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header"><i class="fas fa-key me-2"></i>ربط تلقائي (onz.one / نظام المبيعات)</div>
+                <div class="card-body">
+                    {% if new_key %}
+                    <div class="alert alert-warning">
+                        انسخ المفتاح ده دلوقتي — مش هيظهر تاني:
+                        <div class="font-monospace user-select-all mt-1" dir="ltr">{{ new_key }}</div>
+                    </div>
+                    {% endif %}
+                    <p class="small text-muted mb-2" dir="ltr" style="text-align:left">
+                        POST /api/payroll/commissions<br>
+                        X-Commission-Key: &lt;key&gt;<br>
+                        {"items": [{"employee_number": "101", "amount": 12.5, "month": 10, "year": 2026, "reference": "INV-77"}]}
+                    </p>
+                    <form method="POST" class="d-flex gap-2">
+                        <button name="action" value="new_key" class="btn btn-outline-primary"
+                                {% if has_key %}onclick="return confirm('المفتاح القديم هيبطل — تكمل؟')"{% endif %}>
+                            {{ 'مفتاح جديد' if has_key else 'اعمل مفتاح' }}</button>
+                        {% if has_key %}<button name="action" value="revoke_key" class="btn btn-outline-danger"
+                                onclick="return confirm('تلغي المفتاح؟')">إلغاء المفتاح</button>{% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">آخر العمولات</div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead><tr><th>الموظف</th><th>الشهر</th><th>المبلغ</th><th>السبب</th><th>المرجع</th><th>الحالة</th></tr></thead>
+                <tbody>
+                {% for r in recent %}
+                <tr><td>{{ r.employee_number }} — {{ r.name }}</td><td>{{ r.month }}/{{ r.year }}</td>
+                    <td dir="ltr">{{ '%.3f'|format(r.amount) }}</td><td>{{ r.reason or '' }}</td>
+                    <td class="small text-muted" dir="ltr">{{ (r.reference or '')[5:] }}</td>
+                    <td>{{ 'ملغية' if r.status == 'cancelled' else 'فعّالة' }}</td></tr>
+                {% else %}
+                <tr><td colspan="6" class="text-muted">لسه مفيش عمولات</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

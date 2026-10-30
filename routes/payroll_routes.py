@@ -1,3 +1,4 @@
+import io
 from flask import Blueprint, render_template, request, jsonify, session, flash, redirect, url_for, send_file
 from flask_babel import gettext, get_locale
 from utils.db import get_db_connection
@@ -1337,6 +1338,36 @@ def bank_export():
     buf, _src = bank_workbook(get_db_connection(), month, year, company)
     return send_file(buf, as_attachment=True, download_name=f'bank_transfer_{year}-{month:02d}.xlsx',
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@payroll_bp.route('/payroll/monthly/bank_file', methods=['GET', 'POST'])
+@login_required
+@require_permission('salary.calculate')
+def bank_file():
+    """ملف البنك بالصيغة المظبوطة (utils/bank_file): GET يصدّر، POST يحفظ الصيغة."""
+    from utils import bank_file as BF
+    if request.method == 'POST':
+        BF.save_layout(request.form)
+        flash('اتحفظت صيغة ملف البنك', 'success')
+        return redirect(url_for('payroll.bank_file_setup'))
+    per = _sheet_period()
+    if not per:
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    month, year = per
+    data, name, mime, problems, _src = BF.build(get_db_connection(), month, year, request.args.get('value_date'))
+    if problems and request.args.get('force') != '1':
+        return render_template('payroll_bank_file.html', layout=BF.load_layout(), fields=BF.FIELDS,
+                               problems=problems, month=month, year=year)
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name, mimetype=mime)
+
+
+@payroll_bp.route('/payroll/monthly/bank_file/setup')
+@login_required
+@require_permission('salary.calculate')
+def bank_file_setup():
+    from utils import bank_file as BF
+    return render_template('payroll_bank_file.html', layout=BF.load_layout(), fields=BF.FIELDS,
+                           problems=None, month=request.args.get('month'), year=request.args.get('year'))
 
 
 @payroll_bp.route('/payroll/provisions/export')

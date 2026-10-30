@@ -268,6 +268,8 @@ from routes.smart_punch_routes import smart_punch_bp
 app.register_blueprint(smart_punch_bp)
 from routes.connector_routes import connector_bp, CONNECTOR_API_ENDPOINTS
 app.register_blueprint(connector_bp)
+from routes.commission_routes import commission_bp, COMMISSION_API_ENDPOINTS
+app.register_blueprint(commission_bp)
 
 from routes.field_routes import field_bp
 app.register_blueprint(field_bp)
@@ -390,7 +392,7 @@ def check_license_globally():
     if request.endpoint in ADMS_DEVICE_ENDPOINTS or request.endpoint in DEVICE_PUSH_ENDPOINTS:
         return
     # الوكيلُ المحلّيّ: برنامجٌ بمفتاح لا يتبع تحويلة (routes/connector_routes).
-    if request.endpoint in CONNECTOR_API_ENDPOINTS:
+    if request.endpoint in CONNECTOR_API_ENDPOINTS or request.endpoint in COMMISSION_API_ENDPOINTS:
         return
 
     # Check license
