@@ -19,6 +19,7 @@
 import threading
 import time
 from datetime import datetime
+from utils.db import connect as _db_connect  # SQLite أو PostgreSQL (HR_DB_URL)
 
 SETTING_ENABLED = 'device_autosync_enabled'     # '1' افتراضًا
 SETTING_LAST = 'device_autosync_last'           # آخرُ تشغيلٍ تلقائيّ
@@ -99,7 +100,7 @@ def _fix_hire_dates():
         from utils.hire_dates import fix_device_placeholder_hire_dates
         # اتصالٌ خاصّ لا اتصالُ الطلب: الزرُّ يُنادي هذا داخل طلب Flask، وإغلاقُ
         # اتصاله (g.db) يُسقط ما بعده في الطلب نفسه.
-        c = sqlite3.connect(DB_PATH, timeout=30)
+        c = _db_connect(DB_PATH)
         c.row_factory = sqlite3.Row
         try:
             fix_device_placeholder_hire_dates(c)
@@ -191,7 +192,7 @@ def _has_active_devices():
     try:
         import sqlite3
         from utils.db import DB_PATH
-        conn = sqlite3.connect(DB_PATH)
+        conn = _db_connect(DB_PATH)
         try:
             return conn.execute('SELECT COUNT(*) FROM fingerprint_devices WHERE is_active = 1').fetchone()[0] > 0
         finally:
@@ -274,7 +275,7 @@ def log_run(source, started_at, punches, users):
                             (x.get('error') or x.get('message')))
             if err:
                 msg = (msg + ' — ' if msg else '') + err[:200]
-        conn = sqlite3.connect(DB_PATH)
+        conn = _db_connect(DB_PATH)
         try:
             conn.execute(
                 'INSERT INTO device_sync_log (started_at, finished_at, source, punches_new,'
@@ -297,7 +298,7 @@ def history(limit=20):
     try:
         import sqlite3
         from utils.db import DB_PATH
-        conn = sqlite3.connect(DB_PATH)
+        conn = _db_connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute('SELECT * FROM device_sync_log ORDER BY id DESC LIMIT ?',

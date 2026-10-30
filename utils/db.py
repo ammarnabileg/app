@@ -25,7 +25,25 @@ print(f"DEBUG: Using Database Path: {DB_PATH}")
 
 from flask import g, has_app_context
 
+def connect(path=None, timeout=30):
+    """اتصال بالقاعدة: SQLite (الملف)، أو PostgreSQL لو HR_DB_URL متظبط (utils/dbcompat) —
+    كل الكود اللي كان بيعمل sqlite3.connect(DB_PATH) يعدّي من هنا."""
+    from utils import dbcompat
+    if dbcompat.pg_url():
+        return dbcompat.connect(path or DB_PATH)
+    conn = sqlite3.connect(path or DB_PATH, timeout=timeout)
+    return conn
+
+
+def is_postgres():
+    from utils import dbcompat
+    return bool(dbcompat.pg_url())
+
+
 def _create_new_connection():
+    from utils import dbcompat
+    if dbcompat.pg_url():
+        return dbcompat.connect(DB_PATH)
     # Add timeout to prevent "database is locked" errors when multiple connections access the DB
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.execute('PRAGMA journal_mode=WAL')

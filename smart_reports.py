@@ -16,6 +16,7 @@ from typing import List, Dict, Optional, Tuple
 import calendar
 
 from utils.db import DB_PATH
+from utils.db import connect as _db_connect  # SQLite أو PostgreSQL (HR_DB_URL)
 
 class SmartFingerprintReport:
     def __init__(self, db_path=None):
@@ -23,7 +24,7 @@ class SmartFingerprintReport:
     
     def get_connection(self):
         """الحصول على اتصال قاعدة البيانات"""
-        return sqlite3.connect(self.db_path)
+        return _db_connect(self.db_path)
     
     def get_grace_minutes(self) -> Dict:
         """جلب فترة سماح موحدة من الإعدادات.
@@ -94,7 +95,7 @@ class SmartFingerprintReport:
     def _hot(self):
         c = getattr(self, '_hot_conn', None)
         if c is None:
-            c = self._hot_conn = sqlite3.connect(self.db_path)
+            c = self._hot_conn = _db_connect(self.db_path)
         return c
 
     def get_employee_shift_from_employee_data(self, emp_id: int) -> Dict:

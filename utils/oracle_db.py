@@ -56,6 +56,7 @@ _ORACLE_CONF_KEYS = (
 
 # Configure a specific logger for Oracle Sync
 from utils.safe_log import SafeRotatingHandler as RotatingFileHandler
+from utils.db import connect as _db_connect  # SQLite أو PostgreSQL (HR_DB_URL)
 oracle_log_file = os.path.join(DATA_DIR, 'oracle_sync.log')
 oracle_logger = logging.getLogger('oracle_sync')
 oracle_logger.setLevel(logging.INFO)
@@ -238,7 +239,7 @@ def _local():
     """اتصال SQLite خاص بالعامل (برّه طلبات Flask) — بيتقفل بعد كل دورة."""
     import sqlite3
     from utils.db import DB_PATH
-    c = sqlite3.connect(DB_PATH, timeout=30)
+    c = _db_connect(DB_PATH)
     c.row_factory = sqlite3.Row
     return c
 

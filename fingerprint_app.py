@@ -14,6 +14,7 @@ from datetime import datetime
 import threading
 import queue
 import uuid
+from utils.db import connect as _db_connect  # SQLite أو PostgreSQL (HR_DB_URL)
 
 app = Flask(__name__)
 app.secret_key = 'fingerprint_test_secret_key_2024'
@@ -192,7 +193,7 @@ class DatabaseManager:
     def get_employees(self):
         """Get employees data"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = _db_connect(self.db_path)
             cursor = conn.cursor()
             
             cursor.execute("""
@@ -212,7 +213,7 @@ class DatabaseManager:
     def save_attendance_data(self, attendance_data):
         """Save attendance data"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = _db_connect(self.db_path)
             cursor = conn.cursor()
             
             for record in attendance_data:

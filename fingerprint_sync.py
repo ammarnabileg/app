@@ -14,6 +14,7 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 from utils.db import DB_PATH, DATA_DIR
 from utils.license import get_effective_max_devices
+from utils.db import connect as _db_connect  # SQLite أو PostgreSQL (HR_DB_URL)
 
 try:
     from zk import ZK
@@ -86,7 +87,7 @@ class FingerprintSyncManager:
     
     def get_db_connection(self):
         """إنشاء اتصال بقاعدة البيانات"""
-        conn = sqlite3.connect(self.db_path)
+        conn = _db_connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
     
@@ -634,7 +635,7 @@ class FingerprintSyncManager:
             _cap = None
 
         # الحصول على الموظفين الحاليين لمنع التكرار
-        conn = sqlite3.connect(self.db_path)
+        conn = _db_connect(self.db_path)
         cursor = conn.cursor()
         
         # التحقق من وجود جدول الموظفين وإنشاؤه إذا لم يكن موجود
@@ -877,7 +878,7 @@ class FingerprintSyncManager:
     def cleanup_existing_constraints(self):
         """تنظيف القيود الفريدة الموجودة في جدول attendance_records"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = _db_connect(self.db_path)
             cursor = conn.cursor()
             
             # التحقق من وجود جدول attendance_records
@@ -941,7 +942,7 @@ class FingerprintSyncManager:
             # أولاً تنظيف أي قيود فريدة موجودة
             self.cleanup_existing_constraints()
             
-            conn = sqlite3.connect(self.db_path)
+            conn = _db_connect(self.db_path)
             cursor = conn.cursor()
             
             # التحقق من وجود جدول attendance_records
