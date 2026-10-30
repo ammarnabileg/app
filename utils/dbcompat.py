@@ -178,7 +178,7 @@ _TYPE_MAP = [
     (re.compile(r'^BLOB\b', re.I), 'BYTEA'),
 ]
 _CONSTRAINT_START = re.compile(r'^\s*(PRIMARY\s+KEY|UNIQUE|CHECK|FOREIGN\s+KEY|CONSTRAINT)\b', re.I)
-_NOW_DEFAULT = "to_char((now() AT TIME ZONE 'UTC'), '%s')" % _FMT
+_NOW_DEFAULT = "to_char((statement_timestamp() AT TIME ZONE 'UTC'), '%s')" % _FMT
 
 
 def _split_top(body, sep=','):
@@ -236,7 +236,7 @@ def _column_def(d):
             rest = 'TEXT ' + rest                 # عمود من غير نوع: SQLite بيقبل أي حاجة
     rest = re.sub(r'\bDEFAULT\s+CURRENT_TIMESTAMP\b', 'DEFAULT ' + _NOW_DEFAULT, rest, flags=re.I)
     rest = re.sub(r'\bDEFAULT\s+CURRENT_DATE\b', "DEFAULT to_char(current_date, 'YYYY-MM-DD')", rest, flags=re.I)
-    rest = re.sub(r'\bDEFAULT\s+CURRENT_TIME\b', "DEFAULT to_char((now() AT TIME ZONE 'UTC'), 'HH24:MI:SS')",
+    rest = re.sub(r'\bDEFAULT\s+CURRENT_TIME\b', "DEFAULT to_char((statement_timestamp() AT TIME ZONE 'UTC'), 'HH24:MI:SS')",
                   rest, flags=re.I)
     # DEFAULT "x": في SQLite نص (لو مفيش عمود بالاسم ده)، في PostgreSQL اسم عمود.
     rest = re.sub(r'\bDEFAULT\s+"((?:[^"]|"")*)"', lambda m: "DEFAULT '" + m.group(1).replace("'", "''") + "'",
@@ -290,9 +290,9 @@ _CAST_INT = re.compile(r'\bCAST\s*\(', re.I)
 
 
 _CURRENT = [
-    (re.compile(r'\bCURRENT_TIMESTAMP\b', re.I), "to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD HH24:MI:SS')"),
-    (re.compile(r'\bCURRENT_DATE\b', re.I), "to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD')"),
-    (re.compile(r'\bCURRENT_TIME\b', re.I), "to_char((now() AT TIME ZONE 'UTC'), 'HH24:MI:SS')"),
+    (re.compile(r'\bCURRENT_TIMESTAMP\b', re.I), "to_char((statement_timestamp() AT TIME ZONE 'UTC'), 'YYYY-MM-DD HH24:MI:SS')"),
+    (re.compile(r'\bCURRENT_DATE\b', re.I), "to_char((statement_timestamp() AT TIME ZONE 'UTC'), 'YYYY-MM-DD')"),
+    (re.compile(r'\bCURRENT_TIME\b', re.I), "to_char((statement_timestamp() AT TIME ZONE 'UTC'), 'HH24:MI:SS')"),
 ]
 
 
@@ -902,7 +902,7 @@ CREATE OR REPLACE FUNCTION sqlite_compat._ts(v text) RETURNS timestamp LANGUAGE 
 DECLARE s text := btrim(coalesce(v, ''));
 BEGIN
   IF s = '' THEN RETURN NULL; END IF;
-  IF lower(s) = 'now' THEN RETURN (now() AT TIME ZONE 'UTC'); END IF;
+  IF lower(s) = 'now' THEN RETURN (statement_timestamp() AT TIME ZONE 'UTC'); END IF;
   IF s ~ '^\d{4}-\d{2}-\d{2}$' THEN RETURN s::timestamp; END IF;
   IF s ~ '^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$' THEN
     RETURN replace(regexp_replace(s, '(Z|[+-]\d{2}:?\d{2})$', ''), 'T', ' ')::timestamp;
@@ -1095,7 +1095,7 @@ def ensure_schema(pg, schema):
         _ready.add(key)
 
 
-_COMPAT_VERSION = 'compat-2'
+_COMPAT_VERSION = 'compat-3'
 
 
 def _COMPAT_VERSION_CHANGED(c):

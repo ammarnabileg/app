@@ -208,6 +208,8 @@ def test_poor_accuracy_points_are_kept_but_not_drawn_or_counted():
     assert stats['distance_meters'] == 0 and stats['poor_points'] == 1
 
 
+@pytest.mark.skipif((os.environ.get('HR_DB_URL') or '').startswith(('postgres://', 'postgresql://')),
+                    reason='EXPLAIN QUERY PLAN خاص بـ SQLite')
 def test_the_monitor_queries_use_an_index(tmp_path):
     con = _conn(tmp_path)
     plan = ' '.join(str(r[-1]) for r in con.execute(

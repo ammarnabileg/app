@@ -87,10 +87,10 @@ def test_disabled_or_no_devices_means_no_run(env, monkeypatch):
     t = threading.Thread(target=das.background_worker, daemon=True); t.start()
     time.sleep(0.3)
     assert not calls, 'لا أجهزة نشطة'
+    db.set_setting(das.SETTING_ENABLED, '0')      # قبل الجهاز: وإلا العامل ممكن يلحق يشتغل بينهم
     conn = sqlite3.connect(os.path.join(env[2], 'hr_system.db'))
     conn.execute("INSERT INTO fingerprint_devices (device_name, device_ip, is_active) VALUES ('A', '10.0.0.9', 1)")
     conn.commit(); conn.close()
-    db.set_setting(das.SETTING_ENABLED, '0')
     time.sleep(0.3)
     assert not calls, 'مُطفأة'
     db.set_setting(das.SETTING_ENABLED, '1')
