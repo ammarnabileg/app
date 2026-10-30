@@ -751,10 +751,8 @@ class PgConnection:
         trig = f'{table}__seqsync'[:63]
         pc = self._pg.cursor()
         try:
-            pc.execute("""SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
-                          JOIN pg_namespace n ON n.oid = c.relnamespace
-                          WHERE n.nspname = %s AND c.relname = %s AND t.tgname = %s""",
-                       (self.schema, table, trig))
+            pc.execute('SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass(%s) AND tgname = %s',
+                       (f'{_q(self.schema)}.{_q(table)}', trig))
             if not pc.fetchone():
                 pc.execute(f'CREATE TRIGGER {_q(trig)} AFTER INSERT ON {_q(self.schema)}.{_q(table)} '
                            f'FOR EACH STATEMENT EXECUTE FUNCTION {COMPAT_SCHEMA}.seq_sync({_lit(info["identity"])})')
@@ -777,9 +775,9 @@ class PgConnection:
         event = re.sub(r'\s+', ' ', event.strip())
         pc = self._pg.cursor()
         try:
-            pc.execute("""SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
-                          JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = %s AND t.tgname = %s""",
-                       (self.schema, name))
+            # بالجدول (فهرس tgrelid + tgname) — مش بالاسم في كل القاعدة
+            pc.execute('SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass(%s) AND tgname = %s',
+                       (f'{_q(self.schema)}.{_q(table.lower() if table == table.lower() else table)}', name))
             exists = pc.fetchone() is not None
         finally:
             pc.close()
@@ -1046,26 +1044,31 @@ BEGIN
   RETURN NULL;
 END $$;
 
--- sqlite_master للـ schema الحالية
-CREATE OR REPLACE VIEW sqlite_compat.sqlite_master AS
-  SELECT 'table'::text AS type, c.relname::text AS name, c.relname::text AS tbl_name, 0 AS rootpage,
-         ('CREATE TABLE ' || c.relname || ' (' || coalesce((SELECT string_agg(a.attname || ' ' ||
-             CASE format_type(a.atttypid, a.atttypmod) WHEN 'bigint' THEN 'INTEGER' WHEN 'text' THEN 'TEXT'
-                  WHEN 'double precision' THEN 'REAL' WHEN 'bytea' THEN 'BLOB'
-                  ELSE upper(format_type(a.atttypid, a.atttypmod)) END, ', ' ORDER BY a.attnum)
-           FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped), '') || ')')::text AS sql
-  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'p')
+-- sqlite_master للـ schema الحالية. الاسم بنوعه (name) عشان الفلترة بالفهرس، وتعريف الجدول (sql)
+-- دالة بتتحسب للصفوف المطلوبة بس — كانت بتتحسب لكل الجداول في كل سؤال «الجدول ده موجود؟».
+CREATE OR REPLACE FUNCTION sqlite_compat._table_sql(rel oid) RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT 'CREATE TABLE ' || c.relname || ' (' || coalesce((SELECT string_agg(a.attname || ' ' ||
+           CASE format_type(a.atttypid, a.atttypmod) WHEN 'bigint' THEN 'INTEGER' WHEN 'text' THEN 'TEXT'
+                WHEN 'double precision' THEN 'REAL' WHEN 'bytea' THEN 'BLOB'
+                ELSE upper(format_type(a.atttypid, a.atttypmod)) END, ', ' ORDER BY a.attnum)
+         FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped), '') || ')'
+  FROM pg_class c WHERE c.oid = rel $$;
+DROP VIEW IF EXISTS sqlite_compat.sqlite_master;
+CREATE VIEW sqlite_compat.sqlite_master AS
+  SELECT 'table'::text AS type, c.relname AS name, c.relname AS tbl_name, 0 AS rootpage,
+         sqlite_compat._table_sql(c.oid) AS sql
+  FROM pg_class c WHERE c.relnamespace = current_schema()::regnamespace AND c.relkind IN ('r', 'p')
   UNION ALL
-  SELECT 'view', v.viewname::text, v.viewname::text, 0, ('CREATE VIEW ' || v.viewname || ' AS ' || v.definition)::text
-  FROM pg_views v WHERE v.schemaname = current_schema()
+  SELECT 'view', c.relname, c.relname, 0, ('CREATE VIEW ' || c.relname || ' AS ' || pg_get_viewdef(c.oid))
+  FROM pg_class c WHERE c.relnamespace = current_schema()::regnamespace AND c.relkind = 'v'
   UNION ALL
-  SELECT 'index', i.indexname::text, i.tablename::text, 0, i.indexdef::text
-  FROM pg_indexes i WHERE i.schemaname = current_schema()
+  SELECT 'index', ic.relname, c.relname, 0, pg_get_indexdef(ic.oid)
+  FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid JOIN pg_class c ON c.oid = i.indrelid
+  WHERE ic.relnamespace = current_schema()::regnamespace
   UNION ALL
-  SELECT 'trigger', t.tgname::text, c.relname::text, 0, pg_get_triggerdef(t.oid)::text
-  FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname NOT LIKE '%\_\_seqsync';
+  SELECT 'trigger', t.tgname, c.relname, 0, pg_get_triggerdef(t.oid)
+  FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+  WHERE c.relnamespace = current_schema()::regnamespace AND NOT t.tgisinternal AND t.tgname NOT LIKE '%\_\_seqsync';
 """
 
 _ready = set()
@@ -1092,7 +1095,7 @@ def ensure_schema(pg, schema):
         _ready.add(key)
 
 
-_COMPAT_VERSION = 'compat-1'
+_COMPAT_VERSION = 'compat-2'
 
 
 def _COMPAT_VERSION_CHANGED(c):
