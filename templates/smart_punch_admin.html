@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}الحضور الذكي{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1200px;" dir="rtl">
+  <h3 class="mb-1"><i class="fas fa-qrcode text-primary me-2"></i>الحضور الذكي</h3>
+  <p class="text-muted mb-3">
+    بصمة من غير جهاز: <b>كشك</b> (تابلت عند الاستقبال — رقم الموظف + رقم سري + صورة لحظة البصمة)،
+    و<b>QR</b> بيتغيّر كل {{ 20 }} ثانية يمسحه الموظف من موبايله. وكمان <b>مؤشرات التلاعب بالموقع</b>.
+  </p>
+
+  {% if new_pin %}
+  <div class="alert alert-success">
+    الرقم السري الجديد لـ <b>{{ new_pin.name }}</b>: <code class="fs-4" dir="ltr">{{ new_pin.pin }}</code>
+    — اديه للموظف دلوقتي، مش هيظهر تاني.
+  </div>
+  {% endif %}
+
+  <ul class="nav nav-tabs mb-3">
+    {% for key, label, icon in [('kiosks','الأكشاك','fa-tablet-screen-button'), ('pins','الأرقام السرية','fa-key'), ('flags','مؤشرات التلاعب','fa-triangle-exclamation')] %}
+    <li class="nav-item"><button class="nav-link {% if tab == key %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#tab-{{ key }}" type="button">
+      <i class="fas {{ icon }} me-1"></i>{{ label }}{% if key == 'flags' and flags %} <span class="badge bg-danger">{{ flags|length }}</span>{% endif %}</button></li>
+    {% endfor %}
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade {% if tab == 'kiosks' %}show active{% endif %}" id="tab-kiosks">
+      <div class="alert alert-light border small">
+        افتح رابط الكشك على تابلت وسيبه مفتوح (وضع ملء الشاشة). <b>الكاميرا</b> في المتصفح بتشتغل بس على
+        <code>https</code> أو على نفس الجهاز (<code>localhost</code>) — لو التابلت فاتح البرنامج بعنوان IP على الشبكة
+        من غير https، اقفل «صورة إجبارية» أو استخدم النسخة الأونلاين.
+      </div>
+      {% for k in kiosks + [{'id': '', 'name': '', 'branch_name': '', 'allow_pin': 1, 'allow_qr': 1, 'require_selfie': 1, 'is_active': 1}] %}
+      <form method="post" action="{{ url_for('smart_punch.admin_kiosk') }}" class="card mb-2"><div class="card-body row g-2 align-items-center">
+        <input type="hidden" name="id" value="{{ k.id }}">
+        <div class="col-md-3"><input name="name" class="form-control form-control-sm" value="{{ k.name }}" placeholder="{{ 'اسم كشك جديد (مثلًا: استقبال الشويخ)' if not k.id else '' }}"></div>
+        <div class="col-md-2"><select name="branch_name" class="form-select form-select-sm">
+          <option value="">— الفرع —</option>{% for b in branches %}<option {% if k.branch_name == b %}selected{% endif %}>{{ b }}</option>{% endfor %}</select></div>
+        <div class="col-md-4 small">
+          {% for f, l in [('allow_pin','رقم سري'), ('allow_qr','QR'), ('require_selfie','صورة إجبارية'), ('is_active','شغّال')] %}
+          <label class="me-2"><input type="checkbox" name="{{ f }}" value="1" {% if k[f] %}checked{% endif %}> {{ l }}</label>
+          {% endfor %}
+        </div>
+        <div class="col-md-3 text-end">
+          {% if k.id %}<a class="btn btn-sm btn-outline-primary" target="_blank" href="{{ url_for('smart_punch.kiosk', token=k.token) }}"><i class="fas fa-up-right-from-square"></i> فتح</a>{% endif %}
+          <button class="btn btn-sm btn-primary">{{ 'حفظ' if k.id else 'إضافة' }}</button>
+        </div>
+        {% if k.id %}<div class="col-12 small text-muted">الرابط: <code dir="ltr">{{ request.host_url.rstrip('/') }}{{ url_for('smart_punch.kiosk', token=k.token) }}</code>
+          {% if k.last_seen %} · آخر ظهور {{ k.last_seen }}{% endif %}</div>{% endif %}
+      </div></form>
+      {% endfor %}
+    </div>
+
+    <div class="tab-pane fade {% if tab == 'pins' %}show active{% endif %}" id="tab-pins">
+      <p class="small text-muted">اضغط «رقم جديد» يتولّد رقم من 4 أرقام يظهر مرّة واحدة — أو اكتب رقم بنفسك. 5 محاولات غلط = قفل ربع ساعة.</p>
+      <div class="table-responsive"><table class="table table-sm align-middle">
+        <thead><tr><th>الموظف</th><th>الرقم</th><th>القسم</th><th>الرقم السري</th><th></th></tr></thead>
+        <tbody>
+        {% for e in emps %}
+          <tr><td>{{ e.name }}</td><td>{{ e.employee_number }}</td><td>{{ e.department or '' }}</td>
+            <td class="small">{% if e.pin_at %}<span class="text-success">متسجّل</span> {{ e.pin_at[:10] }}{% if e.locked_until %} <span class="badge bg-warning text-dark">مقفول لحد {{ e.locked_until[11:16] }}</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td><form method="post" action="{{ url_for('smart_punch.admin_pin') }}" class="d-flex gap-1">
+              <input type="hidden" name="employee_id" value="{{ e.id }}">
+              <input name="pin" class="form-control form-control-sm" style="width:110px" inputmode="numeric" placeholder="تلقائي">
+              <button class="btn btn-sm btn-outline-primary text-nowrap">رقم جديد</button></form></td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="tab-pane fade {% if tab == 'flags' %}show active{% endif %}" id="tab-flags">
+      <form method="post" action="{{ url_for('smart_punch.admin_settings') }}" class="card mb-3"><div class="card-body row g-2 align-items-center">
+        <div class="col-md-6"><label><input type="checkbox" name="reject_mocked" value="1" {% if reject_mocked %}checked{% endif %}>
+          ارفض البصمة لو الموبايل بيبعت موقع وهمي (Mock Location)</label></div>
+        <div class="col-md-4"><div class="input-group input-group-sm"><span class="input-group-text">بدل المسافة لكل كم</span>
+          <input name="mileage_rate" class="form-control" value="{{ mileage_rate }}" inputmode="decimal"></div></div>
+        <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">حفظ</button></div>
+      </div></form>
+      <div class="table-responsive"><table class="table table-sm align-middle">
+        <thead><tr><th>الوقت</th><th>الموظف</th><th>النوع</th><th>من</th><th>الموقع</th><th>تفاصيل</th></tr></thead>
+        <tbody>
+        {% for f in flags %}
+          <tr><td dir="ltr" class="small">{{ f.created_at }}</td><td>{{ f.employee_name or '' }} <span class="text-muted small">{{ f.employee_number or '' }}</span></td>
+            <td><span class="badge bg-danger">{{ f.kind_label }}</span></td><td class="small">{{ f.context }}</td>
+            <td class="small" dir="ltr">{% if f.latitude %}<a target="_blank" href="https://maps.google.com/?q={{ f.latitude }},{{ f.longitude }}">{{ '%.5f'|format(f.latitude) }}, {{ '%.5f'|format(f.longitude) }}</a>{% endif %}</td>
+            <td class="small">{{ f.detail or '' }}</td></tr>
+        {% else %}
+          <tr><td colspan="6" class="text-center text-muted">مفيش مؤشرات في آخر 30 يوم 👌</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

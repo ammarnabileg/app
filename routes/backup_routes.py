@@ -50,6 +50,7 @@ def index():
         inspected=session.get('backup_inspected'),
         human_size=bk.human_size,
         auto=bk.auto_settings(),
+        offsite=bk.offsite_settings(),
         auto_list=bk.list_auto_backups(),
     )
 
@@ -251,6 +252,19 @@ def auto_save():
         flash('حُفظت إعدادات النسخ التلقائي.', 'success')
     except (TypeError, ValueError):
         flash('قيم غير صحيحة.', 'error')
+    return redirect(url_for('backup.index'))
+
+
+@backup_bp.route('/offsite/save', methods=['POST'])
+@login_required
+@admin_required
+def offsite_save():
+    try:
+        bk.save_offsite_settings(request.form.get('dir'), request.form.get('url'), request.form.get('user'),
+                                 request.form.get('password') or None)
+        flash('اتحفظت إعدادات النسخة خارج السيرفر — جرّب «خُذ نسخة الآن» واتأكد إنها وصلت.', 'success')
+    except ValueError as e:
+        flash(str(e), 'error')
     return redirect(url_for('backup.index'))
 
 

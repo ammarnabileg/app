@@ -78,7 +78,7 @@ def test_the_report_carries_nothing_personal():
     """القناة تُشخِّص لا تُراقب: لا أسماء ولا بيانات موظفين."""
     from utils import deployment
 
-    allowed = {'version', 'build_date', 'deployment', 'schema'}
+    allowed = {'version', 'build_date', 'deployment', 'schema'} | set(deployment.HEALTH_KEYS)
     assert set(deployment.report()) <= allowed
 
 

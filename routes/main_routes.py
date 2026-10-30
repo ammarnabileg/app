@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_babel import _, gettext
 from datetime import datetime, date
-from utils.db import get_db_connection
+from utils.db import get_db_connection, get_setting, set_setting
 from utils.auth import login_required
 from utils.rbac import require_permission
 from utils.document_utils import get_document_expiry_alerts
@@ -39,6 +39,11 @@ def index():
     
     # تنبيهات انتهاء الصلاحية
     expiry_alerts = get_document_expiry_alerts()
+    try:
+        from utils import employee_lifecycle
+        employee_lifecycle.run_daily(conn)
+    except Exception:
+        pass
     
     # إحصائيات سريعة
     stats = {
@@ -84,7 +89,8 @@ def settings():
                            msggw=_message_gateway_state(conn),
                            field_on=_field.module_enabled(conn),
                            field_data=_field.module_footprint(conn),
-                           device_clock=_device_clock_state(conn))
+                           device_clock=_device_clock_state(conn),
+                           update_channel=get_setting('update_channel', '') or 'stable')
 
 
 def _device_clock_state(conn):
@@ -136,6 +142,16 @@ def save_device_clock():
         msg += f' — واتبعت ضبط الوقت لـ {n} جهاز (بيوصل أول ما الجهاز يسأل السيرفر)'
     flash(msg, 'success')
     return redirect(url_for('main.settings') + '#device-clock')
+
+
+@main_bp.route('/settings/update-channel', methods=['POST'])
+@login_required
+@require_permission('page.settings')
+def save_update_channel():
+    ch = 'beta' if request.form.get('update_channel') == 'beta' else 'stable'
+    set_setting('update_channel', ch)
+    flash('التحديثات: ' + ('تجريبية' if ch == 'beta' else 'مستقرة'), 'success')
+    return redirect(url_for('main.settings'))
 
 
 def _cloud_sync_state(conn):
@@ -549,6 +565,17 @@ def license_page():
                   'success' if ok else 'error')
             return redirect(url_for('main.license_page'))
 
+        if req_type == 'offline_token':
+            # تركيبٌ بلا إنترنت: ملفّ رخصة موقَّع لهذا الجهاز (utils/license.import_offline_token).
+            tok = request.form.get('token') or ''
+            f = request.files.get('token_file')
+            if f and f.filename:
+                tok = f.read(20000).decode('utf-8', errors='ignore')
+            from utils.license import import_offline_token
+            ok, msg = import_offline_token(tok)
+            flash(msg, 'success' if ok else 'error')
+            return redirect(url_for('main.index') if ok else url_for('main.license_page'))
+
         if req_type == 'login':
             # Activation by Login
             username = request.form.get('username')
@@ -601,7 +628,12 @@ def license_page():
         emp_usage = usage(get_db_connection())
     except Exception as e:
         print(f"[limits] {e}")
-    return render_template('license.html', info=info, emp_usage=emp_usage)
+    try:
+        from utils.system_id import get_system_hwid
+        offline_hwid = get_system_hwid()
+    except Exception:
+        offline_hwid = ''
+    return render_template('license.html', info=info, emp_usage=emp_usage, offline_hwid=offline_hwid)
 
 # نقاط النهاية API
 @main_bp.route('/api/stats')

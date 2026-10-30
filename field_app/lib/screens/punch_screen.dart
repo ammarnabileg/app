@@ -107,6 +107,7 @@ class _PunchScreenState extends State<PunchScreen> {
         timestampMillis: DateTime.now().millisecondsSinceEpoch,
         deviceUuid: widget.deviceUuid,
         punchType: _mode,
+        isMocked: pos.isMocked,
       );
 
       if (mounted) {

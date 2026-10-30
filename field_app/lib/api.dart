@@ -192,6 +192,7 @@ class Api {
     required double accuracy,
     required String token,
     required File photo,
+    bool isMocked = false,
   }) {
     return _multipart('/portal/api/field/check-in', {
       'station_id': '$stationId',
@@ -200,6 +201,7 @@ class Api {
       'longitude': '$lon',
       'accuracy': '$accuracy',
       'token': token,
+      'is_mocked': isMocked ? '1' : '0',
     }, photo);
   }
 
@@ -210,6 +212,7 @@ class Api {
     required double accuracy,
     required String token,
     required File photo,
+    bool isMocked = false,
   }) {
     return _multipart('/portal/api/field/check-out', {
       'visit_id': '$visitId',
@@ -217,6 +220,7 @@ class Api {
       'longitude': '$lon',
       'accuracy': '$accuracy',
       'token': token,
+      'is_mocked': isMocked ? '1' : '0',
     }, photo);
   }
 

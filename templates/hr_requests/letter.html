@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ letter.title if letter else 'خطاب' }}{% if letter and letter.number %} — {{ letter.number }}{% endif %}</title>
+<style>
+    @page { size: A4; margin: 18mm; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; color: #111; margin: 16px; background: #f4f5f5; }
+    .page { background: #fff; max-width: 760px; margin: 0 auto; padding: 32px 40px; border: 1px solid #ddd; border-radius: 6px; min-height: 900px; position: relative; }
+    .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1F5C4A; padding-bottom: 10px; margin-bottom: 28px; }
+    .head h2 { margin: 0; font-size: 20px; color: #1F5C4A; }
+    .muted { color: #666; font-size: 12px; }
+    .meta { font-size: 13px; text-align: left; line-height: 1.8; direction: rtl; }
+    h1 { text-align: center; font-size: 22px; margin: 10px 0 28px; text-decoration: underline; text-underline-offset: 8px; }
+    .body { font-size: 16px; line-height: 2.1; text-align: justify; }
+    .sig { margin-top: 70px; display: flex; justify-content: flex-end; }
+    .sig div { width: 40%; text-align: center; border-top: 1px solid #333; padding-top: 6px; font-size: 14px; }
+    .foot { position: absolute; bottom: 20px; right: 40px; left: 40px; border-top: 1px solid #ccc; padding-top: 6px; font-size: 11px; color: #666; text-align: center; }
+    .pending { max-width: 520px; margin: 60px auto; background: #fff; padding: 24px; border-radius: 8px; text-align: center; border: 1px solid #ddd; }
+    .noprint { margin: 0 auto 12px; max-width: 760px; text-align: left; }
+    .noprint button { padding: 8px 18px; border: 0; background: #1F5C4A; color: #fff; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    @media print { body { background: #fff; margin: 0; } .page { border: 0; padding: 0; min-height: auto; } .noprint { display: none; } .foot { position: fixed; } }
+    @media (max-width: 600px) { body { margin: 8px; } .page { padding: 18px 16px; } .head { flex-direction: column; gap: 8px; } .meta { text-align: right; } .sig div { width: 70%; } }
+</style>
+</head>
+<body>
+{% if pending %}
+<div class="pending">
+  <h3>الخطاب لسه ما اتعتمدش</h3>
+  <p class="muted">حالته: {{ req.status_label }} — هيبقى جاهز للطباعة أول ما يتعتمد.</p>
+</div>
+{% else %}
+<div class="noprint"><button onclick="window.print()">🖨 طباعة</button></div>
+<div class="page">
+  <div class="head">
+    <div>
+      <h2>{{ letter.company.company_name or '' }}</h2>
+      {% if letter.company.company_address %}<div class="muted">{{ letter.company.company_address }}</div>{% endif %}
+    </div>
+    <div class="meta">
+      <div>الرقم: <b dir="ltr">{{ letter.number }}</b></div>
+      <div>التاريخ: <b dir="ltr">{{ letter.date }}</b></div>
+    </div>
+  </div>
+  <h1>{{ letter.title }}</h1>
+  <div class="body">{{ letter.body|safe }}</div>
+  <div class="sig"><div>إدارة الموارد البشرية<br><span class="muted">التوقيع والختم</span></div></div>
+  <div class="foot">
+    {{ letter.company.company_name or '' }}
+    {% if letter.company.company_phone %} · {{ letter.company.company_phone }}{% endif %}
+    {% if letter.company.company_email %} · {{ letter.company.company_email }}{% endif %}
+  </div>
+</div>
+{% endif %}
+</body>
+</html>

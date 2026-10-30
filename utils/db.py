@@ -162,7 +162,7 @@ def set_setting(setting_key, setting_value):
 # database on every init_db() run, which makes "which build wrote this file"
 # answerable after the fact — the single hardest question during a support
 # call on a client machine.
-SCHEMA_VERSION = 68
+SCHEMA_VERSION = 73
 
 
 def get_schema_version(conn):
@@ -1249,6 +1249,13 @@ def init_db():
         ('fingerprint_devices', 'bio_versions', 'TEXT'),
         ('adms_commands', 'attempts', 'INTEGER DEFAULT 0'),
         ('fingerprint_devices', 'lock_mode', 'TEXT'),
+        # محرّك الأجهزة الموحّد (utils/devices) — v69: الماركة/البروتوكول وبيانات الدخول.
+        # فارغٌ في الأجهزة الموجودة = ZKTeco كما كانت.
+        ('fingerprint_devices', 'driver', 'TEXT'),
+        ('fingerprint_devices', 'auth_user', 'TEXT'),
+        ('fingerprint_devices', 'auth_secret', 'TEXT'),
+        ('fingerprint_devices', 'use_https', 'INTEGER DEFAULT 0'),
+        ('fingerprint_devices', 'driver_options', 'TEXT'),
     ]
     
     for table, column, col_type in migrations:
@@ -1812,6 +1819,7 @@ def init_db():
             ('admin.settings', 'System Settings', 'Administration', 'Global system settings'),
             ('admin.danger', 'العمليات الحساسة (سوبر أدمن)', 'Administration', 'Delete employees/devices, recycle bin and sensitive audit log'),
             ('admin.roles', 'Manage Roles', 'Administration', 'Create/Edit roles and permissions'),
+            ('hr.requests', 'طلبات الموظفين والموافقات (موارد بشرية)', 'Employees', 'HR step of employee requests (letters, expenses, loans, overtime), letter templates and approval chains'),
             
             # Pages
             ('page.dashboard', 'الرئيسية (Dashboard)', 'Pages', 'Access Dashboard page'),
@@ -1939,6 +1947,36 @@ def init_db():
         _labor_migrate(conn)
     except Exception as e:
         print(f'labor law migration failed: {e}')
+
+    # طلباتُ الموظّفين ومسارُ موافقاتها وقوالبُ الخطابات (v70).
+    try:
+        from utils.hr_requests import ensure_schema as _hr_requests_schema
+        _hr_requests_schema(conn)
+    except Exception as e:
+        print(f'hr requests schema failed: {e}')
+
+    # متابعةُ الموظّفين: الإقامة، تنبيهاتُ الوثائق، وقوائمُ الاستلام والتسليم (v71).
+    try:
+        from utils.employee_lifecycle import ensure_schema as _lifecycle_schema
+        _lifecycle_schema(conn)
+    except Exception as e:
+        print(f'employee lifecycle schema failed: {e}')
+
+    # الإعلاناتُ والاستبيانات، والكشكُ وQR ومؤشّراتُ الموقع المزيّف (v72).
+    try:
+        from utils.engagement import ensure_schema as _engagement_schema
+        from utils.smart_punch import ensure_schema as _smart_punch_schema
+        _engagement_schema(conn)
+        _smart_punch_schema(conn)
+    except Exception as e:
+        print(f'engagement / smart punch schema failed: {e}')
+
+    # الوكيلُ المحلّيّ لأجهزة الشركة مع النسخة الأونلاين (v73).
+    try:
+        from utils.connector import ensure_schema as _connector_schema
+        _connector_schema(conn)
+    except Exception as e:
+        print(f'connector schema failed: {e}')
 
     # ثانيةً: جداولُ تُنشئها الترحيلاتُ أعلاه (تاريخُ الشفتات) لم تكن
     # موجودةً عند التثبيت الأوّل في قاعدةٍ جديدة. `IF NOT EXISTS` يجعلها بلا كلفة.

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}الإعلانات والاستبيانات{% endblock %}
+
+{% macro audience_fields() %}
+<div class="col-md-3"><select name="audience_type" class="form-select form-select-sm" onchange="aud(this)">
+  <option value="all">كل الموظفين</option><option value="department">قسم</option><option value="branch">فرع</option></select></div>
+<div class="col-md-3 aud-department" style="display:none"><select name="audience_dept" class="form-select form-select-sm">
+  {% for d in depts %}<option>{{ d }}</option>{% endfor %}</select></div>
+<div class="col-md-3 aud-branch" style="display:none"><select name="audience_branch" class="form-select form-select-sm">
+  {% for b in branches %}<option>{{ b }}</option>{% endfor %}</select></div>
+{% endmacro %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1150px;" dir="rtl">
+  <h3 class="mb-1"><i class="fas fa-bullhorn text-primary me-2"></i>الإعلانات والاستبيانات</h3>
+  <p class="text-muted mb-3">الإعلان بيظهر في رئيسية بوابة الموظف وبيوصله إشعار، وتقدر تشوف مين قرأه. والاستبيان كل موظف يجاوبه مرة واحدة — والمجهول ما بيتسجّلش معاه اسم.</p>
+
+  <ul class="nav nav-tabs mb-3">
+    <li class="nav-item"><button class="nav-link {% if tab == 'ann' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#tab-ann" type="button"><i class="fas fa-bullhorn me-1"></i>الإعلانات</button></li>
+    <li class="nav-item"><button class="nav-link {% if tab == 'surveys' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#tab-surveys" type="button"><i class="fas fa-square-poll-vertical me-1"></i>الاستبيانات</button></li>
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade {% if tab == 'ann' %}show active{% endif %}" id="tab-ann">
+      <form method="post" action="{{ url_for('engagement.save_announcement') }}" class="card mb-3"><div class="card-body row g-2">
+        <div class="col-12"><input name="title" class="form-control" placeholder="عنوان الإعلان" required></div>
+        <div class="col-12"><textarea name="body" class="form-control" rows="3" placeholder="التفاصيل"></textarea></div>
+        {{ audience_fields() }}
+        <div class="col-md-3"><div class="input-group input-group-sm"><span class="input-group-text">ينتهي</span><input type="date" name="expires_on" class="form-control"></div></div>
+        <div class="col-md-2 d-flex align-items-center"><label><input type="checkbox" name="pinned" value="1"> مثبّت فوق</label></div>
+        <div class="col-md-1"><button class="btn btn-sm btn-primary w-100">نشر</button></div>
+      </div></form>
+      <div class="table-responsive"><table class="table table-sm align-middle">
+        <thead><tr><th>الإعلان</th><th>لمين</th><th>اتنشر</th><th>قرأه</th><th>الحالة</th></tr></thead>
+        <tbody>
+        {% for a in anns %}
+          <tr><td>{% if a.pinned %}📌 {% endif %}<b>{{ a.title }}</b><div class="small text-muted">{{ (a.body or '')[:120] }}</div></td>
+            <td class="small">{{ a.audience }}</td><td class="small" dir="ltr">{{ (a.created_at or '')[:10] }}{% if a.expires_on %} → {{ a.expires_on }}{% endif %}</td>
+            <td>{{ a.read_count }}/{{ a.target_count }}</td>
+            <td><form method="post" action="{{ url_for('engagement.save_announcement') }}">
+              <input type="hidden" name="id" value="{{ a.id }}"><input type="hidden" name="is_active" value="{{ 0 if a.is_active else 1 }}">
+              <button class="btn btn-sm {{ 'btn-outline-secondary' if a.is_active else 'btn-outline-success' }}">{{ 'إخفاء' if a.is_active else 'إظهار' }}</button></form></td></tr>
+        {% else %}<tr><td colspan="5" class="text-muted text-center">مفيش إعلانات</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="tab-pane fade {% if tab == 'surveys' %}show active{% endif %}" id="tab-surveys">
+      <form method="post" action="{{ url_for('engagement.save_survey') }}" class="card mb-3" onsubmit="return packQs(this)"><div class="card-body row g-2">
+        <div class="col-md-8"><input name="title" class="form-control" placeholder="عنوان الاستبيان" required></div>
+        <div class="col-md-4 d-flex align-items-center"><label><input type="checkbox" name="anonymous" value="1" checked> مجهول (من غير أسماء)</label></div>
+        <div class="col-12"><input name="description" class="form-control form-control-sm" placeholder="وصف قصير (اختياري)"></div>
+        {{ audience_fields() }}
+        <div class="col-md-3"><div class="input-group input-group-sm"><span class="input-group-text">يقفل</span><input type="date" name="closes_on" class="form-control"></div></div>
+        <div class="col-12" id="qs"></div>
+        <div class="col-12 d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addQ()"><i class="fas fa-plus"></i> سؤال</button>
+          <button class="btn btn-sm btn-primary">نشر الاستبيان</button>
+        </div>
+        <input type="hidden" name="questions">
+      </div></form>
+
+      {% for s in surveys %}
+      <div class="card mb-3"><div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div><b>{{ s.title }}</b> <span class="small text-muted">{{ 'مجهول' if s.anonymous else 'بالأسماء' }} · جاوب {{ s.responses }} من {{ s.target_count }}{% if s.closes_on %} · يقفل {{ s.closes_on }}{% endif %}</span></div>
+          <form method="post" action="{{ url_for('engagement.save_survey') }}"><input type="hidden" name="id" value="{{ s.id }}"><input type="hidden" name="is_open" value="{{ 0 if s.is_open else 1 }}">
+            <button class="btn btn-sm {{ 'btn-outline-secondary' if s.is_open else 'btn-outline-success' }}">{{ 'قفل' if s.is_open else 'فتح' }}</button></form>
+        </div>
+        {% for r in s.results %}
+          <div class="mt-2"><div class="small fw-bold">{{ loop.index }}. {{ r.q }} <span class="text-muted fw-normal">({{ r.n }} رد{% if r.avg %} · متوسط {{ r.avg }}/5{% endif %})</span></div>
+          {% if r.counts %}
+            {% for label, n in r.counts %}
+              <div class="d-flex align-items-center gap-2 small"><span style="width:140px" class="text-truncate">{{ label }}</span>
+                <div class="progress flex-fill" style="height:8px"><div class="progress-bar" style="width: {{ (100 * n / r.n) if r.n else 0 }}%"></div></div><span style="width:30px">{{ n }}</span></div>
+            {% endfor %}
+          {% else %}
+            <ul class="small mb-0">{% for t in r.texts[-10:] %}<li>{{ t }}</li>{% endfor %}</ul>
+          {% endif %}</div>
+        {% endfor %}
+        {% if s.who %}<div class="small text-muted mt-2">جاوب: {{ s.who|join('، ') }}</div>{% endif %}
+      </div></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+<script>
+function aud(sel) {
+  const f = sel.closest('form');
+  f.querySelector('.aud-department').style.display = sel.value === 'department' ? '' : 'none';
+  f.querySelector('.aud-branch').style.display = sel.value === 'branch' ? '' : 'none';
+}
+function addQ() {
+  const d = document.createElement('div'); d.className = 'q input-group input-group-sm mb-1';
+  d.innerHTML = `<input class="form-control qt" placeholder="السؤال">
+    <select class="form-select qk" style="max-width:130px" onchange="this.nextElementSibling.style.display = this.value === 'choice' ? '' : 'none'">
+      {% for k, v in qtypes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+    <input class="form-control qo" placeholder="الاختيارات مفصولة بفاصلة">
+    <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()">×</button>`;
+  document.getElementById('qs').appendChild(d);
+}
+function packQs(f) {
+  const qs = [...f.querySelectorAll('.q')].map(d => ({ q: d.querySelector('.qt').value, type: d.querySelector('.qk').value,
+    options: d.querySelector('.qo').value.split(/[,،]/).map(s => s.trim()).filter(Boolean) }));
+  f.questions.value = JSON.stringify(qs);
+  return true;
+}
+addQ();
+</script>
+{% endblock %}

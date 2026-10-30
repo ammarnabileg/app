@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>{{ k.name }} — بصمة</title>
+<style>
+  :root { --bg: #0f2a22; --card: #163a2f; --fg: #f4f7f6; --muted: #9fb8ae; --accent: #2fbf8a; --err: #ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; }
+  header h1 { margin: 0; font-size: 20px; }
+  #clock { font-size: 34px; font-weight: 800; direction: ltr; }
+  main { display: flex; flex-wrap: wrap; gap: 20px; padding: 10px 20px 20px; justify-content: center; }
+  .card { background: var(--card); border-radius: 18px; padding: 18px; width: min(420px, 100%); }
+  .card h2 { margin: 0 0 10px; font-size: 18px; color: var(--muted); font-weight: 600; }
+  .qr { background: #fff; border-radius: 14px; padding: 10px; display: flex; justify-content: center; }
+  .qr img { width: 100%; max-width: 320px; aspect-ratio: 1; }
+  .bar { height: 4px; background: #ffffff22; border-radius: 4px; margin-top: 10px; overflow: hidden; }
+  .bar div { height: 100%; background: var(--accent); width: 100%; }
+  input { width: 100%; font-size: 26px; padding: 12px; border-radius: 12px; border: 0; margin-bottom: 10px; text-align: center; direction: ltr; background: #fff; color: #111; }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .pad button { font-size: 26px; padding: 16px 0; border: 0; border-radius: 12px; background: #ffffff14; color: var(--fg); cursor: pointer; }
+  .pad button:active { background: #ffffff30; }
+  .go { grid-column: span 3; background: var(--accent) !important; font-weight: 800; }
+  video { width: 100%; border-radius: 12px; background: #000; transform: scaleX(-1); max-height: 200px; object-fit: cover; margin-bottom: 10px; }
+  #msg { min-height: 60px; font-size: 22px; text-align: center; margin-top: 12px; font-weight: 700; }
+  .ok { color: var(--accent); } .bad { color: var(--err); }
+  @media (max-width: 600px) { #clock { font-size: 24px; } }
+</style>
+</head>
+<body>
+<header><h1>{{ k.name }}{% if k.branch_name %} — {{ k.branch_name }}{% endif %}</h1><div id="clock"></div></header>
+<main>
+  {% if k.allow_qr %}
+  <section class="card">
+    <h2>امسح الكود من موبايلك (وانت داخل البوابة)</h2>
+    <div class="qr"><img id="qr" alt="QR"></div>
+    <div class="bar"><div id="qrbar"></div></div>
+  </section>
+  {% endif %}
+  {% if k.allow_pin %}
+  <section class="card">
+    <h2>أو اكتب رقمك والرقم السري</h2>
+    {% if k.require_selfie %}<video id="cam" autoplay playsinline muted></video>{% endif %}
+    <input id="num" inputmode="numeric" placeholder="رقم الموظف" autocomplete="off">
+    <input id="pin" inputmode="numeric" type="password" placeholder="الرقم السري" autocomplete="off">
+    <div class="pad" id="pad"></div>
+    <div id="msg"></div>
+  </section>
+  {% endif %}
+</main>
+<canvas id="snap" width="480" height="360" hidden></canvas>
+<script>
+const WINDOW = {{ window }};
+const base = location.pathname.replace(/\/$/, '');
+function tick() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB'); }
+setInterval(tick, 1000); tick();
+
+{% if k.allow_qr %}
+function refreshQr() {
+  document.getElementById('qr').src = base + '/qr.svg?t=' + Date.now();
+  const bar = document.getElementById('qrbar');
+  bar.style.transition = 'none'; bar.style.width = '100%';
+  requestAnimationFrame(() => { bar.style.transition = `width ${WINDOW}s linear`; bar.style.width = '0%'; });
+}
+// يتزامن مع حدود النافذة على الخادم: الكود يتغيّر هناك كل WINDOW ثانية من بداية الساعة.
+refreshQr();
+setTimeout(() => { refreshQr(); setInterval(refreshQr, WINDOW * 1000); }, (WINDOW - (Date.now() / 1000) % WINDOW) * 1000 + 300);
+{% endif %}
+
+{% if k.allow_pin %}
+let focus = document.getElementById('num');
+['num', 'pin'].forEach(id => document.getElementById(id).addEventListener('focus', e => focus = e.target));
+const pad = document.getElementById('pad');
+['1','2','3','4','5','6','7','8','9','⌫','0','✓'].forEach(k => {
+  const b = document.createElement('button'); b.textContent = k; b.type = 'button';
+  b.onclick = () => {
+    if (k === '⌫') focus.value = focus.value.slice(0, -1);
+    else if (k === '✓') { if (focus.id === 'num' && focus.value) { focus = document.getElementById('pin'); focus.focus(); } else submit(); }
+    else focus.value += k;
+  };
+  pad.appendChild(b);
+});
+const go = document.createElement('button'); go.className = 'go'; go.textContent = 'تسجيل البصمة'; go.type = 'button'; go.onclick = submit; pad.appendChild(go);
+
+{% if k.require_selfie %}
+const cam = document.getElementById('cam');
+navigator.mediaDevices && navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+  .then(s => cam.srcObject = s).catch(() => show('اسمح للكاميرا عشان الكشك يشتغل', false));
+function photo() {
+  const c = document.getElementById('snap'); c.getContext('2d').drawImage(cam, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.7);
+}
+{% else %}
+function photo() { return null; }
+{% endif %}
+
+let busy = false, clearT;
+function show(text, ok) {
+  const m = document.getElementById('msg'); m.textContent = text; m.className = ok ? 'ok' : 'bad';
+  clearTimeout(clearT); clearT = setTimeout(() => { m.textContent = ''; }, 6000);
+}
+async function submit() {
+  const num = document.getElementById('num'), pin = document.getElementById('pin');
+  if (busy || !num.value || !pin.value) return;
+  busy = true;
+  try {
+    const r = await fetch(base + '/punch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_number: num.value, pin: pin.value, photo: photo() }) });
+    const d = await r.json(); show(d.message, d.success);
+  } catch (e) { show('مفيش اتصال بالسيرفر', false); }
+  num.value = ''; pin.value = ''; focus = num; busy = false;
+}
+document.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+{% endif %}
+</script>
+</body>
+</html>

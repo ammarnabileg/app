@@ -602,8 +602,11 @@ def write_user(dev, user, privilege):
 
 
 def _direct_devices(conn):
+    # ZKTeco المباشرة وحدها — جهازُ Hikvision مثلًا ليس ADMS ولا K40 (utils/devices).
+    from utils.devices.registry import LEGACY_SQL
     return conn.execute("SELECT * FROM fingerprint_devices WHERE is_active = 1 "
-                        "AND COALESCE(is_adms, 0) = 0 AND COALESCE(device_ip, '') != ''").fetchall()
+                        "AND COALESCE(is_adms, 0) = 0 AND COALESCE(device_ip, '') != '' "
+                        f"AND {LEGACY_SQL}").fetchall()
 
 
 def _remember_fp(conn, device, fp_ver):
@@ -1132,7 +1135,14 @@ def push_direct(conn, device, employees, templates='all'):
 def apply_now():
     """بعد إيقاف موظّف أو تفعيله: الأجهزةُ المباشرة تُعالَج الآن في الخلفيّة —
     والجهازُ المقفول تُعالجه المزامنةُ التالية."""
-    threading.Thread(target=_tenancy_bind(enforce_all), name='تعطيل-على-أجهزة-IP', daemon=True).start()
+    def run():
+        enforce_all()
+        try:
+            from utils.devices import engine
+            engine.enforce_all()            # Hikvision وأخواتها: إيقافٌ/تفعيلٌ بسوّاقها
+        except Exception as e:              # noqa: BLE001
+            logger.warning(f'brand enforce: {e}')
+    threading.Thread(target=_tenancy_bind(run), name='تعطيل-على-أجهزة-IP', daemon=True).start()
 
 
 def push_employee(employee_number, conn=None, templates='all'):

@@ -1184,6 +1184,9 @@
         <!-- VIEW 1: TODAY / HOME                                           -->
         <!-- ============================================================== -->
         <section id="view-today" class="portal-view active">
+
+            <!-- الإعلانات والاستبيانات (utils/engagement) -->
+            <div id="engageBlock"></div>
             
             <!-- بطاقة الحضور: زجاجٌ أخضرُ داكن، ساعةٌ حيّة، وزرُّ البصمة إن كانت مفعّلة -->
             <div class="hero-card hero-today">
@@ -1442,6 +1445,7 @@
             <div class="section-header">
                 <h3 class="section-title">طلبات تنتظر اعتمادك</h3>
             </div>
+            <div id="hrTeamApprovalsContainer"></div>
             <div id="teamApprovalsContainer">
                 <div style="text-align: center; color: var(--ios-subtext); padding: 20px;">
                     <i class="fas fa-spinner fa-spin me-2"></i> جاري فحص الطلبات...
@@ -1502,6 +1506,21 @@
                     </div>
                 </div>
             </div>
+
+            <!-- طلبات أخرى: خطاب، مصروف، سلفة، أوفرتايم (utils/hr_requests) -->
+            <div id="hrApprovalsBlock" style="display:none;">
+                <div class="section-header">
+                    <h3 class="section-title">طلبات تنتظر اعتمادك</h3>
+                </div>
+                <div id="hrApprovalsContainer"></div>
+            </div>
+            <div class="section-header" id="hrRequestsHeader" style="display:none;">
+                <h3 class="section-title">طلبات أخرى</h3>
+                <button class="btn-approve" onclick="openHrRequestModal()" style="padding: 8px 14px;" id="hrNewBtn">
+                    <i class="fas fa-plus me-1"></i> خطاب / مصروف / سلفة
+                </button>
+            </div>
+            <div id="hrRequestsContainer"></div>
 
             <div class="section-header">
                 <h3 class="section-title">تاريخ جميع الطلبات</h3>
@@ -1690,6 +1709,57 @@
         </div>
     </div>
 
+    <div class="ios-sheet-overlay" id="hrRequestModalOverlay" onclick="closeHrRequestModal()">
+        <div class="ios-sheet" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <h3 class="sheet-title">طلب جديد 📝</h3>
+            <form id="hrRequestForm" onsubmit="submitHrRequest(event)">
+                <div class="form-group">
+                    <label>نوع الطلب</label>
+                    <select class="form-control-ios" name="type" id="hrReqType" onchange="hrReqTypeChanged()" required></select>
+                    <small id="hrReqChain" style="color: var(--ios-subtext);"></small>
+                </div>
+                <div class="hr-f" data-for="letter">
+                    <div class="form-group"><label>الخطاب</label><select class="form-control-ios" name="template_id" id="hrReqLetters"></select></div>
+                    <div class="form-group"><label>موجّه إلى</label><input class="form-control-ios" name="addressee" placeholder="مثلًا: بنك الكويت الوطني — أو اتركه: من يهمه الأمر"></div>
+                </div>
+                <div class="hr-f" data-for="expense">
+                    <div class="form-group" id="hrMileageBox" style="display:none;">
+                        <label><input type="checkbox" id="hrMileageOn" onchange="hrMileageToggle()"> بدل مسافة من رحلاتي (التتبّع)</label>
+                        <div id="hrMileageFields" style="display:none; margin-top:6px;">
+                            <input type="month" class="form-control-ios" id="hrMileageMonth" onchange="hrMileagePreview()">
+                            <small id="hrMileageInfo" style="color: var(--ios-subtext);"></small>
+                        </div>
+                    </div>
+                    <div class="form-group hr-nomileage"><label>المبلغ</label><input type="number" step="0.001" min="0" class="form-control-ios" name="amount" inputmode="decimal"></div>
+                    <div class="form-group hr-nomileage"><label>التاريخ</label><input type="date" class="form-control-ios" name="expense_date" value="{{ today_date }}"></div>
+                    <div class="form-group hr-nomileage"><label>الوصف</label><input class="form-control-ios" name="description" placeholder="مثلًا: بنزين مشوار العميل"></div>
+                    <div class="form-group hr-nomileage"><label>صورة الفاتورة (اختياري)</label><input type="file" class="form-control-ios" id="hrReqFile" accept="image/*,application/pdf"></div>
+                </div>
+                <div class="hr-f" data-for="loan">
+                    <div class="form-group"><label>مبلغ السلفة</label><input type="number" step="0.001" min="0" class="form-control-ios" name="amount" inputmode="decimal"></div>
+                    <div class="form-group"><label>عدد الشهور</label><input type="number" min="1" max="60" class="form-control-ios" name="months" value="6"></div>
+                    <div class="form-group"><label>السبب</label><input class="form-control-ios" name="reason"></div>
+                </div>
+                <div class="hr-f" data-for="overtime">
+                    <div class="form-group"><label>اليوم</label><input type="date" class="form-control-ios" name="work_date" value="{{ today_date }}"></div>
+                    <div class="form-group"><label>عدد الساعات</label><input type="number" step="0.5" min="0.5" max="24" class="form-control-ios" name="hours"></div>
+                    <div class="form-group"><label>السبب</label><input class="form-control-ios" name="reason"></div>
+                </div>
+                <button type="submit" class="btn-ios-submit" id="submitHrReqBtn">إرسال الطلب</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="ios-sheet-overlay" id="surveyModalOverlay" onclick="this.style.display='none'">
+        <div class="ios-sheet" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <h3 class="sheet-title" id="surveyTitle">استبيان</h3>
+            <p id="surveyDesc" style="color: var(--ios-subtext);"></p>
+            <form id="surveyForm" onsubmit="submitSurvey(event)"></form>
+        </div>
+    </div>
+
     <!-- ============================================================== -->
     <!-- HTML POPUPS & TOASTS (Replaces browser JS alert)                -->
     <!-- ============================================================== -->
@@ -1802,6 +1872,7 @@
             }
             if (tabId === 'tab-attendance') loadAttendanceLog();
             if (tabId === 'tab-team') loadTeamData();
+            if (tabId === 'tab-leaves' || tabId === 'tab-team') loadHrRequests();
         }
 
         // ==================== الإشعارات ====================
@@ -1906,7 +1977,7 @@
             } catch (e) { /* يُغلق على أي حال */ }
             loadNotificationCount();
             document.getElementById('notifOverlay').classList.remove('open');
-            const tabs = { team: 'tab-team', home: 'tab-today', leaves: 'tab-leaves' };
+            const tabs = { team: 'tab-team', home: 'tab-today', leaves: 'tab-leaves', profile: 'tab-profile' };
             if (tabs[target]) switchTab(tabs[target]);
         }
 
@@ -2814,7 +2885,190 @@
             setTimeout(() => openInstallSheet(false), 2500);
         }
 
+        // ==================== طلبات أخرى (خطاب/مصروف/سلفة/أوفرتايم) ====================
+        let HR_TYPES = [];
+        const HR_STEP_ICON = { approved: '✅', rejected: '❌', current: '⏳', skipped: '⏭️', waiting: '◻️' };
+        const HR_BADGE = { pending: 'pending', approved: 'approved', rejected: 'rejected', cancelled: 'rejected' };
+        function escH(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+        function hrCard(r, mode) {
+            const steps = r.steps.map(s => `${HR_STEP_ICON[s.status] || ''} ${escH(s.label)}${s.by ? ' (' + escH(s.by) + ')' : ''}`).join(' ← ');
+            let actions = '';
+            if (mode === 'approve') {
+                actions = `<div style="display:flex; gap:8px; margin-top:10px;">
+                    <button class="btn-approve" style="flex:1" onclick="hrDecide(${r.id}, 'approve')">اعتماد</button>
+                    <button class="btn-reject" style="flex:1" onclick="hrDecide(${r.id}, 'reject')">رفض</button></div>`;
+            } else {
+                if (r.status === 'pending') actions = `<button class="btn-reject" style="margin-top:10px; width:100%" onclick="hrCancel(${r.id})">إلغاء الطلب</button>`;
+                if (r.type === 'letter' && r.status === 'approved') actions = `<a class="btn-approve" style="margin-top:10px; display:block; text-align:center; text-decoration:none" target="_blank" href="/requests/${r.id}/letter">🖨 عرض وطباعة الخطاب</a>`;
+            }
+            return `<div class="ios-list-card" id="hr-req-${r.id}" style="background:#fff; border-radius:16px; padding:14px; margin-bottom:10px; box-shadow:0 2px 10px rgba(0,0,0,.05);">
+                <div style="display:flex; justify-content:space-between; gap:8px; align-items:center;">
+                    <div style="font-weight:800;">${escH(r.type_label)}${mode === 'approve' ? ' — ' + escH(r.employee_name) : ''}</div>
+                    <span class="badge-tag ${HR_BADGE[r.status] || 'pending'}">${escH(r.status_label)}</span>
+                </div>
+                <div style="margin-top:6px;">${escH(r.summary)}</div>
+                ${r.payload.reason ? `<div style="color:var(--ios-subtext); font-size:.85rem;">${escH(r.payload.reason)}</div>` : ''}
+                ${r.has_attachment ? `<a style="font-size:.85rem" target="_blank" href="/requests/${r.id}/attachment">📎 المرفق</a>` : ''}
+                <div style="color:var(--ios-subtext); font-size:.8rem; margin-top:6px;">${steps}</div>
+                ${r.result_ref && r.status === 'approved' ? `<div style="color:var(--ios-green); font-size:.85rem; margin-top:4px;">${escH(r.result_ref)}</div>` : ''}
+                ${actions}
+            </div>`;
+        }
+
+        async function loadHrRequests() {
+            try {
+                const [t, mine, appr] = await Promise.all([
+                    fetch('/portal/api/requests/types').then(r => r.json()),
+                    fetch('/portal/api/requests/mine').then(r => r.json()),
+                    fetch('/portal/api/requests/approvals').then(r => r.json()),
+                ]);
+                HR_TYPES = t.types || [];
+                document.getElementById('hrMileageBox').style.display = t.mileage ? '' : 'none';
+                const sel = document.getElementById('hrReqType');
+                sel.innerHTML = HR_TYPES.map(x => `<option value="${x.code}">${escH(x.label)}</option>`).join('');
+                document.getElementById('hrReqLetters').innerHTML = (t.letters || []).map(l => `<option value="${l.id}">${escH(l.name)}</option>`).join('');
+                const header = document.getElementById('hrRequestsHeader');
+                header.style.display = (t.can_request && HR_TYPES.length) || (mine.requests || []).length ? 'flex' : 'none';
+                document.getElementById('hrNewBtn').style.display = t.can_request && HR_TYPES.length ? '' : 'none';
+                document.getElementById('hrRequestsContainer').innerHTML = (mine.requests || []).map(r => hrCard(r, 'mine')).join('');
+                const pend = appr.requests || [];
+                const html = pend.map(r => hrCard(r, 'approve')).join('');
+                document.getElementById('hrApprovalsBlock').style.display = pend.length ? '' : 'none';
+                document.getElementById('hrApprovalsContainer').innerHTML = html;
+                const team = document.getElementById('hrTeamApprovalsContainer');
+                if (team) team.innerHTML = html;
+            } catch (e) { /* القسمُ اختياريّ: خطؤه لا يُسقط البوّابة */ }
+        }
+
+        function openHrRequestModal() {
+            document.getElementById('hrRequestModalOverlay').style.display = 'flex';
+            hrReqTypeChanged();
+        }
+        function closeHrRequestModal() { document.getElementById('hrRequestModalOverlay').style.display = 'none'; }
+        function hrReqTypeChanged() {
+            const code = document.getElementById('hrReqType').value;
+            document.querySelectorAll('#hrRequestForm .hr-f').forEach(el => {
+                const on = el.dataset.for === code;
+                el.style.display = on ? '' : 'none';
+                el.querySelectorAll('input,select').forEach(i => i.disabled = !on);
+            });
+            if (code === 'expense' && document.getElementById('hrMileageOn').checked) hrMileageToggle();
+            const t = HR_TYPES.find(x => x.code === code);
+            document.getElementById('hrReqChain').textContent = t && t.chain.length ? 'بيتعتمد من: ' + t.chain.join(' ← ') : '';
+        }
+        function hrMileageToggle() {
+            const on = document.getElementById('hrMileageOn').checked;
+            document.getElementById('hrMileageFields').style.display = on ? '' : 'none';
+            document.querySelectorAll('#hrRequestForm .hr-nomileage').forEach(el => {
+                el.style.display = on ? 'none' : '';
+                el.querySelectorAll('input').forEach(i => i.disabled = on);
+            });
+            if (on) {
+                const m = document.getElementById('hrMileageMonth');
+                if (!m.value) m.value = new Date().toISOString().slice(0, 7);
+                hrMileagePreview();
+            }
+        }
+        async function hrMileagePreview() {
+            const info = document.getElementById('hrMileageInfo');
+            const month = document.getElementById('hrMileageMonth').value;
+            info.textContent = '...';
+            try {
+                const d = await fetch('/portal/api/requests/mileage?month=' + month).then(r => r.json());
+                info.textContent = d.success ? `${d.km} كم من ${d.trips} رحلة × ${d.rate} = ${d.amount}` : d.message;
+            } catch (e) { info.textContent = ''; }
+        }
+        function readFileAsDataURL(file) {
+            return new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(file); });
+        }
+        async function submitHrRequest(e) {
+            e.preventDefault();
+            const form = e.target, btn = document.getElementById('submitHrReqBtn');
+            const payload = {};
+            new FormData(form).forEach((v, k) => { if (k !== 'type') payload[k] = v; });
+            const type = document.getElementById('hrReqType').value;
+            if (type === 'expense' && document.getElementById('hrMileageOn').checked) {
+                payload.mileage_month = document.getElementById('hrMileageMonth').value;
+            }
+            const file = document.getElementById('hrReqFile').files[0];
+            if (type === 'expense' && file) {
+                if (file.size > 3 * 1024 * 1024) return showPortalAlert('الملف كبير', 'أقصى حجم 3 ميجا', 'error');
+                payload.attachment = await readFileAsDataURL(file);
+            }
+            btn.disabled = true;
+            try {
+                const res = await fetch('/portal/api/requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, payload }) });
+                const data = await res.json();
+                if (data.success) {
+                    closeHrRequestModal(); form.reset(); showToast(data.message, 'success', 'طلب جديد'); loadHrRequests();
+                } else showPortalAlert('تعذر إرسال الطلب', data.message || '', 'error');
+            } catch (err) { showPortalAlert('خطأ بالاتصال', 'حاول تاني بعد شوية', 'error'); }
+            btn.disabled = false;
+        }
+        async function hrCancel(id) {
+            const res = await fetch(`/portal/api/requests/${id}/cancel`, { method: 'POST' });
+            const data = await res.json();
+            showToast(data.message, data.success ? 'success' : 'error');
+            loadHrRequests();
+        }
+        async function hrDecide(id, action) {
+            let note = '';
+            if (action === 'reject') { note = prompt('سبب الرفض (اختياري)') ; if (note === null) return; }
+            const res = await fetch(`/portal/api/requests/${id}/decide`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, note }) });
+            const data = await res.json();
+            showToast(data.message, data.success ? (action === 'approve' ? 'success' : 'error') : 'error', 'اعتماد الطلب');
+            loadHrRequests();
+        }
+
+        // ==================== الإعلانات والاستبيانات ====================
+        let ENGAGE_SURVEYS = [];
+        async function loadEngagement() {
+            try {
+                const d = await fetch('/portal/api/engagement').then(r => r.json());
+                ENGAGE_SURVEYS = d.surveys || [];
+                const anns = (d.announcements || []).slice(0, 5);
+                let html = anns.map(a => `<div class="ios-list-card" style="background:#fff; border-radius:16px; padding:14px; margin-bottom:10px; box-shadow:0 2px 10px rgba(0,0,0,.05); ${a.read_at ? '' : 'border-right:4px solid var(--ios-blue);'}" onclick="readAnnouncement(${a.id}, this)">
+                    <div style="font-weight:800;">${a.pinned ? '📌 ' : '📢 '}${escH(a.title)}</div>
+                    ${a.body ? `<div style="margin-top:6px; white-space:pre-line; font-size:.92rem;">${escH(a.body)}</div>` : ''}
+                    <div style="color:var(--ios-subtext); font-size:.75rem; margin-top:6px;">${escH((a.created_at || '').slice(0, 10))}</div></div>`).join('');
+                html += ENGAGE_SURVEYS.map((s, i) => `<div class="ios-list-card" style="background:linear-gradient(135deg, rgba(88,86,214,.1), #fff); border-radius:16px; padding:14px; margin-bottom:10px;">
+                    <div style="font-weight:800;">📝 ${escH(s.title)}</div>
+                    <div style="color:var(--ios-subtext); font-size:.85rem;">${s.anonymous ? 'مجهول — اسمك مش هيظهر' : ''}${s.closes_on ? ' · لحد ' + escH(s.closes_on) : ''}</div>
+                    <button class="btn-approve" style="margin-top:10px; width:100%" onclick="openSurvey(${i})">جاوب (${s.questions.length} سؤال)</button></div>`).join('');
+                document.getElementById('engageBlock').innerHTML = html;
+            } catch (e) { /* اختياريّ */ }
+        }
+        async function readAnnouncement(id, el) {
+            el.style.borderRight = '';
+            try { await fetch(`/portal/api/announcements/${id}/read`, { method: 'POST' }); } catch (e) {}
+        }
+        let CURRENT_SURVEY = null;
+        function openSurvey(i) {
+            const s = ENGAGE_SURVEYS[i]; CURRENT_SURVEY = s;
+            document.getElementById('surveyTitle').textContent = s.title;
+            document.getElementById('surveyDesc').textContent = s.description || '';
+            document.getElementById('surveyForm').innerHTML = s.questions.map((q, n) => {
+                let input;
+                if (q.type === 'choice') input = `<select class="form-control-ios" name="q${n}" required><option value="">اختار…</option>${q.options.map(o => `<option>${escH(o)}</option>`).join('')}</select>`;
+                else if (q.type === 'rating') input = `<div style="display:flex; gap:6px; justify-content:space-between;">${[1,2,3,4,5].map(v => `<label style="flex:1; text-align:center; background:#F2F2F7; border-radius:10px; padding:8px 0;"><input type="radio" name="q${n}" value="${v}" required> ${v}</label>`).join('')}</div>`;
+                else input = `<textarea class="form-control-ios" name="q${n}" rows="2"></textarea>`;
+                return `<div class="form-group"><label>${n + 1}. ${escH(q.q)}</label>${input}</div>`;
+            }).join('') + '<button type="submit" class="btn-ios-submit">إرسال</button>';
+            document.getElementById('surveyModalOverlay').style.display = 'flex';
+        }
+        async function submitSurvey(e) {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const answers = CURRENT_SURVEY.questions.map((q, n) => fd.get('q' + n));
+            const d = await fetch(`/portal/api/surveys/${CURRENT_SURVEY.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers }) }).then(r => r.json());
+            if (d.success) { document.getElementById('surveyModalOverlay').style.display = 'none'; showToast(d.message, 'success'); loadEngagement(); }
+            else showPortalAlert('تعذر الإرسال', d.message || '', 'error');
+        }
+
         // Initial Load
+        loadEngagement();
+        loadHrRequests();
         loadMyData();
         {% if is_manager %}
         loadTeamData();

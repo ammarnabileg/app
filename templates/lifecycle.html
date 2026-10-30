@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}متابعة الموظفين{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1250px;" dir="rtl">
+  <h3 class="mb-1"><i class="fas fa-user-clock text-primary me-2"></i>متابعة الموظفين</h3>
+  <p class="text-muted mb-3">
+    الوثائق اللي قربت تنتهي (البطاقة المدنية، الجواز، الإقامة، العقد، والمستندات المرفوعة) — والتنبيه بيروح
+    للموارد البشرية وللموظف نفسه قبلها بـ ٣٠ يوم و٧ أيام ويوم الانتهاء. وقوائم استلام الموظف الجديد وتسليم اللي خدمته بتنتهي.
+  </p>
+
+  <ul class="nav nav-tabs mb-3">
+    {% for key, label, icon in [('expiry','وثائق قربت تنتهي','fa-id-card'), ('lists','قوائم الاستلام والتسليم','fa-list-check'), ('templates','القوالب','fa-pen-to-square')] %}
+    <li class="nav-item">
+      <button class="nav-link {% if tab == key %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#tab-{{ key }}" type="button">
+        <i class="fas {{ icon }} me-1"></i>{{ label }}
+        {% if key == 'expiry' and expiring %}<span class="badge bg-danger ms-1">{{ expiring|length }}</span>{% endif %}
+        {% if key == 'lists' and suggestions %}<span class="badge bg-warning text-dark ms-1">{{ suggestions|length }}</span>{% endif %}
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade {% if tab == 'expiry' %}show active{% endif %}" id="tab-expiry">
+      <form class="mb-2 d-flex gap-2 align-items-center" method="get">
+        <input type="hidden" name="tab" value="expiry">
+        <label class="small text-muted">اللي هتنتهي خلال</label>
+        <select name="within" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+          {% for d in (30, 60, 90, 180) %}<option value="{{ d }}" {% if within == d %}selected{% endif %}>{{ d }} يوم</option>{% endfor %}
+        </select>
+      </form>
+      <div class="table-responsive"><table class="table table-sm align-middle">
+        <thead><tr><th>الموظف</th><th>الرقم</th><th>القسم</th><th>الوثيقة</th><th>تاريخ الانتهاء</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+        {% for it in expiring %}
+          <tr>
+            <td><b>{{ it.employee_name }}</b></td><td>{{ it.employee_number }}</td><td>{{ it.department or '' }}</td>
+            <td>{{ it.doc }}</td><td dir="ltr">{{ it.expiry }}</td>
+            <td>
+              {% if it.days < 0 %}<span class="badge bg-danger">انتهت من {{ -it.days }} يوم</span>
+              {% elif it.days == 0 %}<span class="badge bg-danger">النهارده</span>
+              {% elif it.days <= 7 %}<span class="badge bg-warning text-dark">باقي {{ it.days }} يوم</span>
+              {% else %}<span class="badge bg-light text-dark border">باقي {{ it.days }} يوم</span>{% endif %}
+            </td>
+            <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('employee.edit_employee', id=it.employee_id) }}"><i class="fas fa-pen"></i> تحديث</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="text-center text-muted">مفيش وثائق هتنتهي في المدة دي 👌</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="tab-pane fade {% if tab == 'lists' %}show active{% endif %}" id="tab-lists">
+      {% if suggestions %}
+      <div class="alert alert-warning py-2">
+        <b>محتاجين قائمة:</b>
+        {% for s in suggestions %}
+          <form method="post" action="{{ url_for('lifecycle.start') }}" class="d-inline">
+            <input type="hidden" name="employee_id" value="{{ s.employee_id }}"><input type="hidden" name="kind" value="{{ s.kind }}">
+            <button class="btn btn-sm btn-light border m-1" title="{{ s.why }}">
+              {{ s.name }} — {{ kinds[s.kind] }} <i class="fas fa-plus text-success"></i>
+            </button>
+          </form>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <form method="post" action="{{ url_for('lifecycle.start') }}" class="row g-2 mb-3">
+        <div class="col-md-5"><select name="employee_id" class="form-select form-select-sm" required>
+          <option value="">اختار موظف…</option>
+          {% for e in employees %}<option value="{{ e.id }}">{{ e.name }} ({{ e.employee_number }})</option>{% endfor %}
+        </select></div>
+        <div class="col-md-4"><select name="kind" class="form-select form-select-sm">
+          {% for k, v in kinds.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+        </select></div>
+        <div class="col-md-3"><button class="btn btn-sm btn-primary w-100"><i class="fas fa-plus"></i> قائمة جديدة</button></div>
+      </form>
+      <div class="mb-2 small">
+        {% if show_done %}<a href="{{ url_for('lifecycle.index', tab='lists') }}">اعرض المفتوحة بس</a>
+        {% else %}<a href="{{ url_for('lifecycle.index', tab='lists', done=1) }}">اعرض المكتملة كمان</a>{% endif %}
+      </div>
+      <div class="row g-3">
+      {% for c in lists %}
+        <div class="col-lg-6"><div class="card h-100 {% if c.completed_at %}border-success{% endif %}"><div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div><b>{{ c.employee_name }}</b> <span class="text-muted small">({{ c.employee_number }})</span>
+              <div class="small text-muted">{{ c.kind_label }} · بدأت {{ (c.created_at or '')[:10] }}</div></div>
+            <span class="badge {{ 'bg-success' if c.completed_at else 'bg-secondary' }} align-self-start" id="prog-{{ c.id }}">{{ c.done }}/{{ c.total }}</span>
+          </div>
+          <div class="progress my-2" style="height:6px"><div class="progress-bar bg-success" id="bar-{{ c.id }}" style="width: {{ (100 * c.done / c.total) if c.total else 0 }}%"></div></div>
+          {% for i in c['items'] %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="it{{ i.id }}" data-list="{{ c.id }}" {% if i.done %}checked{% endif %} onchange="tick({{ i.id }}, this)">
+            <label class="form-check-label" for="it{{ i.id }}">
+              {{ i.title }} <span class="badge bg-light text-muted border">{{ owners.get(i.owner, i.owner) }}</span>
+              {% if i.done %}<span class="small text-muted">— {{ i.done_by }} {{ i.done_at }}</span>{% endif %}
+            </label>
+          </div>
+          {% endfor %}
+        </div></div></div>
+      {% else %}
+        <div class="text-muted">مفيش قوائم مفتوحة.</div>
+      {% endfor %}
+      </div>
+    </div>
+
+    <div class="tab-pane fade {% if tab == 'templates' %}show active{% endif %}" id="tab-templates">
+      <p class="text-muted small">التعديل هنا بيأثر على القوائم الجديدة بس — اللي بدأت بتفضل زي ما هي. سيب البند فاضي عشان تشيله.</p>
+      <div class="row g-3">
+      {% for kind, label in kinds.items() %}
+        <div class="col-lg-6"><form method="post" action="{{ url_for('lifecycle.save_template', kind=kind) }}" class="card"><div class="card-body">
+          <h6 class="fw-bold">{{ label }}</h6>
+          {% for it in templates[kind] + [{'owner': 'hr', 'title': ''}, {'owner': 'hr', 'title': ''}] %}
+          <div class="input-group input-group-sm mb-1">
+            <select name="owner" class="form-select" style="max-width: 150px">
+              {% for k, v in owners.items() %}<option value="{{ k }}" {% if it.owner == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+            </select>
+            <input name="title" class="form-control" value="{{ it.title }}" placeholder="بند جديد">
+          </div>
+          {% endfor %}
+          <button class="btn btn-sm btn-primary mt-2"><i class="fas fa-save"></i> حفظ</button>
+        </div></form></div>
+      {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+async function tick(id, el) {
+  const res = await fetch('{{ url_for("lifecycle.index") }}item/' + id, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({done: el.checked})});
+  const ok = res.ok && (await res.json()).success;
+  if (!ok) { el.checked = !el.checked; return; }
+  const list = el.dataset.list, boxes = document.querySelectorAll(`input[data-list="${list}"]`);
+  const done = [...boxes].filter(b => b.checked).length;
+  document.getElementById('prog-' + list).textContent = done + '/' + boxes.length;
+  document.getElementById('bar-' + list).style.width = (100 * done / boxes.length) + '%';
+}
+</script>
+{% endblock %}

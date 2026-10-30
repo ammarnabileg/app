@@ -256,6 +256,18 @@ from routes.backup_routes import backup_bp
 app.register_blueprint(backup_bp)
 from routes.sensitive_routes import sensitive_bp
 app.register_blueprint(sensitive_bp)
+from routes.device_engine_routes import device_engine_bp, DEVICE_PUSH_ENDPOINTS
+app.register_blueprint(device_engine_bp)
+from routes.hr_request_routes import hr_requests_bp
+app.register_blueprint(hr_requests_bp)
+from routes.lifecycle_routes import lifecycle_bp
+app.register_blueprint(lifecycle_bp)
+from routes.engagement_routes import engagement_bp
+app.register_blueprint(engagement_bp)
+from routes.smart_punch_routes import smart_punch_bp
+app.register_blueprint(smart_punch_bp)
+from routes.connector_routes import connector_bp, CONNECTOR_API_ENDPOINTS
+app.register_blueprint(connector_bp)
 
 from routes.field_routes import field_bp
 app.register_blueprint(field_bp)
@@ -375,7 +387,10 @@ def check_license_globally():
     # بصماتُه. وخادمُ البصمة المستقلّ (adms_server) لا يفحص الترخيص أصلًا —
     # فالمسارُ نفسُه عبر الويب لا يُعامَل بغير ما يُعامَل به هناك. شاشاتُ
     # ADMS الإداريّة تبقى خلف الترخيص.
-    if request.endpoint in ADMS_DEVICE_ENDPOINTS:
+    if request.endpoint in ADMS_DEVICE_ENDPOINTS or request.endpoint in DEVICE_PUSH_ENDPOINTS:
+        return
+    # الوكيلُ المحلّيّ: برنامجٌ بمفتاح لا يتبع تحويلة (routes/connector_routes).
+    if request.endpoint in CONNECTOR_API_ENDPOINTS:
         return
 
     # Check license

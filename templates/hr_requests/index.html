@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}الطلبات والموافقات{% endblock %}
+
+{% macro req_row(r, show_actions=True) %}
+<tr>
+  <td>{{ r.id }}</td>
+  <td><b>{{ r.employee_name }}</b><div class="small text-muted">{{ r.employee_number }} · {{ r.department or '' }}</div></td>
+  <td><span class="badge bg-light text-dark border">{{ r.type_label }}</span></td>
+  <td>{{ r.summary }}
+    {% if r.payload.reason %}<div class="small text-muted">{{ r.payload.reason }}</div>{% endif %}
+    {% if r.has_attachment %}<div><a class="small" target="_blank" href="{{ url_for('hr_requests.attachment', rid=r.id) }}"><i class="fas fa-paperclip"></i> المرفق</a></div>{% endif %}
+  </td>
+  <td class="small" dir="ltr">{{ (r.created_at or '')[:16] }}</td>
+  <td class="small">
+    {% for s in r.steps %}
+      <div>
+        {% if s.status == 'approved' %}<i class="fas fa-check text-success"></i>
+        {% elif s.status == 'rejected' %}<i class="fas fa-xmark text-danger"></i>
+        {% elif s.status == 'current' %}<i class="fas fa-hourglass-half text-warning"></i>
+        {% elif s.status == 'skipped' %}<i class="fas fa-forward text-muted" title="{{ s.note or '' }}"></i>
+        {% else %}<i class="far fa-circle text-muted"></i>{% endif %}
+        {{ s.label }}{% if s.by %} <span class="text-muted">({{ s.by }})</span>{% endif %}
+        {% if s.note and s.status != 'skipped' %}<div class="text-muted ms-3">«{{ s.note }}»</div>{% endif %}
+      </div>
+    {% endfor %}
+  </td>
+  <td>
+    <span class="badge {{ {'pending':'bg-warning text-dark','approved':'bg-success','rejected':'bg-danger','cancelled':'bg-secondary'}[r.status] }}">{{ r.status_label }}</span>
+    {% if r.result_ref %}<div class="small text-muted mt-1">{{ r.result_ref }}</div>{% endif %}
+    {% if r.type == 'letter' and r.status == 'approved' %}
+      <a class="btn btn-sm btn-outline-primary mt-1" target="_blank" href="{{ url_for('hr_requests.letter', rid=r.id) }}"><i class="fas fa-print"></i> طباعة</a>
+    {% endif %}
+  </td>
+  {% if show_actions %}
+  <td style="min-width: 210px;">
+    {% if r.can_act %}
+    <form method="post" action="{{ url_for('hr_requests.decide', rid=r.id) }}" class="d-flex flex-column gap-1">
+      <input name="note" class="form-control form-control-sm" placeholder="ملاحظة (اختياري)">
+      <div class="d-flex gap-1">
+        <button name="action" value="approve" class="btn btn-sm btn-success flex-fill"><i class="fas fa-check"></i> اعتماد</button>
+        <button name="action" value="reject" class="btn btn-sm btn-outline-danger flex-fill"
+                onclick="return confirm('ترفض الطلب؟')"><i class="fas fa-xmark"></i> رفض</button>
+      </div>
+    </form>
+    {% endif %}
+  </td>
+  {% endif %}
+</tr>
+{% endmacro %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1300px;" dir="rtl">
+  <h3 class="mb-1"><i class="fas fa-inbox text-primary me-2"></i>الطلبات والموافقات</h3>
+  <p class="text-muted mb-3">
+    خطابات، مصروفات، سلف، وأوفرتايم — الموظف يقدّمها من البوابة، وكل طلب يعدّي على خطوات الموافقة
+    بالترتيب. لما يتعتمد نهائيًا: المصروف ينزل في الرواتب، والسلفة تتسجّل في السلف، والخطاب يترقّم ويبقى جاهز للطباعة.
+    (الإجازات والأذونات ليها شاشتها زي ما هي.)
+  </p>
+
+  <ul class="nav nav-tabs mb-3">
+    {% set tabs = [('waiting','بانتظاري','fa-hourglass-half')] %}
+    {% if hr %}{% set tabs = tabs + [('all','كل الطلبات','fa-list'), ('settings','مسارات الموافقة','fa-route'), ('letters','قوالب الخطابات','fa-file-signature')] %}{% endif %}
+    {% for key, label, icon in tabs %}
+    <li class="nav-item">
+      <button class="nav-link {% if tab == key %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#tab-{{ key }}" type="button">
+        <i class="fas {{ icon }} me-1"></i>{{ label }}
+        {% if key == 'waiting' and waiting %}<span class="badge bg-danger ms-1">{{ waiting|length }}</span>{% endif %}
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade {% if tab == 'waiting' %}show active{% endif %}" id="tab-waiting">
+      {% if waiting %}
+      <div class="table-responsive"><table class="table table-sm align-middle">
+        <thead><tr><th>#</th><th>الموظف</th><th>النوع</th><th>التفاصيل</th><th>اتقدّم</th><th>الخطوات</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>{% for r in waiting %}{{ req_row(r) }}{% endfor %}</tbody>
+      </table></div>
+      {% else %}
+      <div class="alert alert-light border">مفيش طلبات مستنياك دلوقتي.</div>
+      {% endif %}
+    </div>
+
+    {% if hr %}
+    <div class="tab-pane fade {% if tab == 'all' %}show active{% endif %}" id="tab-all">
+      <form class="row g-2 mb-2" method="get">
+        <input type="hidden" name="tab" value="all">
+        <div class="col-auto">
+          <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">كل الحالات</option>
+            {% for k, v in statuses.items() %}<option value="{{ k }}" {% if status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <select name="type" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">كل الأنواع</option>
+            {% for k, v in types.items() %}<option value="{{ k }}" {% if rtype == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+          </select>
+        </div>
+      </form>
+      <div class="table-responsive"><table class="table table-sm align-middle">
+        <thead><tr><th>#</th><th>الموظف</th><th>النوع</th><th>التفاصيل</th><th>اتقدّم</th><th>الخطوات</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+          {% for r in every %}{{ req_row(r) }}{% else %}<tr><td colspan="8" class="text-muted text-center">مفيش طلبات</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="tab-pane fade {% if tab == 'settings' %}show active{% endif %}" id="tab-settings">
+      <form method="post" action="{{ url_for('hr_requests.save_settings') }}">
+        <p class="text-muted small">
+          كل نوع ليه خطوات بالترتيب. الخطوة اللي مفيش حد يقوم بيها (مثلًا موظف من غير مدير مباشر) بتتخطّى لوحدها.
+          الموارد البشرية = أي حد عنده صلاحية «طلبات الموظفين والموافقات».
+        </p>
+        <div class="row g-3">
+          {% for code, st in settings.items() %}
+          <div class="col-md-6"><div class="card"><div class="card-body">
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" name="enabled_{{ code }}" value="1" id="en_{{ code }}" {% if st.enabled %}checked{% endif %}>
+              <label class="form-check-label fw-bold" for="en_{{ code }}">{{ st.label }}</label>
+            </div>
+            {% for i in range(3) %}
+            <div class="input-group input-group-sm mb-1">
+              <span class="input-group-text">خطوة {{ i + 1 }}</span>
+              <select name="chain_{{ code }}" class="form-select">
+                <option value="">—</option>
+                {% for k, v in step_labels.items() %}<option value="{{ k }}" {% if st.chain|length > i and st.chain[i] == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+                {% for u in users %}{% set key = 'user:' ~ u.id %}<option value="{{ key }}" {% if st.chain|length > i and st.chain[i] == key %}selected{% endif %}>👤 {{ u.full_name or u.username }}</option>{% endfor %}
+              </select>
+            </div>
+            {% endfor %}
+          </div></div></div>
+          {% endfor %}
+        </div>
+        <button class="btn btn-primary mt-3"><i class="fas fa-save"></i> حفظ</button>
+      </form>
+    </div>
+
+    <div class="tab-pane fade {% if tab == 'letters' %}show active{% endif %}" id="tab-letters">
+      <p class="text-muted small">
+        الخانات اللي بتتملي لوحدها من ملف الموظف:
+        <code>{{ '{{name}}' }}</code> <code>{{ '{{employee_number}}' }}</code> <code>{{ '{{position}}' }}</code>
+        <code>{{ '{{department}}' }}</code> <code>{{ '{{hire_date}}' }}</code> <code>{{ '{{civil_id}}' }}</code>
+        <code>{{ '{{nationality}}' }}</code> <code>{{ '{{salary}}' }}</code> <code>{{ '{{total_salary}}' }}</code>
+        <code>{{ '{{addressee}}' }}</code> <code>{{ '{{company_name}}' }}</code> <code>{{ '{{today}}' }}</code>
+        <code>{{ '{{end_text}}' }}</code>
+      </p>
+      {% for t in letters + [{'id': '', 'name': '', 'body': '', 'is_active': 1}] %}
+      <form method="post" action="{{ url_for('hr_requests.save_letter') }}" class="card mb-3"><div class="card-body">
+        <input type="hidden" name="id" value="{{ t.id }}">
+        <div class="row g-2 mb-2">
+          <div class="col-md-6"><input name="name" class="form-control" value="{{ t.name }}" placeholder="{{ 'اسم خطاب جديد' if not t.id else '' }}"></div>
+          <div class="col-md-3 d-flex align-items-center">
+            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" {% if t.is_active %}checked{% endif %}>
+              <label class="form-check-label">متاح للموظفين</label></div>
+          </div>
+          <div class="col-md-3 text-end"><button class="btn btn-sm btn-primary"><i class="fas fa-save"></i> {{ 'حفظ' if t.id else 'إضافة' }}</button></div>
+        </div>
+        <textarea name="body" class="form-control font-monospace small" rows="{{ 5 if t.id else 3 }}" dir="rtl">{{ t.body }}</textarea>
+      </div></form>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

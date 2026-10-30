@@ -114,6 +114,29 @@
         <button type="submit" class="btn btn-sm btn-primary">حفظ</button>
       </form>
 
+      {# نسخة خارج السيرفر (utils/backup.offsite_push) — كل نسخة تلقائية تتنسخ هناك كمان. #}
+      <details class="mb-3 border rounded p-2" {% if offsite.dir or offsite.url %}open{% endif %}>
+        <summary><b>نسخة خارج السيرفر</b>
+          {% if offsite.last_at %}<span class="small {{ 'text-success' if offsite.last_ok else 'text-danger' }} mr-2">
+            آخر مرة {{ offsite.last_at }}: {{ offsite.last_msg }}</span>{% endif %}</summary>
+        <p class="small text-muted mt-2 mb-2">
+          النسخة اللي على نفس القرص مش هتنفع يوم القرص أو السيرفر يقع. كل نسخة تلقائية هتتنسخ كمان لفولدر تاني
+          (قرص تاني / NAS) و/أو WebDAV على https (Nextcloud، Synology، Storage Box).
+        </p>
+        <form method="POST" action="{{ url_for('backup.offsite_save') }}">
+          <div class="form-row">
+            <div class="col-md-6 mb-2"><input name="dir" class="form-control form-control-sm" dir="ltr"
+              value="{{ offsite.dir }}" placeholder="D:\HR-Backups أو /mnt/nas/hr" {% if offsite.env_dir %}disabled title="متحدد من HR_OFFSITE_DIR"{% endif %}></div>
+            <div class="col-md-6 mb-2"><input name="url" class="form-control form-control-sm" dir="ltr"
+              value="{{ offsite.url }}" placeholder="https://cloud.example.com/remote.php/dav/files/hr/backups"></div>
+            <div class="col-md-4 mb-2"><input name="user" class="form-control form-control-sm" dir="ltr" value="{{ offsite.user }}" placeholder="WebDAV user"></div>
+            <div class="col-md-4 mb-2"><input name="password" type="password" class="form-control form-control-sm" autocomplete="new-password"
+              placeholder="{{ 'محفوظة — سيبها فاضية' if offsite.has_password else 'كلمة المرور' }}"></div>
+            <div class="col-md-4 mb-2"><button class="btn btn-sm btn-primary btn-block">حفظ</button></div>
+          </div>
+        </form>
+      </details>
+
       <form method="POST" action="{{ url_for('backup.auto_run') }}" class="mb-3">
         <button type="submit" class="btn btn-sm btn-outline-primary">خُذ نسخة الآن</button>
         <span class="text-muted small mr-2">

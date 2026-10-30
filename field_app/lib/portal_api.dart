@@ -43,6 +43,7 @@ extension PortalApi on Api {
     required int timestampMillis,
     required String deviceUuid,
     String? punchType,
+    bool isMocked = false,
   }) =>
       postJson('/portal/api/punch', {
         'latitude': lat,
@@ -51,6 +52,8 @@ extension PortalApi on Api {
         'timestamp': timestampMillis,
         'device_uuid': deviceUuid,
         'punch_type': ?punchType,
+        // موقعٌ من تطبيق «موقع وهمي» (Position.isMocked) — الخادم يرفضه ويسجّله.
+        'is_mocked': isMocked,
       });
 
   // --------------------------------------------------- الطلبات
