@@ -70,6 +70,23 @@ def _map_code(segs, fn):
     return [(k, fn(t) if k == 'code' else t) for k, t in segs]
 
 
+_IDENT_OK = re.compile(r'^[a-z_][a-z0-9_]*$')
+
+
+def _dq_strings(segs):
+    """\"SENT\" في SQLite نص لو مفيش عمود بالاسم ده؛ في PostgreSQL دايمًا اسم. أسماء الجداول والأعمدة عندنا
+    حروف صغيرة و_ — فأي حاجة تانية بين \"…\" (كبيرة، عربي، مسافات) بتتحوّل لنص."""
+    out = []
+    for k, t in segs:
+        if k == 'ident':
+            inner = t[1:-1].replace('""', '"')
+            if not _IDENT_OK.match(inner):
+                out.append(('str', "'" + inner.replace("'", "''") + "'"))
+                continue
+        out.append((k, t))
+    return out
+
+
 def split_statements(sql):
     """يقسم سكريبت على `;` اللي برّه النصوص."""
     stmts, cur = [], []
@@ -533,7 +550,7 @@ class PgConnection:
             return
         if kind[0] == 'ATTACH' or kind[0] == 'DETACH':
             raise sqlite3.OperationalError('ATTACH مش مدعوم على PostgreSQL')
-        segs = _map_code(_segments(sql), _code_rules)
+        segs = _map_code(_dq_strings(_segments(sql)), _code_rules)
         segs = _bind(segs, params)
         text = _join(segs)
         if kind[0] == 'CREATE' and (kind[1] == 'TABLE' or (kind[1].startswith('TEMP') and kind[2] == 'TABLE')):

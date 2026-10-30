@@ -16,10 +16,13 @@ _PG = (os.environ.get('HR_DB_URL') or '').startswith(('postgres://', 'postgresql
 if _PG:
     _real_connect = sqlite3.connect
 
+    _mine = set()
+
     def _connect(database, *a, **k):
         p = str(database)
         if p.endswith('hr_system.db') and not p.startswith('file:'):
             from utils import dbcompat
+            _mine.add(dbcompat.schema_for(p))
             return dbcompat.connect(p)
         return _real_connect(database, *a, **k)
 
@@ -32,6 +35,9 @@ def _pg_cleanup():
     if not _PG:
         return
     import psycopg
+    from utils import dbcompat
+    # كل HR_DATA_DIR اتفتح في العملية دي (البرنامج كمان بيفتح من غير sqlite3.connect)
     with psycopg.connect(os.environ['HR_DB_URL'], autocommit=True) as c:
-        for (s,) in c.execute("SELECT nspname FROM pg_namespace WHERE nspname LIKE 't\\_%'").fetchall():
-            c.execute(f'DROP SCHEMA IF EXISTS "{s}" CASCADE')
+        for s in _mine | {k[1] for k in dbcompat._ready}:
+            if s.startswith('t_'):
+                c.execute(f'DROP SCHEMA IF EXISTS "{s}" CASCADE')
