@@ -585,6 +585,11 @@ class PgConnection:
             self.rollback()
             cur._rows, cur.description, cur.rowcount = [], None, -1
             return
+        if kind[0] in ('SAVEPOINT', 'RELEASE') or (kind[0] == 'ROLLBACK' and kind[1] == 'TO'):
+            # من غير غلاف: الـ savepoint بتاع كل أمر لو اتعمله RELEASE بيمسح أي savepoint اتعمل جواه.
+            self._pg.cursor().execute(sql.strip().rstrip(';'))
+            cur._rows, cur.description, cur.rowcount = [], None, -1
+            return
         if kind[0] == 'ATTACH' or kind[0] == 'DETACH':
             raise sqlite3.OperationalError('ATTACH مش مدعوم على PostgreSQL')
         segs = _map_code(_dq_strings(_segments(sql)), _code_rules)

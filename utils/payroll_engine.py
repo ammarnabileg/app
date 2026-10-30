@@ -853,7 +853,7 @@ def _prior_sick_map(conn, employees, p_start, basis='calendar'):
     return out
 
 
-def compute_monthly_payroll(conn, month, year, day_sink=None):
+def compute_monthly_payroll(conn, month, year, day_sink=None, employee_id=None):
     """
     Returns {month, year, rows, totals, hours_approval:{approved, stale, total}}.
     Hours shown for an APPROVED employee come from the attested snapshot;
@@ -864,7 +864,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
     year = int(year)
 
     p_start, p_end = resolve_period(conn, month, year)
-    employees = fetch_payroll_employees(conn, period=(p_start, p_end))
+    # employee_id: موظف واحد بس (التصفية النهائية) — نفس الحساب بالظبط، من غير باقي الشركة.
+    employees = fetch_payroll_employees(conn, period=(p_start, p_end), employee_id=employee_id)
     sal = get_salary_settings_v2(conn)
     _basis = str(sal.get('daily_rate_basis', '26') or '26').strip()
     if _basis not in ('30', '26', 'working'):

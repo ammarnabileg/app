@@ -1,0 +1,75 @@
+<!doctype html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8">
+<title>التصفية النهائية — {{ emp.arabic_name or emp.name }}</title>
+<style>
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 26px; color: #111; }
+    h2 { margin: 0 0 2px; font-size: 20px; }
+    .sub { color: #555; font-size: 12.5px; margin-bottom: 14px; }
+    .box { border: 1px solid #bbb; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12.5px; margin-bottom: 12px; }
+    th, td { border: 1px solid #999; padding: 5px 8px; }
+    thead th { background: #eee; text-align: center; }
+    td.n { text-align: left; direction: ltr; width: 130px; }
+    .neg { color: #b02a37; }
+    .net { font-size: 15px; font-weight: 700; background: #f2f7f4; }
+    .muted { color: #666; font-size: 11.5px; }
+    .sig { margin-top: 40px; display: flex; justify-content: space-between; font-size: 13px; }
+    .sig div { width: 210px; border-top: 1px solid #333; text-align: center; padding-top: 6px; }
+    @media print { .noprint { display: none; } }
+</style>
+</head>
+<body>
+<button class="noprint" onclick="window.print()" style="float:left">طباعة</button>
+<h2>كشف التصفية النهائية</h2>
+<div class="sub">معاينة — مابيتحفظش لحد ما الإنهاء يتعتمد من شاشة إنهاء الخدمة</div>
+
+<div class="box grid">
+    <div>الموظف: <b>{{ emp.arabic_name or emp.name }}</b> ({{ emp.employee_number }})</div>
+    <div>القسم: {{ emp.department or '—' }}</div>
+    <div>تاريخ التعيين: <span dir="ltr">{{ (emp.hire_date or '')[:10] }}</span></div>
+    <div>تاريخ الإنهاء: <span dir="ltr">{{ fs.termination_date }}</span></div>
+    <div>السبب: {{ reason_label }}</div>
+</div>
+
+<table>
+    <thead><tr><th>البند</th><th>التفصيل</th><th>المبلغ</th></tr></thead>
+    <tbody>
+    {% for name, detail, amt in fs.lines %}
+        <tr><td>{{ name }}</td><td class="muted">{{ detail }}</td>
+            <td class="n {{ 'neg' if amt < 0 }}">{{ '%.3f'|format(amt) }}</td></tr>
+    {% endfor %}
+        <tr class="net"><td colspan="2">الصافي المستحق</td><td class="n">{{ '%.3f'|format(fs.total) }}</td></tr>
+        {% if not fs.last_salary.already_paid %}
+        <tr><td colspan="2">منه: آخر راتب — بيتصرف مع كشف رواتب {{ fs.last_salary.month }}/{{ fs.last_salary.year }} (مش مع التصفية)</td>
+            <td class="n">{{ '%.3f'|format(fs.last_salary.net) }}</td></tr>
+        <tr><td colspan="2">منه: مبلغ التصفية (نهاية الخدمة + الإجازات ± الإنذار − السلف)</td>
+            <td class="n">{{ '%.3f'|format(fs.eos_net) }}</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+
+{% set row = fs.last_salary.row %}
+{% if row %}
+<h4 style="margin:6px 0">تفصيل آخر راتب ({{ fs.last_salary.period_start }} ← {{ fs.last_salary.period_end }})</h4>
+<table>
+    <thead><tr><th>البند</th><th>المبلغ</th></tr></thead>
+    <tbody>
+        <tr><td>الأساسي (عن الأيام لحد الإنهاء)</td><td class="n">{{ '%.3f'|format(row.basic) }}</td></tr>
+        {% for a in row.allowances %}<tr><td>{{ a.name_ar or a.code }}</td><td class="n">{{ '%.3f'|format(a.amount) }}</td></tr>{% endfor %}
+        {% for d in row.deductions %}<tr><td>{{ d.name_ar or d.code }}</td><td class="n neg">-{{ '%.3f'|format(d.amount) }}</td></tr>{% endfor %}
+        <tr class="net"><td>صافي آخر راتب</td><td class="n">{{ '%.3f'|format(row.net) }}</td></tr>
+    </tbody>
+</table>
+{% endif %}
+
+<div class="muted">
+    مكافأة نهاية الخدمة على أساس الأجر الشامل ÷ 26 (قانون العمل الكويتي م. 51).
+    {% if fs.last_salary.loan_installments %}قسط السلفة ({{ '%.3f'|format(fs.last_salary.loan_installments) }}) نازل في آخر راتب، والباقي بس في التصفية.{% endif %}
+</div>
+
+<div class="sig"><div>الموارد البشرية</div><div>المدير المالي</div><div>توقيع الموظف بالاستلام</div></div>
+</body>
+</html>

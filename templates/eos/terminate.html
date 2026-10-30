@@ -107,6 +107,12 @@
                     </div>
                 </div>
 
+                <div class="mb-3">
+                    <button type="button" class="btn btn-outline-primary" id="btnFinalSettlement">
+                        <i class="bi bi-receipt"></i> كشف التصفية النهائية (آخر راتب + نهاية الخدمة + الإجازات − السلف)
+                    </button>
+                </div>
+
                 <div class="alert alert-warning">
                     <i class="bi bi-exclamation-triangle-fill"></i>
                     <strong>{{ _('x.warning_colon') }}</strong> {{ _('x.termination_archive_note') }}
@@ -161,6 +167,14 @@ document.addEventListener('DOMContentLoaded', function() {
     ['leave_days', 'pifss_deduction', 'notice_served_days', 'notice_waived'].forEach(id =>
         document.getElementById(id).addEventListener('change', calculateEos));
 
+    document.getElementById('btnFinalSettlement').addEventListener('click', function () {
+        if (!empSelect.value || !termDateInput.value || !reasonSelect.value) { alert('اختار الموظف والتاريخ والسبب'); return; }
+        const q = new URLSearchParams({employee_id: empSelect.value, termination_date: termDateInput.value, reason: reasonSelect.value});
+        [['leave_days', 'leave_days'], ['pifss_deduction', 'pifss_deduction'], ['notice_served_days', 'notice_served_days']]
+            .forEach(([id, k]) => { const v = document.getElementById(id).value; if (v !== '') q.set(k, v); });
+        if (document.getElementById('notice_waived').checked) q.set('notice_waived', '1');
+        window.open('/eos/final-settlement?' + q.toString(), '_blank');
+    });
     function calculateEos() {
         const empId = empSelect.value;
         const termDate = termDateInput.value;

@@ -354,6 +354,28 @@ def api_calculate_eos():
                     "reward_amount": calc['gratuity'],
                     "calc": calc})
 
+@eos_bp.route('/eos/final-settlement')
+@login_required
+@require_permission('salary.calculate')
+def final_settlement_page():
+    """التصفية النهائية (utils/final_settlement): آخر راتب + نهاية الخدمة + الإجازات − السلف — للمعاينة والطباعة."""
+    from utils.final_settlement import settle
+    a = request.args
+    if not a.get('employee_id') or not a.get('termination_date') or not a.get('reason'):
+        return 'Missing parameters', 400
+    conn = get_db_connection()
+    ld = a.get('leave_days')
+    fs = settle(conn, int(a['employee_id']), a['termination_date'], a['reason'],
+                leave_days=(None if ld in (None, '') else ld), pifss=a.get('pifss_deduction'),
+                notice_served_days=_notice_days(a), notice_waived=bool(a.get('notice_waived')))
+    if not fs:
+        return gettext('x.f_eos_bad_dates'), 400
+    if a.get('format') == 'json':
+        return jsonify({k: v for k, v in fs.items() if k != 'eos'} | {'eos_net': fs['eos_net']})
+    emp = conn.execute('SELECT * FROM employees WHERE id = ?', (fs['employee_id'],)).fetchone()
+    return render_template('eos/final_settlement.html', fs=fs, emp=emp, reason_label=eos_reason_label(fs['reason']))
+
+
 @eos_bp.route('/eos/list')
 @login_required
 @require_permission('page.eos')

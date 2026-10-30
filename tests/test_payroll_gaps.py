@@ -116,3 +116,40 @@ def test_the_form_accepts_a_locked_date_only_with_retro(web):
     amt = conn.execute("SELECT amount FROM payroll_transactions WHERE employee_id = 1 AND reference LIKE 'RETRO-%' "
                        "AND status = 'active'").fetchone()
     assert amt and amt[0] == pytest.approx(26.0)
+
+
+# ------------------------------------------------------------ ٤ التصفية النهائية
+
+def test_final_settlement_adds_last_salary_eos_and_leave_without_double_loans(web):
+    c, conn, A, pe = web
+    from utils import final_settlement as fsm
+    conn.execute("INSERT INTO employee_loans (employee_id, principal, monthly_installment, start_month, start_year, status) "
+                 "VALUES (1, 100, 20, ?, ?, 'active')", (MONTH, YEAR))
+    conn.commit()
+    ps, pe_ = pe.resolve_period(conn, MONTH, YEAR)
+    term = (ps + timedelta(days=14)).isoformat()
+    for i in range(15):
+        _punch(conn, 1, (ps + timedelta(days=i)).isoformat(), '08:00', '16:00')
+    before = conn.execute('SELECT end_of_service_date FROM employees WHERE id = 1').fetchone()[0]
+    fs = fsm.settle(conn, 1, term, 'termination')
+    assert conn.execute('SELECT end_of_service_date FROM employees WHERE id = 1').fetchone()[0] == before, 'معاينة بس'
+    last = fs['last_salary']
+    assert not last['already_paid'] and last['row'] is not None
+    assert any(d['code'] == 'post_service_days' for d in last['row']['deductions']), 'الأيام بعد الإنهاء بتتخصم'
+    assert last['loan_installments'] == pytest.approx(20.0)
+    assert fs['loans_after_last_salary'] == pytest.approx(80.0), 'القسط مايتخصمش مرتين'
+    assert fs['total'] == pytest.approx(last['net'] + fs['eos_net'])
+    assert fs['eos_net'] == pytest.approx(fs['eos']['gratuity'] + fs['eos']['leave_amount'] + fs['eos']['notice_amount'] - 80.0, abs=0.002)
+    r = c.get(f'/eos/final-settlement?employee_id=1&termination_date={term}&reason=termination')
+    assert r.status_code == 200 and 'التصفية النهائية' in r.get_data(as_text=True)
+
+
+def test_final_settlement_after_a_closed_month_does_not_pay_the_salary_again(web):
+    c, conn, A, pe = web
+    from utils import final_settlement as fsm
+    ps, pe_ = pe.resolve_period(conn, MONTH, YEAR)
+    conn.execute("INSERT INTO payroll_runs (month, year, status, period_start, period_end) VALUES (?, ?, 'approved', ?, ?)",
+                 (MONTH, YEAR, ps.isoformat(), pe_.isoformat()))
+    conn.commit()
+    fs = fsm.settle(conn, 1, (ps + timedelta(days=10)).isoformat(), 'termination')
+    assert fs['last_salary']['already_paid'] and fs['total'] == pytest.approx(fs['eos_net'])
