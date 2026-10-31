@@ -93,6 +93,7 @@
                             <th rowspan="2" class="align-middle bg-info text-white" style="min-width:80px">{{
                                 _('tbl.header.basic_salary') }}
                             </th>
+                            <th rowspan="2" class="align-middle bg-success text-white" style="min-width:80px">البدلات</th>
                             <th rowspan="2" class="align-middle bg-success text-white" style="min-width:80px">{{
                                 _('tbl.header.ot_value') }}
                             </th>
@@ -108,7 +109,7 @@
                         <!-- Shimmer Loader -->
                         {% for i in range(5) %}
                         <tr>
-                            <td colspan="{{ 4 + 2 + days_diff + 12 }}" class="p-3">
+                            <td colspan="{{ 4 + 2 + days_diff + 13 }}" class="p-3">
                                 <div class="placeholder-glow">
                                     <span class="placeholder col-12 py-3 bg-secondary opacity-25 rounded"></span>
                                 </div>
@@ -189,11 +190,10 @@
                 daysHtml += `<td class="${cellClass}" title="${tooltip}" style="${cellStyle}" ${clickAction}>${cellContent}</td>`;
             });
 
+            // تفصيل الخصومات من كشف الرواتب نفسه (نفس البنود والمبالغ).
             let deductionTooltip = `{{ _("tooltip.total_deductions") }}: ${r.financials.total_deduction}`;
-            deductionTooltip += `\n{{ _("tooltip.late") }}: ${r.financials.late_deduction}`;
-            deductionTooltip += `\n{{ _("tooltip.early_leave") }}: ${r.financials.early_leave_deduction}`;
-            deductionTooltip += `\n{{ _("tooltip.absent") }}: ${r.financials.absent_deduction}`;
-            deductionTooltip += `\n{{ _("x.unpaid_leave_ded") }}: ${r.financials.unpaid_leave_deduction}`;
+            (r.financials.deductions_detail || []).forEach(d => { deductionTooltip += `\n${d.name}: ${d.amount}`; });
+            if (r.financials.partial_period) deductionTooltip += '\n(فترة جزئية: الأساسي والبدلات بنسبة الأيام)';
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -216,6 +216,7 @@
                     <td class="text-success">${r.stats.present_days}</td>
                     <td class="text-danger">${r.stats.absent_days}</td>
                     <td class="text-info fw-bold">${r.salary}</td>
+                    <td class="text-success">${r.financials.allowances || 0}</td>
                     <td class="text-success fw-bold">${r.financials.overtime_reward}</td>
                     <td class="text-danger fw-bold" title="${deductionTooltip}" data-bs-toggle="tooltip">${r.financials.total_deduction}</td>
                     <td class="text-primary fw-bold text-decoration-underline">${r.financials.net_salary}</td>

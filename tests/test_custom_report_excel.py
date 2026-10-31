@@ -3,6 +3,8 @@
 import io
 from datetime import timedelta
 
+import pytest
+
 from tests.test_hours_export import MONTH, YEAR, _punch, web  # noqa: F401
 
 
@@ -61,3 +63,36 @@ def test_inactive_employee_with_punches_shows_and_zero_days_means_zero_salary(we
     dept = rows[2]['department']
     only = c.get('/api/fingerprint/custom_employees_report?' + q + f'&dept={dept}').get_json()['rows']
     assert {r['department'] for r in only} == {dept}, 'فلتر القسم على الكل'
+
+
+def test_report_numbers_are_the_payroll_numbers(web):
+    """الحالة اللي اتبعتت: يومين بصمة ناقصة وقعدة بعد الشفت — التقرير كان بيقول إضافي صفر ومفيش خصم."""
+    c, conn, A, pe = web
+    import importlib
+    import smart_reports
+    importlib.reload(smart_reports)
+    start, end = pe.resolve_period(conn, MONTH, YEAR)
+    d, work, partial = start, 0, 0
+    while d <= end:
+        if d.isoweekday() not in (5, 6):
+            if partial < 2:
+                _punch(conn, 1, d.isoformat(), '08:00')                     # بصمة ناقصة
+                partial += 1
+            else:
+                _punch(conn, 1, d.isoformat(), '08:00', '17:00')            # ساعة بعد الشفت
+            work += 1
+        d += timedelta(days=1)
+    q = f'start_date={start.isoformat()}&end_date={end.isoformat()}'
+    row = next(r for r in c.get('/api/fingerprint/custom_employees_report?' + q).get_json()['rows'] if r['id'] == 1)
+    pay = next(r for r in pe.compute_monthly_payroll(conn, MONTH, YEAR)['rows'] if r['employee_id'] == 1)
+    met = pe.compute_month_metrics(conn, MONTH, YEAR)[1]
+    assert row['financials']['source'] == 'payroll_engine' and not row['financials']['partial_period']
+    assert row['financials']['net_salary'] == pytest.approx(pay['net'], abs=0.001), 'نفس صافي كشف الرواتب'
+    assert row['financials']['total_deduction'] == pytest.approx(pay['total_deductions'], abs=0.001)
+    assert row['stats']['overtime_hours'] * 60 == pytest.approx(met['ot_weekday_mins']) and met['ot_weekday_mins'] > 0
+    assert row['stats']['required_hours'] == pytest.approx(met['required_hours'])
+    # فترة جزئية: نص الدورة ← الأساسي بالنسبة
+    mid = start + timedelta(days=14)
+    half = next(r for r in c.get(f'/api/fingerprint/custom_employees_report?start_date={start}&end_date={mid}').get_json()['rows']
+                if r['id'] == 1)
+    assert half['financials']['partial_period'] and half['salary'] < pay['basic']

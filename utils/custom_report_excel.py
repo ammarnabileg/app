@@ -83,7 +83,7 @@ def build(data, company='', dept='', pos='', labels=None):
          'req': 'الساعات المطلوبة', 'act': 'الساعات الفعلية', 'miss': 'الساعات الناقصة',
          'ot': 'ساعات الإضافي', 'total_h': 'إجمالي الساعات', 'late': 'التأخير',
          'present': 'أيام الحضور', 'absent': 'أيام الغياب', 'basic': 'الراتب الأساسي',
-         'ot_val': 'قيمة الإضافي', 'ded': 'إجمالي الخصومات', 'net': 'صافي الراتب',
+         'allow': 'البدلات', 'ot_val': 'قيمة الإضافي', 'ded': 'إجمالي الخصومات', 'net': 'صافي الراتب',
          'details': 'تفاصيل الحضور', 'date': 'التاريخ', 'day': 'اليوم', 'status': 'الحالة',
          'in': 'الدخول', 'out': 'الخروج', 'hours': 'ساعات العمل', 'total': 'الإجمالي'}
     L.update(labels or {})
@@ -101,7 +101,7 @@ def build(data, company='', dept='', pos='', labels=None):
     hours = [('req', 'required_hours'), ('act', 'basic_hours'), ('miss', 'missing_hours'),
              ('ot', 'overtime_hours'), ('total_h', 'total_work_hours'), ('late', None),
              ('present', 'present_days'), ('absent', 'absent_days')]
-    money = [('basic', C_MONEY), ('ot_val', C_MONEY), ('ded', C_DED), ('net', C_NET)]
+    money = [('basic', C_MONEY), ('allow', C_MONEY), ('ot_val', C_MONEY), ('ded', C_DED), ('net', C_NET)]
     n_info, n_days = len(info), len(dates)
     first_day = n_info + 1
     first_hours = first_day + n_days
@@ -231,13 +231,13 @@ def build(data, company='', dept='', pos='', labels=None):
             c.alignment, c.border = CENTER, BORDER
             if zebra:
                 c.fill = zebra
-        mv = [row['salary'], fi['overtime_reward'], fi['total_deduction'], fi['net_salary']]
+        mv = [row['salary'], fi.get('allowances', 0), fi['overtime_reward'], fi['total_deduction'], fi['net_salary']]
         for j, v in enumerate(mv):
             c = ws.cell(r, first_money + j, round(float(v or 0), 3))
             c.number_format = MONEY
             k = money[j][0]
             c.font = Font(name=FONT, size=10, bold=k == 'net',
-                          color={'ot_val': '1A7F37', 'ded': 'B42318', 'net': C_NET}.get(k, '111827'))
+                          color={'allow': '1A7F37', 'ot_val': '1A7F37', 'ded': 'B42318', 'net': C_NET}.get(k, '111827'))
             c.alignment, c.border = CENTER, BORDER
             c.fill = _fill('EAF2FB') if k == 'net' else (zebra or PatternFill())
     last_row = r

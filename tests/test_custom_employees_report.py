@@ -74,10 +74,16 @@ def test_rest_days_and_holidays_are_not_absence_and_their_work_is_overtime(clien
     s, f = row['stats'], row['financials']
     assert (s['present_days'], s['absent_days'], s['weekly_off_days'], s['holiday_days']) == (3, 1, 2, 1)
     assert s['work_days'] == 7
-    assert s['required_hours'] == 32 and s['basic_hours'] == 16 and s['missing_hours'] == 16
-    assert s['overtime_hours'] == 12 and s['total_late_mins'] == 10 and s['total_early_leave_mins'] == 0
-    # يوم غياب واحد (10)، وأوفرتايم: 4×1.5 + 8×2 = 22 ساعة × 1.25
-    assert f['absent_deduction'] == 10 and f['overtime_reward'] == 27.5
+    # الساعات والفلوس من محرك الرواتب (2.45.2): نفس كشف الرواتب، مش حساب تاني في التقرير.
+    assert f['source'] == 'payroll_engine'
+    assert s['required_hours'] == 32 and abs(s['basic_hours'] + s['missing_hours'] - 32) < 1e-6
+    assert s['overtime_hours'] >= 12, 'شغل الراحة والعطلة كله إضافي، وزيادة بعد الشفت في الأيام العادية'
+    import utils.payroll_engine as pe
+    from datetime import date
+    per = (date(2026, 9, 1), date(2026, 9, 7))
+    met = pe.compute_month_metrics(con, 9, 2026, pe.fetch_payroll_employees(con, period=per), period=per)[1]
+    assert s['total_late_mins'] == met['late_actual_mins'], 'التأخير المحسوب في الكشف (بعد السماح)'
+    assert f['overtime_reward'] > 0 and f['total_deduction'] > 0
 
 
 def test_sick_leave_column(client):

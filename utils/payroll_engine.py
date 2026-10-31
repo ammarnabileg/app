@@ -280,7 +280,7 @@ def resolve_period(conn, month, year):
     return start, end
 
 
-def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
+def compute_month_metrics(conn, month, year, employees=None, day_sink=None, period=None):
     """
     Deterministic monthly metrics per active employee, computed ONLY from
     documented sources. Returns {employee_id: metrics dict} with keys:
@@ -311,7 +311,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None):
     """
     month = int(month)
     year = int(year)
-    p_start, p_end = resolve_period(conn, month, year)
+    # period=(من، إلى): فترة مخصّصة (التقرير الشامل) بدل دورة الشهر — نفس الحساب بالظبط.
+    p_start, p_end = period or resolve_period(conn, month, year)
     start_iso, end_iso = p_start.isoformat(), p_end.isoformat()
 
     if employees is None:
@@ -811,7 +812,7 @@ def _prior_sick_map(conn, employees, p_start, basis='calendar'):
     return out
 
 
-def compute_monthly_payroll(conn, month, year, day_sink=None):
+def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
     """
     Returns {month, year, rows, totals, hours_approval:{approved, stale, total}}.
     Hours shown for an APPROVED employee come from the attested snapshot;
@@ -821,7 +822,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
     month = int(month)
     year = int(year)
 
-    p_start, p_end = resolve_period(conn, month, year)
+    p_start, p_end = period or resolve_period(conn, month, year)
     employees = fetch_payroll_employees(conn, period=(p_start, p_end))
     sal = get_salary_settings_v2(conn)
     _basis = str(sal.get('daily_rate_basis', '26') or '26').strip()
@@ -867,7 +868,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None):
     def _rnd(v):
         return round(float(v or 0), _dec)
     start_iso, end_iso = p_start.isoformat(), p_end.isoformat()
-    metrics = compute_month_metrics(conn, month, year, employees, day_sink=day_sink)
+    metrics = compute_month_metrics(conn, month, year, employees, day_sink=day_sink, period=period)
     approvals = get_hours_approvals(conn, month, year)
 
     # Date-scoped: a fixed item applies only to periods its [start_date,

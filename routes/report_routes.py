@@ -848,6 +848,65 @@ def custom_employees_report_page():
                          selected_dept=selected_dept,
                          selected_pos=request.args.get('pos', ''))
 
+def _apply_payroll_engine(conn, rows, start_d, end_d):
+    """أرقام التقرير الشامل من محرك الرواتب (utils/payroll_engine) — مش حساب تاني.
+
+    كان التقرير بيحسب لوحده: الأجر ÷ 30، والإضافي في أيام الراحة بس، واليوم اللي بصمته ناقصة صفر
+    ساعات من غير خصم — فموظف قعد 25 ساعة بعد الشفت وعنده يومين بصمة ناقصة طلعله «16 ساعة ناقصة»
+    وإضافي صفر وخصم 0.66. دلوقتي الساعات والإضافي والتأخير والغياب والخصومات والصافي هي نفسها
+    بتاعة كشف الرواتب، بنفس الإعدادات (القاسم، سياسة التأخير، عقوبة البصمة الناقصة، تقريب الإضافي).
+
+    فترة أقصر من دورة الرواتب (مثلًا من أول الشهر لحد النهارده): الأيام والخصومات والإضافي عن أيام
+    الفترة بس، والأساسي والبدلات الثابتة بنسبة أيام الفترة من الدورة. الفترة = الدورة كلها ← نفس الكشف بالظبط.
+    خانات الأيام (الألوان) زي ما هي من تقرير البصمات."""
+    from utils import payroll_engine as pe
+    m, y = end_d.month, end_d.year
+    ps, pend = pe.resolve_period(conn, m, y)
+    if not (ps <= end_d <= pend):
+        m, y = (m % 12) + 1, y + (1 if m == 12 else 0)
+        ps, pend = pe.resolve_period(conn, m, y)
+    full = (start_d, end_d) == (ps, pend)
+    period = None if full else (start_d, end_d)
+    frac = 1.0 if full else min(1.0, ((end_d - start_d).days + 1) / float((pend - ps).days + 1))
+    ids = {r['id'] for r in rows}
+    emps = [e for e in pe.fetch_payroll_employees(conn, period=(start_d, end_d)) if e['id'] in ids]
+    if not emps:
+        return
+    metrics = pe.compute_month_metrics(conn, m, y, emps, period=period)
+    pay = {r['employee_id']: r for r in pe.compute_monthly_payroll(conn, m, y, period=period)['rows']}
+    for row in rows:
+        mt, pr = metrics.get(row['id']), pay.get(row['id'])
+        if not mt or not pr:
+            continue
+        st, fi = row['stats'], row['financials']
+        ot_m = mt['ot_weekday_mins'] + mt['ot_weekend_mins'] + mt['ot_holiday_mins']
+        req, act = float(mt['required_hours']), float(mt['actual_hours'])
+        # الفعلية = الإجمالي من غير الإضافي (بحد المطلوب)، فـ المطلوب − الفعلية = الناقص، والإجمالي = الفعلية + الإضافي + أي زيادة.
+        base = max(0.0, act - ot_m / 60.0)
+        base = min(base, req) if req else base
+        st.update(required_hours=round(req, 4), basic_hours=round(base, 4),
+                  missing_hours=round(max(0.0, req - base), 4), overtime_hours=round(ot_m / 60.0, 4),
+                  total_work_hours=round(act, 4), total_late_mins=mt.get('late_actual_mins', mt['late_mins']),
+                  total_early_leave_mins=mt.get('early_actual_mins', mt['early_mins']), total_overtime_mins=ot_m,
+                  partial_days=mt.get('partial_days', 0))
+        fixed = sum(a['amount'] for a in pr['allowances'] if a.get('source') == 'fixed')
+        ot_val = sum(a['amount'] for a in pr['allowances'] if a.get('code') == 'overtime')
+        other = pr['total_allowances'] - fixed - ot_val
+        basic = pr['basic'] * frac
+        allow = fixed * frac + other
+        ded = pr['total_deductions']
+        if not full:
+            # فترة جزئية: الأساسي بنسبة الأيام — وخصم «ما بعد/قبل الخدمة» اتحسب على الأساسي الكامل
+            ded -= sum(d['amount'] for d in pr['deductions'] if d.get('code') in ('pre_hire_days', 'post_service_days')) * (1 - frac)
+        ded = min(ded, basic + allow + ot_val)
+        fi.update(overtime_reward=round(ot_val, 3), allowances=round(allow, 3), total_deduction=round(ded, 3),
+                  net_salary=round(basic + allow + ot_val - ded, 3),
+                  deductions_detail=[{'name': d.get('name_ar') or d.get('code'), 'amount': d['amount']}
+                                     for d in pr['deductions']],
+                  source='payroll_engine', partial_period=not full)
+        row['salary'] = round(basic, 3)
+
+
 @report_bp.route('/fingerprint/custom_employees_report/export')
 @login_required
 @require_permission('report.export')
@@ -1164,6 +1223,7 @@ def custom_employees_report_api():
                 'daily_cells': daily_cells
             })
 
+        _apply_payroll_engine(conn, rows, start_d, end_d)
         return jsonify({
             'success': True,
             'rows': rows,
