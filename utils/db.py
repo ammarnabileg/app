@@ -1742,6 +1742,15 @@ def init_db():
     except Exception as e:
         print(f"Payroll foundation seeding error: {e}")
 
+    # سياسات الحضور والرواتب، وتاريخ أيام الراحة، وأرصدة الخصومات (utils/policies، utils/deduction_balances).
+    try:
+        from utils import policies as _pol, deduction_balances as _dbal
+        _pol.ensure_schema(cursor)
+        _pol.ensure_weekly_off_schema(cursor)
+        _dbal.ensure_schema(cursor)
+    except Exception as e:
+        print(f"Payroll policies schema error: {e}")
+
     # --- RBAC Seeding ---
     try:
         # 1. Define Default Permissions

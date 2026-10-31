@@ -628,7 +628,15 @@ def edit_employee(id):
             "SELECT DISTINCT branch_location FROM employees WHERE COALESCE(branch_location, '') != '' ORDER BY 1")]
     except Exception:
         branch_names = []
-    return render_template('edit_employee.html', 
+    try:
+        from utils.policies import ensure_weekly_off_schema
+        ensure_weekly_off_schema(conn)
+        weekly_off_hist = [dict(r) for r in conn.execute(
+            'SELECT days, effective_from, note FROM employee_weekly_off_history WHERE employee_id = ? '
+            'ORDER BY effective_from DESC', (id,)).fetchall()]
+    except Exception:
+        weekly_off_hist = []
+    return render_template('edit_employee.html', weekly_off_hist=weekly_off_hist,
                            employee=employee, branch_names=branch_names,
                            shift_hist=shift_hist, salary_hist=salary_hist,
                            today=datetime.now().strftime('%Y-%m-%d'),
@@ -1685,6 +1693,25 @@ def delete_shift_history(id, hid):
         conn.execute('DELETE FROM employee_shift_history WHERE id = ?', (hid,))
         sync_current(conn, id)
         conn.commit()
+    return redirect(url_for('employee.edit_employee', id=id) + '#history')
+
+
+@employee_bp.route('/employees/<int:id>/weekly_off_history', methods=['POST'])
+@login_required
+@require_permission('employee.edit')
+def add_weekly_off_history(id):
+    """أيام راحة الموظف من تاريخ (utils/policies.record_weekly_off) — الشهر المعتمد مايتلمسش."""
+    from utils.policies import record_weekly_off
+    conn = get_db_connection()
+    eff, err = _effective('effective_from')
+    days = request.form.getlist('days')
+    err = err or (None if days else 'اختار يوم راحة واحد على الأقل') or _locked_msg(conn, eff)
+    if err:
+        flash(err, 'error')
+    else:
+        record_weekly_off(conn, id, ','.join(days), eff, session.get('user_id'), request.form.get('note', ''))
+        conn.commit()
+        flash(gettext('x.f_history_saved'), 'success')
     return redirect(url_for('employee.edit_employee', id=id) + '#history')
 
 

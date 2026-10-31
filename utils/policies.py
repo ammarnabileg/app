@@ -42,11 +42,29 @@ SECTIONS = [
 _R = [
     # --- الأجر
     ('daily_rate_basis', 'wage', 'قاسم الأجر اليومي', 'choice',
-     [('26', '26 يوم'), ('30', '30 يوم'), ('working', 'أيام الجدول')], '26', False, False),
+     [('26', '26 يوم'), ('30', '30 يوم'), ('working', 'أيام الجدول'), ('custom', 'رقم تحدده الشركة')], '26', False, False),
+    ('daily_rate_custom_divisor', 'wage', 'القاسم المخصص (لو «رقم تحدده الشركة»)', 'number', None, '26', False, False),
+    ('hourly_rate_basis', 'wage', 'أساس أجر الساعة', 'choice',
+     [('shift', 'ساعات شفت اليوم'), ('fixed', 'عدد ساعات ثابت')], 'shift', False, False),
+    ('hourly_rate_fixed_hours', 'wage', 'ساعات اليوم لأجر الساعة (لو «ثابت»)', 'number', None, '8', False, False),
+    ('salary_day_basis', 'wage', 'الراتب المستخدم في خصم/إضافي اليوم', 'choice',
+     [('period_average', 'متوسط راتب الدورة'), ('day', 'الراتب الساري في اليوم نفسه')], 'period_average', False, False),
+    ('late_wage_base', 'wage', 'أساس خصم التأخير والانصراف', 'choice',
+     [('basic', 'الأساسي بس'), ('wage', 'الأساسي + البدلات الثابتة')], 'basic', False, False),
+    ('overtime_wage_base', 'wage', 'أساس أجر الإضافي', 'choice',
+     [('basic', 'الأساسي بس'), ('wage', 'الأساسي + البدلات الثابتة')], 'basic', False, False),
+    ('loan_cap_wage_base', 'wage', 'الأجر لحد أقساط السلف', 'choice',
+     [('wage', 'الأساسي + البدلات الثابتة'), ('basic', 'الأساسي بس')], 'wage', False, False),
+    ('pifss_wage_base', 'wage', 'الأجر الخاضع للتأمينات', 'choice',
+     [('wage', 'الأساسي + البدلات الثابتة'), ('basic', 'الأساسي بس')], 'wage', True, False),
     ('absence_deduction_base', 'wage', 'أساس خصم الغياب', 'choice',
      [('wage', 'الأساسي + البدلات الثابتة'), ('basic', 'الأساسي بس')], 'wage', False, False),
     ('rounding_display_decimals', 'wage', 'علامات عشرية للمبالغ', 'number', None, '2', False, False),
     # --- الحضور
+    ('default_hours_per_day', 'attendance', 'ساعات اليوم لو الموظف مالوش شفت', 'number', None, '8', False, False),
+    ('default_weekly_off', 'attendance', 'أيام الراحة لو مش متسجلة للموظف', 'choice',
+     [('5,6', 'الجمعة والسبت'), ('5', 'الجمعة بس'), ('6,0', 'السبت والأحد'), ('0', 'الأحد بس'), ('4,5', 'الخميس والجمعة')],
+     '5,6', False, False),
     ('missing_punch_policy', 'attendance', 'سياسة البصمة الناقصة', 'choice',
      [('invalid', 'اليوم غير صالح (يوم كامل)'), ('penalty_tiered', 'عقوبة متدرجة')], 'penalty_tiered', False, False),
     ('missing_punch_penalty_1', 'attendance', 'البصمة الناقصة — أول مرة (يوم)', 'number', None, '0', False, False),
@@ -276,3 +294,38 @@ def impact(conn, effective_from):
 
 def snapshot_json(conn, start_iso, end_iso):
     return json.dumps(load(conn).snapshot(start_iso, end_iso), ensure_ascii=False)
+
+
+# ------------------------------------------------------------ أيام الراحة بتاريخ سريان
+
+def ensure_weekly_off_schema(conn):
+    conn.execute('''CREATE TABLE IF NOT EXISTS employee_weekly_off_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        days TEXT NOT NULL,
+        effective_from TEXT NOT NULL,
+        note TEXT,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    conn.execute('CREATE INDEX IF NOT EXISTS ix_weekly_off_emp ON employee_weekly_off_history (employee_id, effective_from)')
+
+
+def record_weekly_off(conn, employee_id, days, effective_from, user_id=None, note=''):
+    """أيام راحة الموظف من تاريخ (أرقام البرنامج: 0=الأحد … 6=السبت، مفصولة بفاصلة)."""
+    ensure_weekly_off_schema(conn)
+    vals = sorted({int(x) % 7 for x in str(days).split(',') if str(x).strip().isdigit()})
+    eff = datetime.strptime(str(effective_from)[:10], '%Y-%m-%d').date().isoformat()
+    conn.execute('DELETE FROM employee_weekly_off_history WHERE employee_id = ? AND effective_from = ?',
+                 (int(employee_id), eff))
+    conn.execute('INSERT INTO employee_weekly_off_history (employee_id, days, effective_from, note, created_by) '
+                 'VALUES (?, ?, ?, ?, ?)', (int(employee_id), ','.join(map(str, vals)), eff, note or None, user_id))
+
+
+def weekly_off_history(conn):
+    ensure_weekly_off_schema(conn)
+    out = {}
+    for r in conn.execute('SELECT employee_id, days, effective_from FROM employee_weekly_off_history '
+                          'ORDER BY employee_id, effective_from, id').fetchall():
+        out.setdefault(r['employee_id'], []).append(
+            (r['effective_from'], {int(x) for x in str(r['days']).split(',') if x.strip().isdigit()}))
+    return out

@@ -30,12 +30,18 @@ METRIC_FIELDS = ('required_days', 'actual_days', 'required_hours', 'actual_hours
                  'unentitled_rest_days')
 
 SICK_NAME_HINTS = ('مرض', 'sick')
+_INTERNAL_WEIGHTS = frozenset(('late_w', 'early_w', 'ot_weekday_w', 'ot_weekend_w', 'ot_holiday_w',
+                               'late_ws', 'early_ws', 'ot_weekday_ws', 'ot_weekend_ws', 'ot_holiday_ws',
+                               'absent_f', 'unpaid_f'))
 
 # مقاييسُ القانون: تُحسب مع الشهر ولا تدخل توقيعَ الاعتماد.
 LAW_METRIC_FIELDS = ('late_actual_mins', 'early_actual_mins',
                      # الدقايق ÷ ساعات شفت اليوم نفسه: أجر الساعة لكل يوم بشفته (اتنقل من 8 لـ 6 في نص الشهر
                      # ← دقيقة النص الأول بأجر ساعة على 8، والتاني على 6). الفلوس = المجموع ÷ 60 × الأجر اليومي.
                      'late_w', 'early_w', 'ot_weekday_w', 'ot_weekend_w', 'ot_holiday_w',
+                     # نفس الأوزان × (راتب اليوم ÷ متوسط الدورة) — لسياسة «الراتب الساري في اليوم».
+                     'late_ws', 'early_ws', 'ot_weekday_ws', 'ot_weekend_ws', 'ot_holiday_ws',
+                     'absent_f', 'unpaid_f',
                      'ot_days_over_2h', 'ot_weeks_over_3d', 'ot_days',
                      'ramadan_over_6h', 'paid_leave_days')
 
@@ -67,8 +73,10 @@ def _parse_d(s):
         return None
 
 
-def _weekly_off_set(emp):
-    """App convention day numbers (0=Sunday .. 6=Saturday = isoweekday % 7)."""
+def _weekly_off_set(emp, default=None):
+    """App convention day numbers (0=Sunday .. 6=Saturday = isoweekday % 7).
+
+    `default` («5,6»): سياسة «أيام الراحة لو مش متسجلة للموظف» — بتتطبق بس لو الملف مافيهوش أي حاجة."""
     raw = emp['weekly_leave_selected_days'] if 'weekly_leave_selected_days' in emp.keys() else None
     days = set()
     if raw:
@@ -78,6 +86,8 @@ def _weekly_off_set(emp):
                 days.add(int(part) % 7)
     if days:
         return days
+    if default and emp['weekly_leave_start'] is None:
+        return {int(x) % 7 for x in str(default).split(',') if x.strip().isdigit()}
     try:
         start = int(emp['weekly_leave_start']) if emp['weekly_leave_start'] is not None else 5
     except (ValueError, TypeError):
@@ -88,6 +98,31 @@ def _weekly_off_set(emp):
         count = 2
     count = max(0, min(count, 7))
     return {(start + i) % 7 for i in range(count)}
+
+
+class _WeeklyOff:
+    """أيام راحة الموظف في يوم بعينه: من تاريخها (utils/policies.record_weekly_off)، وإلا ملفه، وإلا السياسة."""
+
+    def __init__(self, conn, default=None):
+        try:
+            from utils.policies import weekly_off_history
+            self.hist = weekly_off_history(conn)
+        except Exception:
+            self.hist = {}
+        self.default = default
+        self._file = {}
+
+    def on(self, emp, d):
+        ds = d.isoformat() if hasattr(d, 'isoformat') else str(d)
+        hit = None
+        for eff, days in self.hist.get(emp['id'], ()):
+            if eff <= ds:
+                hit = days
+        if hit is not None:
+            return hit
+        if emp['id'] not in self._file:
+            self._file[emp['id']] = _weekly_off_set(emp, self.default)
+        return self._file[emp['id']]
 
 
 def _is_sick_type(name):
@@ -230,7 +265,13 @@ def fetch_payroll_employees(conn, dept=None, employee_id=None, active_only=True,
     routes. Every consumer (metrics, payroll, approval API, print, day
     drill-down) MUST use this instead of writing its own SELECT — duplicated
     column lists caused two real bugs (pages disagreeing on the same truth)."""
-    q = f"""SELECT {PAYROLL_EMP_COLUMNS}
+    # ساعات اليوم لموظف مالوش شفت: سياسة «ساعات اليوم لو الموظف مالوش شفت» (8 لو مش متحددة).
+    try:
+        from utils.policies import load as _lp
+        _dh = float(_lp(conn).get('default_hours_per_day') or 8)
+    except Exception:
+        _dh = 8.0
+    q = f"""SELECT {PAYROLL_EMP_COLUMNS.replace('COALESCE(st.hours_per_day, 8)', f'COALESCE(st.hours_per_day, {_dh:g})')}
             FROM employees e
             LEFT JOIN shift_types st ON st.name = e.shift_type
             WHERE 1 = 1"""
@@ -323,6 +364,10 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
     sal = get_salary_settings_v2(conn)
     from utils.policies import load as _load_policies
     _P = _load_policies(conn, sal)          # سياسات بتاريخ سريان: لكل يوم قيمته (utils/policies)
+    _WO = _WeeklyOff(conn, _P.get('default_weekly_off', day=p_end))
+    # الراتب الساري في كل يوم (سياسة «الراتب المستخدم»): معامل اليوم = راتبه ÷ متوسط الدورة.
+    from utils.pay_history import salary_history as _sh_load, salary_on as _sal_on, period_salary as _psal
+    _SH = _sh_load(conn, [e['id'] for e in employees])
 
     holidays = {
         r['date'][:10] for r in conn.execute(
@@ -384,7 +429,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
     for emp in employees:
         emp_id = emp['id']
         _W = _wdays.get(emp_id, {'views': {}, 'rec': {}})
-        off_days = _weekly_off_set(emp)
+        _avg_sal = _psal(_SH.get(emp_id), emp['salary'], p_start, p_end)[0] or 0.0
         # المرضيّةُ تغلب ما تداخل معها (المادة 70): يومٌ مرضيٌّ داخل السنويّة
         # يُحسب مرضيًّا بشرائحه، ولا يُنقص رصيدَ السنويّة.
         emp_leaves = sorted(leaves_map.get(emp_id, []), key=lambda lv: not lv[3])
@@ -417,6 +462,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
             ds_, kind_, note_, rec_, snap_ = p
             delta = {}
             for k, v in m.items():
+                if k in _INTERNAL_WEIGHTS:
+                    continue                      # أوزان داخلية للفلوس — مش عدّادات يوم
                 dv = v - snap_.get(k, 0)
                 if dv:
                     delta[k] = round(dv, 4) if isinstance(dv, float) else dv
@@ -449,6 +496,10 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                 _ot_net_late = str(_sd.get('overtime_net_of_late', '0')).strip() == '1'
             else:
                 _sd = sal
+            # أجر الساعة: ساعات شفت اليوم، أو عدد ثابت (سياسة «أساس أجر الساعة»).
+            _hr = (float(_sd.get('hourly_rate_fixed_hours', 8) or 8)
+                   if str(_sd.get('hourly_rate_basis', 'shift')) == 'fixed' else hpd) or 8.0
+            _f = (_sal_on(_SH.get(emp_id), emp['salary'], ds) / _avg_sal) if _avg_sal else 1.0
             flex = _emp_flex_mode(ev)
             pres_ps = ev['presence_start_time'] if 'presence_start_time' in evk else None
             pres_pe = ev['presence_end_time'] if 'presence_end_time' in evk else None
@@ -471,7 +522,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
             if eos_dt and d > eos_dt:
                 continue
             _wk = (d - timedelta(days=(d.isoweekday() % 7))).isoformat()
-            if (d.isoweekday() % 7) in off_days:
+            if (d.isoweekday() % 7) in _WO.on(emp, d):
                 if _pend is not None: _pend[1] = 'rest'
                 m['weekly_off_days'] += 1
                 _worked = span is not None and span > 0
@@ -480,7 +531,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     m['actual_hours'] += span
                     _x = _ot_round(span * 60, _ot_step)
                     m['ot_weekend_mins'] += _x
-                    m['ot_weekend_w'] += _x / hpd
+                    m['ot_weekend_w'] += _x / _hr
+                    m['ot_weekend_ws'] += _x / _hr * _f
                 _day_log.append((_wk, 'rest', _worked))
                 continue
             if ds in holidays:
@@ -492,7 +544,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     m['actual_hours'] += span
                     _x = _ot_round(span * 60, _ot_step)
                     m['ot_holiday_mins'] += _x
-                    m['ot_holiday_w'] += _x / hpd
+                    m['ot_holiday_w'] += _x / _hr
+                    m['ot_holiday_ws'] += _x / _hr * _f
                 _day_log.append((_wk, 'rest', _worked))
                 continue
 
@@ -508,6 +561,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     m['sick_days'] += 1
                 elif not is_paid:
                     m['unpaid_days'] += 1
+                    m['unpaid_f'] += _f
                 else:
                     m['paid_leave_days'] += 1
                 if span is not None and span > 0:
@@ -556,6 +610,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                         m['presence_missing'] += 1
                 elif not excused:
                     m['absent_days'] += 1
+                    m['absent_f'] += _f
                 continue
 
             hp_touch_start = hp_touch_end = hp_cover_pres = False
@@ -583,7 +638,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     _d_ot = _ot_round((span - hpd) * 60, _ot_step)
                 if _d_ot > 0:
                     m['ot_weekday_mins'] += _d_ot
-                    m['ot_weekday_w'] += _d_ot / hpd
+                    m['ot_weekday_w'] += _d_ot / _hr
+                    m['ot_weekday_ws'] += _d_ot / _hr * _f
                     m['ot_days'] += 1
                     if _d_ot > OT_DAY_MAX_MINS:
                         m['ot_days_over_2h'] += 1
@@ -598,8 +654,10 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     lm, em = nursing_waive(lm, em)
                 m['late_mins'] += lm
                 m['early_mins'] += em
-                m['late_w'] += lm / hpd
-                m['early_w'] += em / hpd
+                m['late_w'] += lm / _hr
+                m['early_w'] += em / _hr
+                m['late_ws'] += lm / _hr * _f
+                m['early_ws'] += em / _hr * _f
                 if lm:
                     m['late_actual_mins'] += min(lm, _actual_late(rec[1], ev))
                 if em:
@@ -618,6 +676,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     m['actual_days'] += 1
             elif span is None:
                 m['absent_days'] += 1
+                m['absent_f'] += _f
             elif span <= 0:
                 m['partial_days'] += 1  # punched, but missing in/out
                 if rec[4] and rec[0] > 0:
@@ -872,7 +931,12 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
     _P = _load_policies(conn, sal)
     # قيم الفلوس (القاسم، المعاملات، السقوف، التأمينات): الساري آخر يوم في الدورة — للموظف لو ليه استثناء.
     _basis = str(_P.get('daily_rate_basis', day=p_end) or '26').strip()
-    if _basis not in ('30', '26', 'working'):
+    try:
+        _custom_div = float(_P.get('daily_rate_custom_divisor', day=p_end) or 26) or 26.0
+    except (TypeError, ValueError):
+        _custom_div = 26.0
+    _WO2 = _WeeklyOff(conn, _P.get('default_weekly_off', day=p_end))
+    if _basis not in ('30', '26', 'working', 'custom'):
         _basis = '30'
     _holidays_set = {str(r['date'])[:10] for r in conn.execute(
         'SELECT date FROM official_holidays WHERE DATE(date) BETWEEN ? AND ?',
@@ -881,14 +945,13 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                  for i in range((p_end - p_start).days + 1)]
 
     def _scheduled_days(emp_row, win_s=None, win_e=None):
-        offs = _weekly_off_set(emp_row)
         n = 0
         for _d in _all_days:
             if win_s and _d < win_s:
                 continue
             if win_e and _d > win_e:
                 continue
-            if (_d.isoweekday() % 7) in offs:
+            if (_d.isoweekday() % 7) in _WO2.on(emp_row, _d):      # أيام الراحة السارية في اليوم
                 continue
             if _d.isoformat() in _holidays_set:
                 continue
@@ -900,6 +963,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
             return 0.0
         if _basis == '26':
             return basic_v / 26.0
+        if _basis == 'custom':
+            return basic_v / _custom_div
         if _basis == 'working':
             sched = _scheduled_days(emp_row)
             return (basic_v / sched) if sched else 0.0
@@ -983,6 +1048,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
     def _basis_divisor(emp_row):
         if _basis == '26':
             return 26.0
+        if _basis == 'custom':
+            return _custom_div
         if _basis == 'working':
             return float(_scheduled_days(emp_row) or 26)
         return DAILY_RATE_DIVISOR
@@ -1093,22 +1160,34 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
         if (str(sal_e.get('absence_deduction_base', 'wage') or 'wage') == 'wage'
                 and basic > MONEY_EPS):
             _day_wage = daily_rate * (basic + _fixed_monthly) / basic
+        # سياسات الأجر (utils/policies): راتب اليوم نفسه أو متوسط الدورة، وأساس التأخير والإضافي.
+        _day_mode = str(sal_e.get('salary_day_basis', 'period_average')) == 'day'
+        _wk = '_ws' if _day_mode else '_w'
+        _wfac = ((basic + _fixed_monthly) / basic) if basic > MONEY_EPS else 1.0
+        _late_f = _wfac if str(sal_e.get('late_wage_base', 'basic')) == 'wage' else 1.0
+        _ot_f = _wfac if str(sal_e.get('overtime_wage_base', 'basic')) == 'wage' else 1.0
+
+        def _days_of(n, f_key):
+            """أيام (غياب/بدون راتب) — براتب كل يوم لو السياسة كده والأرقام هي الحية."""
+            if _day_mode and abs(live.get(f_key[:-2] + '_days', -1) - n) < 1e-9:
+                return live.get(f_key, n)
+            return n
         if daily_rate > MONEY_EPS:
             if att['absent_days'] > 0:
                 deductions.append({'code': 'absence_deduction',
                                    'name_ar': f"خصم غياب ({att['absent_days']} يوم)",
                                    'name_en': f"Absence Deduction ({att['absent_days']} d)",
-                                   'amount': round(att['absent_days'] * _day_wage, 3),
+                                   'amount': round(_days_of(att['absent_days'], 'absent_f') * _day_wage, 3),
                                    'source': 'computed', 'days': att['absent_days']})
             if att['unpaid_days'] > 0:
                 deductions.append({'code': 'unpaid_leave_deduction',
                                    'name_ar': f"خصم إجازة بدون راتب ({att['unpaid_days']} يوم)",
                                    'name_en': f"Unpaid Leave ({att['unpaid_days']} d)",
-                                   'amount': round(att['unpaid_days'] * _day_wage, 3),
+                                   'amount': round(_days_of(att['unpaid_days'], 'unpaid_f') * _day_wage, 3),
                                    'source': 'computed', 'days': att['unpaid_days']})
             hpd_now = float(emp['hours_per_day'] or 8)
             if att['late_mins'] > 0:
-                _amt = daily_rate * _day_units(att['late_mins'], live, 'late_mins', 'late_w', hpd_now)
+                _amt = daily_rate * _late_f * _day_units(att['late_mins'], live, 'late_mins', 'late' + _wk, hpd_now)
                 _e = {'code': 'lateness_deduction',
                       'name_ar': f"خصم تأخير ({att['late_mins']} د)",
                       'name_en': f"Lateness ({att['late_mins']} min)",
@@ -1117,7 +1196,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                 _act = min(att['late_mins'], live.get('late_actual_mins', att['late_mins']))
                 penalties.append((_e, max(0.0, _amt - _amt * _act / att['late_mins'])))
             if att['early_mins'] > 0:
-                _amt = daily_rate * _day_units(att['early_mins'], live, 'early_mins', 'early_w', hpd_now)
+                _amt = daily_rate * _late_f * _day_units(att['early_mins'], live, 'early_mins', 'early' + _wk, hpd_now)
                 _e = {'code': 'early_leave_deduction',
                       'name_ar': f"خصم انصراف مبكر ({att['early_mins']} د)",
                       'name_en': f"Early Leave ({att['early_mins']} min)",
@@ -1228,9 +1307,10 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                 m_we = float(sal_e.get('weekend_ot_multiplier', 1.5) or 0)
                 m_ho = float(sal_e.get('holiday_ot_multiplier', 2.0) or 0)
                 # كل ساعة إضافي بأجر ساعة يومها (شفت اليوم)، مش شفت آخر الشهر.
-                _wk_amt = round(daily_rate * m_wk * _day_units(_g('ot_weekday_mins'), live, 'ot_weekday_mins', 'ot_weekday_w', _hn), 3)
-                _we_amt = round(daily_rate * m_we * _day_units(_g('ot_weekend_mins'), live, 'ot_weekend_mins', 'ot_weekend_w', _hn), 3)
-                _ho_amt = daily_rate * m_ho * _day_units(_g('ot_holiday_mins'), live, 'ot_holiday_mins', 'ot_holiday_w', _hn)
+                _r = daily_rate * _ot_f
+                _wk_amt = round(_r * m_wk * _day_units(_g('ot_weekday_mins'), live, 'ot_weekday_mins', 'ot_weekday' + _wk, _hn), 3)
+                _we_amt = round(_r * m_we * _day_units(_g('ot_weekend_mins'), live, 'ot_weekend_mins', 'ot_weekend' + _wk, _hn), 3)
+                _ho_amt = _r * m_ho * _day_units(_g('ot_holiday_mins'), live, 'ot_holiday_mins', 'ot_holiday' + _wk, _hn)
                 ot_amount = round(_wk_amt + _we_amt + _ho_amt, 3)
                 ot_detail = {'weekday_hours': round(wk_h, 4), 'weekend_hours': round(we_h, 4),
                              'holiday_hours': round(ho_h, 4),
@@ -1342,7 +1422,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
         employer_pifss = 0.0
         if _pifss_on_e and is_kuwaiti(emp['nationality'] if 'nationality' in emp.keys() else None):
             # الأجرُ الخاضع: الأساسيّ والبدلاتُ الثابتة، مسقوفًا.
-            _wage = basic + sum(a['amount'] for a in allowances if a.get('source') == 'fixed')
+            _wage = basic + (0.0 if str(sal_e.get('pifss_wage_base', 'wage')) == 'basic'
+                             else sum(a['amount'] for a in allowances if a.get('source') == 'fixed'))
             _base, _emp_sh, employer_pifss = pifss_shares(_wage, sal_e)
             if _emp_sh > MONEY_EPS:
                 deductions.append({'code': 'social_insurance_emp',
@@ -1356,7 +1437,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                    'name_ar': 'قسط سلفة', 'name_en': 'Loan Installment',
                    'amount': ln['amount'], 'source': 'loan',
                    'loan_id': ln['loan_id']} for ln in loans_map.get(emp_id, [])]
-        _loan_wage = basic + sum(a['amount'] for a in allowances if a.get('source') == 'fixed')
+        _loan_wage = basic + (0.0 if str(sal_e.get('loan_cap_wage_base', 'wage')) == 'basic'
+                              else sum(a['amount'] for a in allowances if a.get('source') == 'fixed'))
         _deferred = cap_loan_installments(_loans, _loan_wage, sal_e)
         for _ln in _loans:
             if _ln.get('deferred', 0) > MONEY_EPS:
@@ -1921,7 +2003,8 @@ def compute_employee_days(conn, employee_id, month, year):
     hire_dt = _parse_d(emp['hire_date'])
     eos_dt = (_parse_d(emp['end_of_service_date'])
               if 'end_of_service_date' in emp.keys() else None)
-    off_days = _weekly_off_set(emp)
+    from utils.policies import load as _lp_d
+    _WOd = _WeeklyOff(conn, _lp_d(conn, sal).get('default_weekly_off', day=p_end))
 
     # شفتُ كلّ يومٍ وبصماتُه من المصدر نفسِه الذي يقرؤه الحسابُ الشهريّ.
     from utils import workday as _wday
@@ -2033,7 +2116,7 @@ def compute_employee_days(conn, employee_id, month, year):
         elif leave_hit:
             status = 'leave_sick' if _is_sick_type(leave_hit[3]) else (
                 'leave_paid' if leave_hit[2] else 'leave_unpaid')
-        elif (d.isoweekday() % 7) in off_days:
+        elif (d.isoweekday() % 7) in _WOd.on(emp, d):
             status = 'weekly_off'
         elif ds in holidays:
             status = 'holiday'

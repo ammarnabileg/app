@@ -772,6 +772,30 @@
                                         <div class="col-auto"><button class="btn btn-sm btn-primary" form="histSalaryForm">{{ _('x.add') }}</button></div>
                                     </div>
                                 </div>
+                                <div class="col-12 mt-3">
+                                    <h6><i class="fas fa-calendar-week me-2"></i>أيام الراحة بتاريخ سريان</h6>
+                                    <div class="small text-muted mb-1">لو أيام راحة الموظف اتغيرت: الأيام قبل التاريخ بالقديم وبعده بالجديد. من غير سطر هنا، أيام الراحة من بيانات الموظف.</div>
+                                    <table class="table table-sm">
+                                        <tbody>
+                                        {% set _dn = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'] %}
+                                        {% for h in weekly_off_hist or [] %}
+                                            <tr><td dir="ltr">{{ h.effective_from }}</td>
+                                                <td>{% for x in h.days.split(',') if x %}{{ _dn[x|int] }}{{ '، ' if not loop.last }}{% endfor %}</td>
+                                                <td class="small text-muted">{{ h.note or '' }}</td></tr>
+                                        {% else %}
+                                            <tr><td class="text-muted">مفيش تغييرات</td></tr>
+                                        {% endfor %}
+                                        </tbody>
+                                    </table>
+                                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                                        <input type="date" class="form-control form-control-sm" style="width:150px" name="effective_from" form="histWeeklyOffForm" required value="{{ today }}">
+                                        {% for i in range(7) %}
+                                        <label class="small"><input type="checkbox" name="days" value="{{ i }}" form="histWeeklyOffForm"> {{ _dn[i] }}</label>
+                                        {% endfor %}
+                                        <input class="form-control form-control-sm" style="width:180px" name="note" form="histWeeklyOffForm" placeholder="السبب">
+                                        <button class="btn btn-sm btn-primary" form="histWeeklyOffForm">{{ _('x.add') }}</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -903,6 +927,7 @@
                 {# نماذجُ التاريخ خارج نموذج الموظّف: HTML لا يسمح بنموذجٍ داخل نموذج #}
                 <form method="POST" hidden id="histShiftForm" action="{{ url_for('employee.add_shift_history', id=employee.id) }}"></form>
                 <form method="POST" hidden id="histSalaryForm" action="{{ url_for('employee.add_salary_history', id=employee.id) }}"></form>
+                <form method="POST" hidden id="histWeeklyOffForm" action="{{ url_for('employee.add_weekly_off_history', id=employee.id) }}"></form>
                 <form method="POST" hidden id="histDeleteForm"></form>
                 <script>
                 // بعد إضافة سطرٍ إلى التاريخ يعود المتصفّح إلى تبويب التاريخ نفسه
