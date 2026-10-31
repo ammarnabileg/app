@@ -848,6 +848,38 @@ def custom_employees_report_page():
                          selected_dept=selected_dept,
                          selected_pos=request.args.get('pos', ''))
 
+@report_bp.route('/fingerprint/custom_employees_report/export')
+@login_required
+@require_permission('report.export')
+def custom_employees_report_export():
+    """Excel منسّق للتقرير الشامل (utils/custom_report_excel) — من نفس بيانات الصفحة بالظبط."""
+    from flask import send_file
+    from flask_babel import gettext as _g
+    from utils.custom_report_excel import build
+    from utils.settings_utils import get_system_settings
+    resp = custom_employees_report_api()
+    if isinstance(resp, tuple):
+        return resp
+    data = resp.get_json() or {}
+    if not data.get('success'):
+        return resp, 400
+    labels = {'num': _g('tbl.header.file_number'), 'name': _g('tbl.header.name'),
+              'dept': _g('tbl.header.department'), 'pos': _g('tbl.header.position'),
+              'work_days': _g('tbl.header.work_days'), 'sick': _g('tbl.header.sick_emergency'),
+              'req': _g('tbl.header.req_hrs'), 'act': _g('tbl.header.act_basic'),
+              'miss': _g('tbl.header.miss_hrs'), 'ot': _g('tbl.header.ot_hrs'),
+              'total_h': _g('tbl.header.total_hrs'), 'late': _g('tbl.header.late_hrs'),
+              'present': _g('tbl.header.present_days'), 'absent': _g('tbl.header.absent_days'),
+              'basic': _g('tbl.header.basic_salary'), 'ot_val': _g('tbl.header.ot_value'),
+              'ded': _g('tbl.header.total_deductions'), 'net': _g('tbl.header.net_salary')}
+    company = (get_system_settings() or {}).get('company_name', '')
+    dept = get_allowed_department_name() or request.args.get('dept', '')
+    buf = build(data, company=company, dept=dept, pos=request.args.get('pos', ''), labels=labels)
+    return send_file(buf, as_attachment=True,
+                     download_name=f"Custom_Employees_Report_{data.get('start_date')}_{data.get('end_date')}.xlsx",
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @report_bp.route('/api/fingerprint/custom_employees_report')
 @login_required
 @require_permission('report.view')
@@ -879,9 +911,14 @@ def custom_employees_report_api():
                    st.hours_per_day AS shift_hours_per_day
             FROM employees e
             LEFT JOIN shift_types st ON st.name = e.shift_type
-            WHERE e.is_active = 1 OR (e.end_of_service_date IS NOT NULL AND DATE(e.end_of_service_date) >= ?)
+            WHERE (e.is_active = 1
+                   OR (e.end_of_service_date IS NOT NULL AND DATE(e.end_of_service_date) >= ?)
+                   OR EXISTS (SELECT 1 FROM attendance_records a WHERE a.employee_id = e.id
+                              AND a.check_time >= ? AND a.check_time < ?))
         '''
-        params = [start_date]
+        # الأقواس: الفلتر بالقسم/الوظيفة (AND) كان بيتطبّق على الفرع الأخير بس من الـ OR.
+        # والموظف الموقوف من غير تاريخ نهاية خدمة بس ليه بصمات في الفترة لازم يظهر بأيامه.
+        params = [start_date, start_date, (end_d + timedelta(days=1)).isoformat()]
         
         allowed_dept = get_allowed_department_name()
         if allowed_dept:
@@ -1080,6 +1117,12 @@ def custom_employees_report_api():
             overtime_reward = ((ot_weekend_mins / 60.0) * weekend_mult + (ot_holiday_mins / 60.0) * holiday_mult) * hour_rate
 
             total_deduction = absent_deduction + unpaid_leave_deduction + late_deduction + early_leave_deduction
+            # لا أجر من غير يوم مستحق (زي محرك الرواتب): مداومش ولا يوم ومالوش إجازة مدفوعة ← مالوش راتب.
+            # قبل كده الغياب بيتخصم على أساس 30 يوم وأيام الراحة بتتحسب، فاللي غاب 26 يوم كان بياخد 4/30.
+            _paid_leave = leave_days - unpaid_leave_days
+            if present_days == 0 and _paid_leave <= 0:
+                total_deduction = float(emp['salary'] or 0)
+            total_deduction = min(total_deduction, float(emp['salary'] or 0))
             net_salary = float(emp['salary'] or 0) - total_deduction + overtime_reward
 
             rows.append({

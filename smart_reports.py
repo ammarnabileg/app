@@ -532,8 +532,10 @@ class SmartFingerprintReport:
             SELECT id, name, employee_number, department, position, weekly_leave_selected_days, shift_type, default_start_time, default_end_time
             FROM employees
             WHERE is_active = 1 OR (end_of_service_date IS NOT NULL AND DATE(end_of_service_date) >= ?)
+               OR EXISTS (SELECT 1 FROM attendance_records a WHERE a.employee_id = employees.id
+                          AND DATE(a.check_time) BETWEEN ? AND ?)
             ORDER BY CAST(employee_number AS INTEGER), name
-        """, (start_date_str,))
+        """, (start_date_str, start_date_str, end_date_str))
         employees = cursor.fetchall()
         
         # 2. جلب جميع البصمات في الفترة المحددة

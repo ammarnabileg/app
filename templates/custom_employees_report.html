@@ -122,7 +122,6 @@
     </div>
 </div>
 
-<script src="/static/vendor/libs/xlsx.full.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         loadReportData();
@@ -225,53 +224,9 @@
         });
     }
 
+    // التصدير من السيرفر (utils/custom_report_excel): ملف منسّق بنفس بيانات الصفحة.
     if (document.getElementById('btnExportExcel')) document.getElementById('btnExportExcel').addEventListener('click', function () {
-        const wb = XLSX.utils.book_new();
-        
-        // Sheet 1: Main Report
-        const table = document.getElementById('reportTable');
-        const wsMain = XLSX.utils.table_to_sheet(table, { raw: true });
-        // إعدادات الطباعة للورقة الأولى (الرئيسية)
-        wsMain['!dir'] = 'rtl'; // من اليمين لليسار
-        wsMain['!pageSetup'] = { 
-            orientation: 'landscape', // بالعرض
-            paperSize: 9, // A4
-            fitToWidth: 1, // احتواء كافة الأعمدة في عرض صفحة واحدة
-            fitToHeight: 0 // السماح بتعدد الصفحات طولياً
-        };
-        XLSX.utils.book_append_sheet(wb, wsMain, {{ _('x.comprehensive_report')|tojson }});
-
-        // Sheet 2: Detailed Attendance (Check In/Out)
-        if (window.reportData) {
-            let detailsData = [];
-            // Header Row
-            detailsData.push([{{ _('x.employee_number')|tojson }}, {{ _('x.employee_name')|tojson }}, {{ _('x.department')|tojson }}, {{ _('x.date')|tojson }}, {{ _('x.status')|tojson }}, {{ _('x.check_in_time')|tojson }}, {{ _('x.check_out_time')|tojson }}, {{ _('x.work_hours')|tojson }}]);
-            
-            window.reportData.forEach(r => {
-                r.daily_cells.forEach(c => {
-                    detailsData.push([
-                        r.employee_number || '',
-                        r.name || '',
-                        r.department || '',
-                        c.date || '',
-                        c.status || '',
-                        c.check_in || '',
-                        c.check_out || '',
-                        fmtHM(c.work_hours || 0)
-                    ]);
-                });
-            });
-            const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-            
-            // إعدادات الطباعة للورقة الثانية (التفاصيل)
-            wsDetails['!dir'] = 'rtl';
-            wsDetails['!pageSetup'] = { orientation: 'landscape', paperSize: 9, fitToWidth: 1, fitToHeight: 0 };
-            wsDetails['!cols'] = [{wch: 12}, {wch: 25}, {wch: 15}, {wch: 12}, {wch: 12}, {wch: 12}, {wch: 12}, {wch: 12}];
-
-            XLSX.utils.book_append_sheet(wb, wsDetails, {{ _('x.attendance_details')|tojson }});
-        }
-
-        XLSX.writeFile(wb, "Custom_Employees_Report_{{ start_date }}_{{ end_date }}.xlsx");
+        window.location = {{ url_for('report.custom_employees_report_export')|tojson }} + window.location.search;
     });
 </script>
 

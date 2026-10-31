@@ -33,16 +33,16 @@
 
 VERSION_MAJOR = 2
 VERSION_MINOR = 45
-VERSION_PATCH = 0
+VERSION_PATCH = 1
 VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
 
 # تاريخ البناء — يُحدَّث مع BUILD
-BUILD_DATE = "2026-10-11"
+BUILD_DATE = "2026-10-31"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "الجهاز بياخد الوقت من السيرفر"
+RELEASE_NAME = "Excel التقرير الشامل منسّق"
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"
