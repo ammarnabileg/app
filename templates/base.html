@@ -968,6 +968,15 @@
                             </a>
                         </li>
                         {% endif %}
+                        {% if has_permission('payroll.policies') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'payroll.policies_page' %}active{% endif %}"
+                                href="{{ url_for('payroll.policies_page') }}">
+                                <i class="fas fa-sliders-h"></i>
+                                سياسات الحضور والرواتب
+                            </a>
+                        </li>
+                        {% endif %}
                         {% if has_permission('salary.calculate') %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'payroll.deduction_balances' %}active{% endif %}"

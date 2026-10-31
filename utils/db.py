@@ -1615,6 +1615,8 @@ def init_db():
             ('payroll_runs', 'unlocked_by', 'INTEGER'),
             ('payroll_runs', 'unlocked_at', 'DATETIME'),
             ('payroll_runs', 'unlock_reason', 'TEXT'),
+            # نسخة السياسات اللي اتبنى عليها الكشف المعتمد (utils/policies) — الشهر المقفول مايتغيّرش بتعديل لاحق.
+            ('payroll_runs', 'policy_snapshot', 'TEXT'),
             ('branches', 'location', 'TEXT'),
             ('branches', 'latitude', 'REAL'),
             ('branches', 'longitude', 'REAL'),
@@ -1817,6 +1819,7 @@ def init_db():
             ('page.roles', 'الصلاحيات (Roles)', 'Pages', 'Access Roles page'),
             ('page.users', 'المستخدمين (Users)', 'Pages', 'Access Users page'),
             ('page.settings', 'الإعدادات (Settings)', 'Pages', 'Access Settings page'),
+            ('payroll.policies', 'سياسات الحضور والرواتب', 'Payroll', 'View and change payroll calculation policies'),
             ('page.branches', 'إدارة الفروع (Branches)', 'Pages', 'Access Branches page'),
             ('page.translations', 'الترجمات (Translations)', 'Pages', 'Access Translations page'),
         ]

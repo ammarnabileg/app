@@ -1368,6 +1368,54 @@ def deduction_balances():
                            now=datetime.now())
 
 
+@payroll_bp.route('/payroll/policies', methods=['GET', 'POST'])
+@login_required
+@require_permission('payroll.policies')
+def policies_page():
+    """سياسات الحضور والرواتب بتاريخ سريان (utils/policies)."""
+    from utils import policies as PO
+    conn = get_db_connection()
+    PO.ensure_schema(conn)
+    preview = None
+    if request.method == 'POST':
+        f = request.form
+        try:
+            if f.get('action') == 'revoke':
+                PO.revoke(conn, f.get('policy_id'), _uid(), f.get('reason', ''))
+                conn.commit()
+                flash('اتلغت السياسة (والسطر فاضل في السجل)', 'success')
+                return redirect(url_for('payroll.policies_page'))
+            key, value = f.get('key'), PO.validate(f.get('key'), f.get('value'))
+            if f.get('confirm') != '1':
+                # خطوة تأكيد: الأشهر المتأثرة قبل الحفظ
+                preview = {'key': key, 'value': value, 'effective_from': f.get('effective_from'),
+                           'scope': f.get('scope', 'company'), 'scope_id': f.get('scope_id', ''),
+                           'note': f.get('note', ''), 'label': PO.REGISTRY[key]['label'],
+                           'impact': PO.impact(conn, f.get('effective_from'))}
+            else:
+                PO.add(conn, key, value, f.get('effective_from'), _uid(), scope=f.get('scope', 'company'),
+                       scope_id=f.get('scope_id'), note=f.get('note', ''))
+                conn.commit()
+                flash('اتسجلت السياسة — الأشهر المفتوحة المتأثرة محتاجة إعادة حساب واعتماد', 'success')
+                return redirect(url_for('payroll.policies_page'))
+        except ValueError as e:
+            conn.rollback()
+            flash(str(e), 'error')
+            return redirect(url_for('payroll.policies_page'))
+    P = PO.load(conn)
+    today = datetime.now().date()
+    items = []
+    for k, meta in PO.REGISTRY.items():
+        v, src, row = P.resolve(k, day=today)
+        label = dict(meta['choices']).get(v, v) if meta['choices'] else v
+        items.append(dict(meta, value=v, value_label=label, source=src, row=row,
+                          overrides=[r for r in P.rows.get(k, []) if r['scope'] != 'company']))
+    groups = [r[0] for r in conn.execute("SELECT DISTINCT branch_location FROM employees WHERE COALESCE(branch_location, '') != '' ORDER BY 1")]
+    return render_template('payroll_policies.html', sections=PO.SECTIONS, items=items, preview=preview,
+                           history=PO.history(conn), registry=PO.REGISTRY, groups=groups,
+                           today=today.isoformat())
+
+
 @payroll_bp.route('/payroll/provisions/export')
 @login_required
 @require_permission('salary.calculate')

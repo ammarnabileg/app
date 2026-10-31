@@ -222,7 +222,7 @@ PAYROLL_EMP_COLUMNS = """e.id, e.employee_number, e.name, e.arabic_name,
        COALESCE(st.is_split, 0) AS is_split,
        COALESCE(st.break_minutes, 0) AS break_minutes,
        e.nationality, e.gender, e.nursing_until, e.pay_type,
-       e.shift_type"""
+       e.shift_type, e.branch_location"""
 
 
 def fetch_payroll_employees(conn, dept=None, employee_id=None, active_only=True, period=None):
@@ -321,6 +321,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
     if employees is None:
         employees = fetch_payroll_employees(conn, period=(p_start, p_end))
     sal = get_salary_settings_v2(conn)
+    from utils.policies import load as _load_policies
+    _P = _load_policies(conn, sal)          # سياسات بتاريخ سريان: لكل يوم قيمته (utils/policies)
 
     holidays = {
         r['date'][:10] for r in conn.execute(
@@ -438,6 +440,15 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
             ev = _W['views'].get(ds) or emp
             evk = ev.keys()
             hpd = float(ev['hours_per_day'] or 8)
+            # سياسات اليوم ده (سماح، سياسة تأخير/انصراف، تقريب الإضافي…): تغيير يوم 15 بيسري من 15.
+            if _P.rows:
+                _sd = _P.day_view(sal, emp_id, d, emp['branch_location'] if 'branch_location' in emp.keys() else None)
+                _gl = int(float(_sd.get('grace_late_minutes', 10) or 10))
+                _ge = int(float(_sd.get('early_departure_grace_minutes', _sd.get('grace_early_minutes', 5)) or 5))
+                _ot_step = int(float(_sd.get('overtime_round_to_minutes', 0) or 0))
+                _ot_net_late = str(_sd.get('overtime_net_of_late', '0')).strip() == '1'
+            else:
+                _sd = sal
             flex = _emp_flex_mode(ev)
             pres_ps = ev['presence_start_time'] if 'presence_start_time' in evk else None
             pres_pe = ev['presence_end_time'] if 'presence_end_time' in evk else None
@@ -578,7 +589,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                         m['ot_days_over_2h'] += 1
                     _ot_week_days[_wk] = _ot_week_days.get(_wk, 0) + 1
             if punched and flex == 'none':
-                lm, em = _charged_late_early(rec[1], rec[2], ev, sal)
+                lm, em = _charged_late_early(rec[1], rec[2], ev, _sd)
                 if exc_side == 'in' or hp_touch_start:
                     lm = 0   # entry excuse / start-side permission waives lateness
                 if exc_side == 'out' or hp_touch_end:
@@ -857,7 +868,10 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
     p_start, p_end = period or resolve_period(conn, month, year)
     employees = fetch_payroll_employees(conn, period=(p_start, p_end))
     sal = get_salary_settings_v2(conn)
-    _basis = str(sal.get('daily_rate_basis', '26') or '26').strip()
+    from utils.policies import load as _load_policies
+    _P = _load_policies(conn, sal)
+    # قيم الفلوس (القاسم، المعاملات، السقوف، التأمينات): الساري آخر يوم في الدورة — للموظف لو ليه استثناء.
+    _basis = str(_P.get('daily_rate_basis', day=p_end) or '26').strip()
     if _basis not in ('30', '26', 'working'):
         _basis = '30'
     _holidays_set = {str(r['date'])[:10] for r in conn.execute(
@@ -999,6 +1013,10 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
 
     for emp in employees:
         emp_id = emp['id']
+        sal_e = (_P.day_view(sal, emp_id, p_end, emp['branch_location'] if 'branch_location' in emp.keys() else None)
+                 if _P.rows else sal)
+        _pifss_on_e = str(sal_e.get('pifss_enabled', '0')) == '1'
+        _pen_cap_days = float(sal_e.get('penalty_monthly_cap_days', 5) or 0)
         # الأساسيُّ بتاريخ سريانه (زيادةٌ يوم 15 تُحسب من 15)، واليوميُّ × القاسم.
         _sal_period, salary_parts = period_salary(_sal_hist.get(emp_id), emp['salary'],
                                                   p_start, p_end)
@@ -1072,7 +1090,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
         _fixed_monthly = sum(a.get('full_amount', a['amount']) for a in allowances
                              if a.get('source') == 'fixed')
         _day_wage = daily_rate
-        if (str(sal.get('absence_deduction_base', 'wage') or 'wage') == 'wage'
+        if (str(sal_e.get('absence_deduction_base', 'wage') or 'wage') == 'wage'
                 and basic > MONEY_EPS):
             _day_wage = daily_rate * (basic + _fixed_monthly) / basic
         if daily_rate > MONEY_EPS:
@@ -1108,12 +1126,12 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                 _act = min(att['early_mins'], live.get('early_actual_mins', att['early_mins']))
                 penalties.append((_e, max(0.0, _amt - _amt * _act / att['early_mins'])))
             if att['partial_days'] > 0:
-                mp = sal.get('missing_punch_policy', 'invalid')
+                mp = sal_e.get('missing_punch_policy', 'invalid')
                 n = int(att['partial_days'])
                 if mp == 'penalty_tiered':
-                    p1 = float(sal.get('missing_punch_penalty_1', 0) or 0)
-                    p2 = float(sal.get('missing_punch_penalty_2', 0.25) or 0)
-                    p3 = float(sal.get('missing_punch_penalty_3', 1.0) or 0)
+                    p1 = float(sal_e.get('missing_punch_penalty_1', 0) or 0)
+                    p2 = float(sal_e.get('missing_punch_penalty_2', 0.25) or 0)
+                    p3 = float(sal_e.get('missing_punch_penalty_3', 1.0) or 0)
                     charged_days = (p1 if n >= 1 else 0) + (p2 if n >= 2 else 0) \
                                    + (p3 * max(0, n - 2))
                 else:  # 'invalid' or 'zero_hours': the day is not a valid workday
@@ -1126,19 +1144,19 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                           'amount': mp_amount, 'source': 'computed', 'days': n}
                     deductions.append(_e)
                     penalties.append((_e, mp_amount))
-            pmp = sal.get('presence_missing_policy', 'warning')
+            pmp = sal_e.get('presence_missing_policy', 'warning')
             if att['presence_missing'] > 0 and pmp != 'warning':
                 n = int(att['presence_missing'])
                 if pmp == 'penalty_tiered':
-                    q1 = float(sal.get('presence_penalty_1', 0) or 0)
-                    q2 = float(sal.get('presence_penalty_2', 0.25) or 0)
-                    q3 = float(sal.get('presence_penalty_3', 0.5) or 0)
+                    q1 = float(sal_e.get('presence_penalty_1', 0) or 0)
+                    q2 = float(sal_e.get('presence_penalty_2', 0.25) or 0)
+                    q3 = float(sal_e.get('presence_penalty_3', 0.5) or 0)
                     charged_days = (q1 if n >= 1 else 0) + (q2 if n >= 2 else 0) \
                                    + (q3 * max(0, n - 2))
                 else:  # deduct_fraction
-                    frac = float(sal.get('presence_penalty_day_fraction', 0.25) or 0)
+                    frac = float(sal_e.get('presence_penalty_day_fraction', 0.25) or 0)
                     charged_days = frac * n
-                cap = float(sal.get('presence_penalty_monthly_cap_days', 5) or 0)
+                cap = float(sal_e.get('presence_penalty_monthly_cap_days', 5) or 0)
                 if cap > 0:
                     charged_days = min(charged_days, cap)
                 pp_amount = round(charged_days * daily_rate, 3)
@@ -1186,7 +1204,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
             ot_total = wk_h + we_h + ho_h
             # حدودُ الإضافيّ (سقفُ الشهر والمادة 66) قيدٌ على التشغيل لا على
             # الأجر: الساعةُ التي اشتُغلت تُدفع كلُّها، والتجاوزُ تنبيه.
-            cap = float(sal.get('overtime_cap_monthly_hours', 0) or 0)
+            cap = float(sal_e.get('overtime_cap_monthly_hours', 0) or 0)
             if cap > 0 and ot_total > cap + 1e-9:
                 law_warnings.append({'code': 'ot_month_cap', 'n': cap,
                                      'hours': round(ot_total, 2)})
@@ -1206,9 +1224,9 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                 law_warnings.append({'code': 'ramadan_6h', 'n': live['ramadan_over_6h']})
             if ot_total > MONEY_EPS and daily_rate > MONEY_EPS:
                 _hn = hpd_of.get(emp_id, 8.0)
-                m_wk = float(sal.get('weekday_ot_multiplier', 1.25) or 0)
-                m_we = float(sal.get('weekend_ot_multiplier', 1.5) or 0)
-                m_ho = float(sal.get('holiday_ot_multiplier', 2.0) or 0)
+                m_wk = float(sal_e.get('weekday_ot_multiplier', 1.25) or 0)
+                m_we = float(sal_e.get('weekend_ot_multiplier', 1.5) or 0)
+                m_ho = float(sal_e.get('holiday_ot_multiplier', 2.0) or 0)
                 # كل ساعة إضافي بأجر ساعة يومها (شفت اليوم)، مش شفت آخر الشهر.
                 _wk_amt = round(daily_rate * m_wk * _day_units(_g('ot_weekday_mins'), live, 'ot_weekday_mins', 'ot_weekday_w', _hn), 3)
                 _we_amt = round(daily_rate * m_we * _day_units(_g('ot_weekend_mins'), live, 'ot_weekend_mins', 'ot_weekend_w', _hn), 3)
@@ -1322,14 +1340,14 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                                  if d_['code'] not in _day_codes or d_['amount'] > MONEY_EPS]
 
         employer_pifss = 0.0
-        if _pifss_on and is_kuwaiti(emp['nationality'] if 'nationality' in emp.keys() else None):
+        if _pifss_on_e and is_kuwaiti(emp['nationality'] if 'nationality' in emp.keys() else None):
             # الأجرُ الخاضع: الأساسيّ والبدلاتُ الثابتة، مسقوفًا.
             _wage = basic + sum(a['amount'] for a in allowances if a.get('source') == 'fixed')
-            _base, _emp_sh, employer_pifss = pifss_shares(_wage, sal)
+            _base, _emp_sh, employer_pifss = pifss_shares(_wage, sal_e)
             if _emp_sh > MONEY_EPS:
                 deductions.append({'code': 'social_insurance_emp',
-                                   'name_ar': f'التأمينات الاجتماعية — حصة الموظف ({sal.get("pifss_employee_pct")}%)',
-                                   'name_en': f'Social insurance — employee ({sal.get("pifss_employee_pct")}%)',
+                                   'name_ar': f'التأمينات الاجتماعية — حصة الموظف ({sal_e.get("pifss_employee_pct")}%)',
+                                   'name_en': f'Social insurance — employee ({sal_e.get("pifss_employee_pct")}%)',
                                    'amount': _emp_sh, 'source': 'computed',
                                    'base': _base})
 
@@ -1339,13 +1357,13 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                    'amount': ln['amount'], 'source': 'loan',
                    'loan_id': ln['loan_id']} for ln in loans_map.get(emp_id, [])]
         _loan_wage = basic + sum(a['amount'] for a in allowances if a.get('source') == 'fixed')
-        _deferred = cap_loan_installments(_loans, _loan_wage, sal)
+        _deferred = cap_loan_installments(_loans, _loan_wage, sal_e)
         for _ln in _loans:
             if _ln.get('deferred', 0) > MONEY_EPS:
                 unexecuted.append(_unexec(_ln, _ln['deferred'], 'loan_cap', original=_ln['amount'] + _ln['deferred']))
         if _deferred > MONEY_EPS:
             law_warnings.append({'code': 'loan_capped', 'amount': _deferred,
-                                 'n': sal.get('loan_deduction_cap_pct', 10)})
+                                 'n': sal_e.get('loan_deduction_cap_pct', 10)})
         deductions.extend(i for i in _loans if i['amount'] > MONEY_EPS)
 
         # الصافي لا ينزل تحت الصفر: يُرحَّل ما زاد — السلفُ أوّلًا، ثم الحركاتُ
@@ -1688,6 +1706,14 @@ def lock_run(conn, month, year, user_id):
     conn.execute("""UPDATE payroll_runs
                     SET status = 'approved', approved_by = ?, approved_at = CURRENT_TIMESTAMP
                     WHERE id = ?""", (user_id, run['id']))
+    # نسخة السياسات اللي اتبنى عليها الكشف (utils/policies): تعديل بعد كده مابيغيّرش الشهر المقفول.
+    try:
+        from utils.policies import snapshot_json
+        conn.execute('UPDATE payroll_runs SET policy_snapshot = ? WHERE id = ?',
+                     (snapshot_json(conn, str(run['period_start'] or '')[:10], str(run['period_end'] or '')[:10]),
+                      run['id']))
+    except Exception:
+        pass
     # الخصومات اللي ماتنفّذتش بتتسجل أرصدة عند الاعتماد بس (utils/deduction_balances).
     from utils.deduction_balances import record_for_run
     record_for_run(conn, run['id'], user_id)

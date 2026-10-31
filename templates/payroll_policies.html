@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}سياسات الحضور والرواتب{% endblock %}
+
+{% block content %}
+{% set SRC = {'legacy': ('صفحة الإعدادات', 'secondary'), 'system': ('افتراضي النظام', 'light text-dark border'),
+              'company': ('سياسة الشركة', 'primary'), 'group': ('مجموعة', 'info'), 'employee': ('استثناء موظف', 'warning text-dark')} %}
+<div class="container-fluid">
+    <div class="pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2"><i class="fas fa-sliders-h me-2"></i>سياسات الحضور والرواتب</h1>
+        <div class="report-desc">المعادلات في البرنامج، والقيم هنا. كل تغيير له <b>تاريخ سريان</b>: الأيام قبله بالقديم وبعده بالجديد،
+            والشهر المعتمد بيحتفظ بنسخة السياسات اللي اتحسب بيها ومابيتغيّرش. الأولوية: استثناء الموظف ← المجموعة ← الشركة ←
+            صفحة الإعدادات القديمة ← افتراضي النظام.</div>
+    </div>
+
+    {% if preview %}
+    <div class="card border-warning mb-3">
+        <div class="card-header bg-warning-subtle"><b>تأكيد:</b> «{{ preview.label }}» = <b dir="ltr">{{ preview.value }}</b>
+            من <span dir="ltr">{{ preview.effective_from }}</span>
+            {% if preview.scope != 'company' %} — {{ 'الموظف' if preview.scope == 'employee' else 'المجموعة' }} {{ preview.scope_id }}{% endif %}</div>
+        <div class="card-body">
+            {% if preview.impact.open %}
+            <p class="mb-1">أشهر مفتوحة هتتغيّر وتحتاج <b>إعادة حساب واعتماد</b>:
+                {% for m in preview.impact.open %}<span class="badge bg-warning text-dark me-1">{{ m.month }}/{{ m.year }}{{ ' (محفوظ)' if m.saved }}</span>{% endfor %}</p>
+            {% endif %}
+            {% if preview.impact.locked %}
+            <p class="mb-1">أشهر معتمدة <b>مش هتتغيّر</b> (نسختها محفوظة) — لو التعديل لازم يسري عليها، اتفتح الشهر بسبب:
+                {% for m in preview.impact.locked %}<span class="badge bg-secondary me-1">{{ m.month }}/{{ m.year }}</span>{% endfor %}</p>
+            {% endif %}
+            {% if not preview.impact.open and not preview.impact.locked %}<p class="mb-1">مفيش أشهر محسوبة هتتأثر.</p>{% endif %}
+            <form method="POST" class="d-flex gap-2 mt-2">
+                {% for k in ('key', 'value', 'effective_from', 'scope', 'scope_id', 'note') %}
+                <input type="hidden" name="{{ k }}" value="{{ preview[k] }}">{% endfor %}
+                <input type="hidden" name="confirm" value="1">
+                <button class="btn btn-warning">تأكيد وحفظ</button>
+                <a href="{{ url_for('payroll.policies_page') }}" class="btn btn-outline-secondary">إلغاء</a>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    {% for sec, sec_label in sections %}
+    <div class="card mb-3">
+        <div class="card-header fw-bold">{{ sec_label }}</div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th style="width:26%">السياسة</th><th>الساري النهارده</th><th>المصدر</th><th style="width:48%">تغيير من تاريخ</th></tr></thead>
+                <tbody>
+                {% for it in items if it.section == sec %}
+                <tr>
+                    <td>{{ it.label }}
+                        {% if it.legal %}<div><span class="badge bg-danger-subtle text-danger border">افتراضي — يحتاج مراجعة واعتماد</span></div>{% endif %}
+                        {% if it.per_day %}<div class="small text-muted">بيتطبق يوم بيوم</div>{% endif %}
+                        {% if it.overrides %}<div class="small text-warning">{{ it.overrides|length }} استثناء لموظف/مجموعة</div>{% endif %}</td>
+                    <td class="fw-bold">{{ it.value_label }}
+                        {% if it.row %}<div class="small text-muted">من <span dir="ltr">{{ it.row.effective_from }}</span></div>{% endif %}</td>
+                    <td><span class="badge bg-{{ SRC[it.source][1] }}">{{ SRC[it.source][0] }}</span></td>
+                    <td>
+                        <form method="POST" class="d-flex flex-wrap gap-1">
+                            <input type="hidden" name="key" value="{{ it.key }}">
+                            {% if it.choices %}
+                            <select name="value" class="form-select form-select-sm" style="max-width:170px">
+                                {% for c, l in it.choices %}<option value="{{ c }}" {{ 'selected' if c == it.value }}>{{ l }}</option>{% endfor %}
+                            </select>
+                            {% else %}
+                            <input name="value" type="number" step="any" min="0" value="{{ it.value }}" class="form-control form-control-sm" style="width:90px">
+                            {% endif %}
+                            <input name="effective_from" type="date" value="{{ today }}" class="form-control form-control-sm" style="width:140px" required>
+                            <select name="scope" class="form-select form-select-sm" style="width:110px">
+                                <option value="company">الشركة</option><option value="group">مجموعة</option><option value="employee">موظف (رقم داخلي)</option>
+                            </select>
+                            <input name="scope_id" class="form-control form-control-sm" style="width:90px" placeholder="المجموعة/الموظف" list="polGroups">
+                            <input name="note" class="form-control form-control-sm" style="width:150px" placeholder="سبب التغيير" required>
+                            <button class="btn btn-sm btn-outline-primary">تطبيق</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+    <datalist id="polGroups">{% for g in groups %}<option value="{{ g }}">{% endfor %}</datalist>
+
+    <div class="card">
+        <div class="card-header">سجل التعديلات</div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead><tr><th>#</th><th>السياسة</th><th>القيمة</th><th>النطاق</th><th>ساري من</th><th>السبب</th><th>بواسطة</th><th>الحالة</th><th></th></tr></thead>
+                <tbody>
+                {% for h in history %}
+                <tr class="{{ 'text-muted text-decoration-line-through' if h.revoked_at }}">
+                    <td>{{ h.id }}</td><td>{{ registry[h.key].label if h.key in registry else h.key }}</td>
+                    <td dir="ltr">{{ h.value }}</td>
+                    <td>{{ {'company': 'الشركة', 'group': 'مجموعة', 'employee': 'موظف'}[h.scope] }} {{ h.scope_id or '' }}</td>
+                    <td dir="ltr">{{ h.effective_from }}</td><td class="small">{{ h.note or '' }}</td>
+                    <td class="small">{{ h.created_by_name or '' }} <span dir="ltr">{{ (h.created_at or '')[:16] }}</span></td>
+                    <td class="small">{% if h.revoked_at %}اتلغت: {{ h.revoke_reason }}{% else %}سارية{% endif %}</td>
+                    <td>{% if not h.revoked_at %}
+                        <form method="POST" class="d-flex gap-1">
+                            <input type="hidden" name="action" value="revoke"><input type="hidden" name="policy_id" value="{{ h.id }}">
+                            <input name="reason" class="form-control form-control-sm" style="width:120px" placeholder="سبب الإلغاء" required>
+                            <button class="btn btn-sm btn-outline-danger" onclick="return confirm('تلغي السطر ده؟')">إلغاء</button>
+                        </form>{% endif %}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="9" class="text-muted">لسه مفيش تعديلات — كل القيم من صفحة الإعدادات أو افتراضي النظام</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
