@@ -63,8 +63,8 @@
                             <!-- أعمدة جديدة -->
                             <th rowspan="2" class="align-middle bg-light" style="min-width:60px; font-size:0.8rem;">{{
                                 _('tbl.header.work_days') }}</th>
-                            <th rowspan="2" class="align-middle bg-light" style="min-width:60px; font-size:0.8rem;">
-                                {{ _('tbl.header.sick_emergency') }}</th>
+                            <th rowspan="2" class="align-middle bg-light" style="min-width:50px; font-size:0.8rem;">مرضي</th>
+                            <th rowspan="2" class="align-middle bg-light" style="min-width:50px; font-size:0.8rem;">طارئ</th>
                             <!-- أيام الشهر -->
                             {% for d in days_names %}
                             <th class="px-1" style="min-width:25px; font-size:0.75rem;">
@@ -109,7 +109,7 @@
                         <!-- Shimmer Loader -->
                         {% for i in range(5) %}
                         <tr>
-                            <td colspan="{{ 4 + 2 + days_diff + 13 }}" class="p-3">
+                            <td colspan="{{ 4 + 3 + days_diff + 13 }}" class="p-3">
                                 <div class="placeholder-glow">
                                     <span class="placeholder col-12 py-3 bg-secondary opacity-25 rounded"></span>
                                 </div>
@@ -206,6 +206,7 @@
                     <td><small>${r.position || ''}</small></td>
                     <td class="align-middle fw-bold text-primary">${r.stats.work_days}</td>
                     <td class="align-middle fw-bold text-danger">${r.stats.sick_days}</td>
+                    <td class="align-middle fw-bold text-warning">${r.stats.emergency_days || 0}</td>
                     ${daysHtml}
                     <td class="fw-bold text-muted bg-light border-end">${fmtHM(r.stats.required_hours)}</td>
                     <td class="fw-bold text-secondary">${fmtHM(r.stats.basic_hours)}</td>

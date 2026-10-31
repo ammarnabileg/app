@@ -23,7 +23,8 @@ def index():
         })
         
     pass # conn.close() removed to prevent leak in Flask g
-    return render_template('leave_settings.html', leave_types=types_with_tiers)
+    from utils.policies import LEAVE_KINDS
+    return render_template('leave_settings.html', leave_types=types_with_tiers, leave_kinds=LEAVE_KINDS)
 
 @leave_settings_bp.route('/leave_settings/update', methods=['POST'])
 @login_required
@@ -52,6 +53,7 @@ def update_leave_type():
             WHERE id = ?
         ''', (days_per_year, is_paid, requires_approval, is_carry_over, service_months_required,
               requires_attachment, is_hourly_permission, allow_half_day, allow_hourly, monthly_hours_allowance, type_id))
+        _set_kind(conn, type_id, request.form.get('law_kind'))
         conn.commit()
         pass # conn.close() removed to prevent leak in Flask g
         
@@ -101,6 +103,15 @@ def delete_tier(tier_id):
     return redirect(url_for('leave_settings.index'))
 
 
+def _set_kind(conn, type_id, kind):
+    """تصنيف صريح لنوع الإجازة (law_kind) — هو اللي بيحدد سياساته (مرضية/طارئة/…)، مش الاسم."""
+    from utils.policies import LEAVE_KINDS
+    if kind is None:
+        return
+    kind = kind if kind in dict(LEAVE_KINDS) else None
+    conn.execute('UPDATE leave_types SET law_kind = ? WHERE id = ?', (kind, int(type_id)))
+
+
 @leave_settings_bp.route('/leave_settings/add_type', methods=['POST'])
 @login_required
 @require_permission('leave.settings')
@@ -126,6 +137,8 @@ def add_leave_type():
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (name, days_per_year, is_paid, requires_approval, 
               requires_attachment, is_hourly_permission, allow_half_day, allow_hourly, monthly_hours_allowance))
+        _set_kind(conn, conn.execute('SELECT id FROM leave_types WHERE name = ?', (name,)).fetchone()[0],
+                  request.form.get('law_kind'))
         conn.commit()
         pass # conn.close() removed to prevent leak in Flask g
         

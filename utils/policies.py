@@ -25,7 +25,11 @@ import json
 from datetime import date, datetime
 
 BASE_DATE = '0001-01-01'
-SCOPES = ('employee', 'group', 'company')
+SCOPES = ('employee', 'group', 'leave_kind', 'company')
+# أنواع الإجازة (leave_types.law_kind) — كل نوع ليه سياساته (نطاق leave_kind).
+LEAVE_KINDS = [('annual', 'سنوية'), ('sick', 'مرضية'), ('emergency', 'طارئة'), ('unpaid', 'غير مدفوعة'),
+               ('hajj', 'حج'), ('maternity', 'وضع'), ('bereavement', 'وفاة'), ('iddah', 'عدّة'),
+               ('comp_rest', 'راحة بديلة'), ('other', 'أخرى')]
 
 SECTIONS = [
     ('wage', 'الأجر والراتب'),
@@ -105,7 +109,16 @@ _R = [
     ('weekend_ot_multiplier', 'overtime', 'معامل الإضافي — راحة', 'number', None, '1.5', True, False),
     ('holiday_ot_multiplier', 'overtime', 'معامل الإضافي — عطلة رسمية', 'number', None, '2.0', True, False),
     ('overtime_cap_monthly_hours', 'overtime', 'حد الإضافي في الشهر (ساعة — تنبيه)', 'number', None, '60', True, False),
-    # --- الإجازات
+    # --- الإجازات (الافتراضي لكل الأنواع — وكل نوع يقدر ياخد قيمته بنطاق «نوع إجازة»)
+    ('leave_day_basis', 'leave', 'أيام الإجازة بتتحسب', 'choice',
+     [('working', 'أيام عمل'), ('calendar', 'أيام تقويمية')], 'working', False, True),
+    ('leave_excludes_rest', 'leave', 'أيام الراحة جوه الإجازة (لو أيام عمل)', 'choice',
+     [('1', 'مابتتحسبش إجازة — تفضل راحة'), ('0', 'بتتحسب إجازة')], '1', False, True),
+    ('leave_excludes_holidays', 'leave', 'العطلات الرسمية جوه الإجازة (لو أيام عمل)', 'choice',
+     [('1', 'مابتتحسبش إجازة — تفضل عطلة'), ('0', 'بتتحسب إجازة')], '1', False, True),
+    ('leave_punch_policy', 'leave', 'لو فيه بصمة في يوم إجازة', 'choice',
+     [('keep_leave', 'اليوم يفضل إجازة (والساعات بتتسجل)'), ('count_as_work', 'اليوم يتحسب شغل، مش إجازة')],
+     'keep_leave', False, True),
     ('sick_tier_year_basis', 'leave', 'سنة شرائح المرضية', 'choice',
      [('calendar', 'السنة الميلادية'), ('service', 'سنة الخدمة')], 'calendar', True, False),
     # --- الخصومات
@@ -177,13 +190,13 @@ class Policies:
             return str(self.legacy[key]), 'legacy'
         return (REGISTRY[key]['default'] if key in REGISTRY else None), 'system'
 
-    def resolve(self, key, employee_id=None, day=None, group=None):
-        """(القيمة، المصدر، السطر أو None) السارية يوم `day` للموظف."""
+    def resolve(self, key, employee_id=None, day=None, group=None, leave_kind=None):
+        """(القيمة، المصدر، السطر أو None) السارية يوم `day` للموظف (ولنوع الإجازة لو اتبعت)."""
         day = (day.isoformat() if isinstance(day, (date, datetime)) else str(day or date.today().isoformat()))[:10]
         rows = self.rows.get(key)
         if rows:
             for scope, sid in (('employee', str(employee_id) if employee_id is not None else None),
-                               ('group', group), ('company', None)):
+                               ('group', group), ('leave_kind', leave_kind), ('company', None)):
                 if scope != 'company' and not sid:
                     continue
                 hit = None
@@ -196,8 +209,14 @@ class Policies:
         v, src = self.base(key)
         return v, src, None
 
-    def get(self, key, employee_id=None, day=None, group=None):
-        return self.resolve(key, employee_id, day, group)[0]
+    def get(self, key, employee_id=None, day=None, group=None, leave_kind=None):
+        return self.resolve(key, employee_id, day, group, leave_kind)[0]
+
+    def leave_rules(self, kind, employee_id=None, day=None, group=None):
+        """قواعد نوع الإجازة في اليوم ده: (تقويمي؟، تستثني الراحة؟، تستثني العطلات؟، البصمة تلغي الإجازة؟)."""
+        g = lambda k: self.get(k, employee_id, day, group, kind or 'other')
+        return (g('leave_day_basis') == 'calendar', g('leave_excludes_rest') != '0',
+                g('leave_excludes_holidays') != '0', g('leave_punch_policy') == 'count_as_work')
 
     def day_view(self, base_sal, employee_id, day, group=None):
         """`sal` لليوم ده: الإعدادات + أي سياسة سارية يومها (للمفاتيح اللي ليها سطور بس — سريع)."""
@@ -206,7 +225,7 @@ class Policies:
         out = None
         for k in self.rows:
             v, src, _ = self.resolve(k, employee_id, day, group)
-            if src in ('employee', 'group', 'company'):
+            if src in ('employee', 'group', 'leave_kind', 'company'):
                 if out is None:
                     out = dict(base_sal)
                 out[k] = v

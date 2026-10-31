@@ -67,7 +67,7 @@
                             {% endif %}
                             <input name="effective_from" type="date" value="{{ today }}" class="form-control form-control-sm" style="width:140px" required>
                             <select name="scope" class="form-select form-select-sm" style="width:110px">
-                                <option value="company">الشركة</option><option value="group">مجموعة</option><option value="employee">موظف (رقم داخلي)</option>
+                                <option value="company">الشركة</option><option value="group">مجموعة</option><option value="employee">موظف (رقم داخلي)</option><option value="leave_kind">نوع إجازة</option>
                             </select>
                             <input name="scope_id" class="form-control form-control-sm" style="width:90px" placeholder="المجموعة/الموظف" list="polGroups">
                             <input name="note" class="form-control form-control-sm" style="width:150px" placeholder="سبب التغيير" required>
@@ -79,6 +79,40 @@
                 </tbody>
             </table>
         </div>
+        {% if sec == 'leave' %}
+        <div class="card-body border-top">
+            <h6 class="mb-2">لكل نوع إجازة <span class="small text-muted">(الأنواع بتتصنف من «إعدادات الإجازات»؛ القيمة المميزة بالخط العريض خاصة بالنوع، والباقي الافتراضي اللي فوق)</span></h6>
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered small mb-2">
+                    <thead><tr><th>النوع</th>{% for k in leave_keys %}<th>{{ registry[k].label }}</th>{% endfor %}</tr></thead>
+                    <tbody>
+                    {% for r in leave_matrix %}
+                    <tr><td>{{ r.label }}</td>{% for c in r.cells %}<td class="{{ 'fw-bold' if c.own else 'text-muted' }}">{{ c.label }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <form method="POST" class="d-flex flex-wrap gap-1">
+                <input type="hidden" name="scope" value="leave_kind">
+                <select name="scope_id" class="form-select form-select-sm" style="width:120px">
+                    {% for k, l in leave_kinds %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select>
+                <select name="key" class="form-select form-select-sm" style="width:230px" onchange="polLeaveVals(this)">
+                    {% for k in leave_keys %}<option value="{{ k }}">{{ registry[k].label }}</option>{% endfor %}</select>
+                <select name="value" class="form-select form-select-sm" style="width:230px" id="polLeaveValue"></select>
+                <input name="effective_from" type="date" value="{{ today }}" class="form-control form-control-sm" style="width:140px" required>
+                <input name="note" class="form-control form-control-sm" style="width:150px" placeholder="سبب التغيير" required>
+                <button class="btn btn-sm btn-outline-primary">تطبيق على النوع</button>
+            </form>
+            <script>
+            const POL_LEAVE_CHOICES = { {% for k in leave_keys %}{{ k|tojson }}: {{ registry[k].choices|tojson }},{% endfor %} };
+            function polLeaveVals(sel) {
+                const box = document.getElementById('polLeaveValue');
+                box.innerHTML = POL_LEAVE_CHOICES[sel.value].map(c => `<option value="${c[0]}">${c[1]}</option>`).join('');
+            }
+            polLeaveVals(document.querySelector('select[name=key][onchange]'));
+            </script>
+        </div>
+        {% endif %}
     </div>
     {% endfor %}
     <datalist id="polGroups">{% for g in groups %}<option value="{{ g }}">{% endfor %}</datalist>
@@ -93,7 +127,7 @@
                 <tr class="{{ 'text-muted text-decoration-line-through' if h.revoked_at }}">
                     <td>{{ h.id }}</td><td>{{ registry[h.key].label if h.key in registry else h.key }}</td>
                     <td dir="ltr">{{ h.value }}</td>
-                    <td>{{ {'company': 'الشركة', 'group': 'مجموعة', 'employee': 'موظف'}[h.scope] }} {{ h.scope_id or '' }}</td>
+                    <td>{{ {'company': 'الشركة', 'group': 'مجموعة', 'employee': 'موظف', 'leave_kind': 'نوع إجازة'}[h.scope] }} {{ h.scope_id or '' }}</td>
                     <td dir="ltr">{{ h.effective_from }}</td><td class="small">{{ h.note or '' }}</td>
                     <td class="small">{{ h.created_by_name or '' }} <span dir="ltr">{{ (h.created_at or '')[:16] }}</span></td>
                     <td class="small">{% if h.revoked_at %}اتلغت: {{ h.revoke_reason }}{% else %}سارية{% endif %}</td>

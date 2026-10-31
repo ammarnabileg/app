@@ -924,7 +924,7 @@ def custom_employees_report_export():
         return resp, 400
     labels = {'num': _g('tbl.header.file_number'), 'name': _g('tbl.header.name'),
               'dept': _g('tbl.header.department'), 'pos': _g('tbl.header.position'),
-              'work_days': _g('tbl.header.work_days'), 'sick': _g('tbl.header.sick_emergency'),
+              'work_days': _g('tbl.header.work_days'), 'sick': 'مرضي', 'emerg': 'طارئ',
               'req': _g('tbl.header.req_hrs'), 'act': _g('tbl.header.act_basic'),
               'miss': _g('tbl.header.miss_hrs'), 'ot': _g('tbl.header.ot_hrs'),
               'total_h': _g('tbl.header.total_hrs'), 'late': _g('tbl.header.late_hrs'),
@@ -997,7 +997,7 @@ def custom_employees_report_api():
         # جلب الإجازات خلال الفترة لمعرفة تفاصيلها
         leaves_query = '''
             SELECT lr.employee_id as emp_id, lr.start_date, lr.end_date, COALESCE(lr.is_paid_leave, 0) as is_paid,
-                   COALESCE(lt.name, '') AS type_name
+                   COALESCE(lt.name, '') AS type_name, lt.law_kind AS law_kind
             FROM leave_requests lr LEFT JOIN leave_types lt ON lt.id = lr.leave_type_id
             WHERE lr.status = 'approved' AND lr.start_date <= ? AND lr.end_date >= ?
         '''
@@ -1008,7 +1008,8 @@ def custom_employees_report_api():
         pass # conn.close() removed to prevent leak in Flask g
         
         emp_leaves_map = {}
-        emp_sick_map = {}       # أيام الإجازات المرضية/الطارئة (عمود «مرضي/طارئ»)
+        emp_sick_map = {}       # أيام الإجازات المرضية (عمود «مرضي»)
+        emp_emerg_map = {}      # أيام الإجازات الطارئة (عمود «طارئ») — كانوا عمود واحد
         for r in leaves_rows:
             try:
                 s_d_leave = datetime.strptime(r['start_date'], '%Y-%m-%d').date()
@@ -1023,14 +1024,20 @@ def custom_employees_report_api():
             if emp_id not in emp_leaves_map:
                 emp_leaves_map[emp_id] = {}
             paid = bool(r['is_paid'])
-            _tn = (r['type_name'] or '').lower()
-            is_sick = any(w in _tn for w in ('مرض', 'طار', 'sick', 'emergen'))
+            # التصنيف الصريح (leave_types.law_kind) — نفس كشف الرواتب؛ والاسم بس للأنواع القديمة من غير تصنيف.
+            from utils.payroll_engine import _leave_kind
+            _kind = _leave_kind(r['law_kind'], r['type_name'])
+            if not (r['law_kind'] or '') and any(w in (r['type_name'] or '').lower() for w in ('طار', 'emergen')):
+                _kind = 'emergency'
+            is_sick = _kind == 'sick'
             curr = s_d_leave
             while curr <= e_d_leave:
                 d_key = curr.strftime('%Y-%m-%d')
                 emp_leaves_map[emp_id][d_key] = paid or emp_leaves_map[emp_id].get(d_key, False)
                 if is_sick:
                     emp_sick_map.setdefault(emp_id, set()).add(d_key)
+                elif _kind == 'emergency':
+                    emp_emerg_map.setdefault(emp_id, set()).add(d_key)
                 curr += timedelta(days=1)
 
         # تشغيل تقرير البصمات الذكي للفترة المخصصة
@@ -1201,6 +1208,7 @@ def custom_employees_report_api():
                     'work_days': present_days + absent_days + weekly_off_days + holiday_days + leave_days,
                     'leave_days': leave_days,
                     'sick_days': len(emp_sick_map.get(emp_id, set())),
+                    'emergency_days': len(emp_emerg_map.get(emp_id, set())),
                     'required_hours': round(working_days * hours_per_day, 4),
                     'basic_hours': round(basic_hours, 4),
                     'missing_hours': round(max(0.0, working_days * hours_per_day - basic_hours), 4),

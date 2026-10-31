@@ -79,7 +79,7 @@ def _head(ws, r, c, text, color, r2=None, c2=None, size=10):
 def build(data, company='', dept='', pos='', labels=None):
     """data: ناتج /api/fingerprint/custom_employees_report. labels: عناوين مترجمة اختيارية."""
     L = {'title': 'التقرير الشامل للموظفين', 'num': 'رقم الملف', 'name': 'الاسم', 'dept': 'القسم',
-         'pos': 'المسمى الوظيفي', 'work_days': 'أيام العمل', 'sick': 'مرضي / طارئ',
+         'pos': 'المسمى الوظيفي', 'work_days': 'أيام العمل', 'sick': 'مرضي', 'emerg': 'طارئ',
          'req': 'الساعات المطلوبة', 'act': 'الساعات الفعلية', 'miss': 'الساعات الناقصة',
          'ot': 'ساعات الإضافي', 'total_h': 'إجمالي الساعات', 'late': 'التأخير',
          'present': 'أيام الحضور', 'absent': 'أيام الغياب', 'basic': 'الراتب الأساسي',
@@ -97,7 +97,7 @@ def build(data, company='', dept='', pos='', labels=None):
     ws.sheet_view.rightToLeft = True
     ws.sheet_view.showGridLines = False
 
-    info = [('num', 9), ('name', 28), ('dept', 16), ('pos', 18), ('work_days', 8), ('sick', 8)]
+    info = [('num', 9), ('name', 28), ('dept', 16), ('pos', 18), ('work_days', 8), ('sick', 8), ('emerg', 8)]
     hours = [('req', 'required_hours'), ('act', 'basic_hours'), ('miss', 'missing_hours'),
              ('ot', 'overtime_hours'), ('total_h', 'total_work_hours'), ('late', None),
              ('present', 'present_days'), ('absent', 'absent_days')]
@@ -186,7 +186,7 @@ def build(data, company='', dept='', pos='', labels=None):
             name = f"{row['arabic_name']}\n{name}"
         num = row.get('employee_number') or ''
         vals = [int(num) if str(num).isdigit() else num, name, row.get('department') or '',
-                row.get('position') or '', st['work_days'], st['sick_days']]
+                row.get('position') or '', st['work_days'], st['sick_days'], st.get('emergency_days', 0)]
         for i, v in enumerate(vals, start=1):
             c = ws.cell(r, i, v)
             c.font = Font(name=FONT, size=10, bold=i in (1, 2))

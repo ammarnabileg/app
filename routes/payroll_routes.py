@@ -1419,8 +1419,17 @@ def policies_page():
         items.append(dict(meta, value=v, value_label=label, source=src, row=row,
                           overrides=[r for r in P.rows.get(k, []) if r['scope'] != 'company']))
     groups = [r[0] for r in conn.execute("SELECT DISTINCT branch_location FROM employees WHERE COALESCE(branch_location, '') != '' ORDER BY 1")]
+    leave_keys = ('leave_day_basis', 'leave_excludes_rest', 'leave_excludes_holidays', 'leave_punch_policy')
+    leave_matrix = []
+    for kcode, klabel in PO.LEAVE_KINDS:
+        cells = []
+        for k in leave_keys:
+            v, src, _ = P.resolve(k, day=today, leave_kind=kcode)
+            cells.append({'key': k, 'value': v, 'label': dict(PO.REGISTRY[k]['choices']).get(v, v), 'own': src == 'leave_kind'})
+        leave_matrix.append({'kind': kcode, 'label': klabel, 'cells': cells})
     return render_template('payroll_policies.html', sections=PO.SECTIONS, items=items, preview=preview,
                            history=PO.history(conn), registry=PO.REGISTRY, groups=groups,
+                           leave_matrix=leave_matrix, leave_keys=leave_keys, leave_kinds=PO.LEAVE_KINDS,
                            today=today.isoformat())
 
 

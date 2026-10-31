@@ -30,17 +30,17 @@ def test_export_is_styled_and_matches_the_page(web):
     assert ws.sheet_view.rightToLeft and ws.freeze_panes == 'C7' and ws.print_title_rows == '$5:$6'
     assert ws.page_setup.orientation == 'landscape'
     days = len(page['rows'][0]['daily_cells'])
-    assert ws.cell(5, 7).value == f'{start:%d/%m}' and ws.cell(6, 7).value          # التاريخ واليوم
+    assert ws.cell(5, 8).value == f'{start:%d/%m}' and ws.cell(6, 8).value          # التاريخ واليوم
     head5 = [ws.cell(5, i).value for i in range(1, ws.max_column + 1)]
     net_col = len(head5)
     rows = {ws.cell(r, 1).value: r for r in range(7, ws.max_row + 1)}
     r1 = rows[1]
-    col = 6 + (sun - start).days + 1
+    col = 7 + (sun - start).days + 1
     assert ws.cell(r1, col).number_format == '[h]:mm' and abs(_h(ws.cell(r1, col).value) - 8.5) < 1e-6
     assert ws.cell(r1, net_col).value == round(page['rows'][0]['financials']['net_salary'], 3)
     total = ws.cell(ws.max_row, net_col).value
     assert str(total).startswith('=SUM('), 'سطر إجمالي بمعادلة'
-    assert any(ws.cell(r1, 6 + i + 1).fill.fgColor.rgb.endswith('FBD5D5') for i in range(days)), 'الغياب ملوّن'
+    assert any(ws.cell(r1, 7 + i + 1).fill.fgColor.rgb.endswith('FBD5D5') for i in range(days)), 'الغياب ملوّن'
     det = wb.worksheets[1]
     assert det.auto_filter.ref and det.cell(3, 6).value
     assert det.max_row == 3 + days * len(page['rows'])

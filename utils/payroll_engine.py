@@ -125,6 +125,14 @@ class _WeeklyOff:
         return self._file[emp['id']]
 
 
+def _leave_kind(law_kind, name):
+    """تصنيف نوع الإجازة: العمود الصريح `leave_types.law_kind` — والاسم بس لو العمود فاضي (أنواع قديمة)."""
+    k = (law_kind or '').strip()
+    if k:
+        return k
+    return 'sick' if _is_sick_type(name) else ''
+
+
 def _is_sick_type(name):
     n = (name or '').lower()
     return any(h in n for h in SICK_NAME_HINTS)
@@ -399,7 +407,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
     leave_rows = conn.execute('''
         SELECT lr.employee_id, lr.start_date, lr.end_date,
                COALESCE(lr.is_paid_leave, 0) AS is_paid,
-               lt.name AS type_name,
+               lt.name AS type_name, lt.law_kind AS law_kind,
                lr.leave_duration_type, lr.start_time, lr.end_time
         FROM leave_requests lr
         JOIN leave_types lt ON lt.id = lr.leave_type_id
@@ -421,7 +429,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                         (round(_h, 2), str(r['start_time'])[:5], str(r['end_time'])[:5])
             continue
         leaves_map.setdefault(r['employee_id'], []).append(
-            (s, e, bool(r['is_paid']), _is_sick_type(r['type_name']), r['type_name']))
+            (s, e, bool(r['is_paid']), _leave_kind(r['law_kind'], r['type_name']) == 'sick', r['type_name'],
+             _leave_kind(r['law_kind'], r['type_name'])))
 
     # Excuses in the month
     exc_rows = conn.execute('''
@@ -537,7 +546,20 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
             if eos_dt and d > eos_dt:
                 continue
             _wk = (d - timedelta(days=(d.isoweekday() % 7))).isoformat()
-            if (d.isoweekday() % 7) in _WO.on(emp, d):
+            # الإجازة مع الراحة أو العطلة: حسب سياسة نوع الإجازة (utils/policies.leave_rules).
+            # الافتراضي (أيام عمل، تستثني الراحة والعطلات) = الراحة والعطلة مقدَّمين زي ما كان.
+            _is_rest = (d.isoweekday() % 7) in _WO.on(emp, d)
+            _is_hol = ds in holidays
+            leave_hit = next((lv for lv in emp_leaves if lv[0] <= d <= lv[1]), None)
+            if leave_hit:
+                _cal, _x_rest, _x_hol, _punch_work = _P.leave_rules(leave_hit[5], emp_id, d, emp['branch_location'] if 'branch_location' in emp.keys() else None)
+                if (_is_rest and not _cal and _x_rest) or (_is_hol and not _cal and _x_hol):
+                    leave_hit = None                       # اليوم يفضل راحة/عطلة («داخل فترة إجازة»)
+                elif _punch_work and span is not None and span > 0:
+                    leave_hit = None                       # بصمة في يوم الإجازة = يوم شغل (سياسة)؛ نوعه الطبيعي زي ما هو
+                else:
+                    _is_rest = _is_hol = False             # اليوم إجازة
+            if _is_rest:
                 if _pend is not None: _pend[1] = 'rest'
                 m['weekly_off_days'] += 1
                 _worked = span is not None and span > 0
@@ -550,7 +572,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     m['ot_weekend_ws'] += _x / _hr * _f
                 _day_log.append((_wk, 'rest', _worked))
                 continue
-            if ds in holidays:
+            if _is_hol:
                 if _pend is not None: _pend[1] = 'holiday'
                 m['holiday_days'] += 1
                 _worked = span is not None and span > 0
@@ -564,9 +586,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                 _day_log.append((_wk, 'rest', _worked))
                 continue
 
-            leave_hit = next((lv for lv in emp_leaves if lv[0] <= d <= lv[1]), None)
             if leave_hit:
-                _, _, is_paid, is_sick, _ = leave_hit
+                _, _, is_paid, is_sick, _, _kind = leave_hit
                 if _pend is not None:
                     _pend[1] = ('leave_sick' if is_sick
                                 else 'leave_paid' if is_paid else 'leave_unpaid')
@@ -842,11 +863,11 @@ def attest_hours(conn, month, year, items, user_id):
 def _sick_tiers(conn):
     """Kuwait sick-pay tiers for the sick leave type: [(start_day, end_day, pct)]."""
     rows = conn.execute("""
-        SELECT t.start_day, t.end_day, t.payment_percentage, lt.name
+        SELECT t.start_day, t.end_day, t.payment_percentage, lt.name, lt.law_kind
         FROM leave_tiers t JOIN leave_types lt ON lt.id = t.leave_type_id
         ORDER BY t.start_day""").fetchall()
     return [(r['start_day'], r['end_day'], float(r['payment_percentage']))
-            for r in rows if _is_sick_type(r['name'])]
+            for r in rows if _leave_kind(r['law_kind'], r['name']) == 'sick']
 
 
 def _tier_pct(tiers, position):
@@ -888,7 +909,7 @@ def _prior_sick_map(conn, employees, p_start, basis='calendar'):
         "SELECT date FROM official_holidays WHERE DATE(date) BETWEEN ? AND ?",
         (min_ys.isoformat(), cutoff)).fetchall()}
     rows = conn.execute("""
-        SELECT lr.employee_id, lr.start_date, lr.end_date, lt.name AS type_name
+        SELECT lr.employee_id, lr.start_date, lr.end_date, lt.name AS type_name, lt.law_kind AS law_kind
         FROM leave_requests lr JOIN leave_types lt ON lt.id = lr.leave_type_id
         WHERE lr.status = 'approved'
           AND DATE(lr.start_date) <= ? AND DATE(lr.end_date) >= ?""",
@@ -896,7 +917,7 @@ def _prior_sick_map(conn, employees, p_start, basis='calendar'):
     off_by_emp = {e['id']: _weekly_off_set(e) for e in employees}
     out = {}
     for r in rows:
-        if not _is_sick_type(r['type_name']):
+        if _leave_kind(r['law_kind'], r['type_name']) != 'sick':
             continue
         emp_id = r['employee_id']
         off = off_by_emp.get(emp_id)
@@ -2065,7 +2086,7 @@ def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
     hperms = {}
     for r in conn.execute('''
         SELECT lr.start_date, lr.end_date, COALESCE(lr.is_paid_leave,0) AS is_paid,
-               lr.reason AS leave_reason, lt.name AS type_name,
+               lr.reason AS leave_reason, lt.name AS type_name, lt.law_kind AS law_kind,
                lr.leave_duration_type, lr.start_time, lr.end_time
         FROM leave_requests lr JOIN leave_types lt ON lt.id = lr.leave_type_id
         WHERE lr.employee_id = ? AND lr.status = 'approved'
@@ -2084,8 +2105,9 @@ def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
                                              'to': str(r['end_time'])[:5],
                                              'reason': r['leave_reason']}
             continue
-        leaves.append((s, e, bool(r['is_paid']), r['type_name'], r['leave_reason']))
-    leaves.sort(key=lambda lv: not _is_sick_type(lv[3]))
+        leaves.append((s, e, bool(r['is_paid']), r['type_name'], r['leave_reason'],
+                       _leave_kind(r['law_kind'], r['type_name'])))
+    leaves.sort(key=lambda lv: lv[5] != 'sick')
 
     excuses = {str(r['date'])[:10]: {'reason': r['reason'], 'type': r['type'],
                                      'side': r['side'], 'by': r['by_name']}
@@ -2118,6 +2140,17 @@ def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
         has_manual = bool(wrec) and any(t.strftime('%Y-%m-%d %H:%M') in manual for t in wrec[6])
 
         leave_hit = next((lv for lv in leaves if lv[0] <= d <= lv[1]), None)
+        # نفس قاعدة حساب الشهر: سياسة نوع الإجازة مع الراحة والعطلة والبصمة (utils/policies.leave_rules).
+        _is_rest = (d.isoweekday() % 7) in _WOd.on(emp, d)
+        _is_hol = ds in holidays
+        _leave_day, _in_leave = bool(leave_hit), False
+        if leave_hit:
+            _cal, _xr, _xh, _pw = _Pd.leave_rules(leave_hit[5], employee_id, d,
+                                                  emp['branch_location'] if 'branch_location' in emp.keys() else None)
+            if (_is_rest and not _cal and _xr) or (_is_hol and not _cal and _xh):
+                _leave_day, _in_leave = False, True        # «ر — داخل فترة إجازة»
+            elif _pw and wrec and (wrec[0] or 0) > 0:
+                _leave_day = False                          # بصمة = يوم شغل (سياسة)
         exc = excuses.get(ds)
 
         hp = hperms.get(ds)
@@ -2129,8 +2162,10 @@ def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
         d_ot = 0
         d_ot_kind = None
         d_late = d_early = 0
+        _grp = emp['branch_location'] if 'branch_location' in emp.keys() else None
+        _sdd = _Pd.day_view(sal, employee_id, d, _grp)      # سياسات اليوم ده — زي حساب الشهر
         if recs and flex == 'none':
-            d_late, d_early = _charged_late_early(first_t, last_t, ev, sal)
+            d_late, d_early = _charged_late_early(first_t, last_t, ev, _sdd)
             if exc and exc.get('side') == 'in':
                 d_late = 0
             if exc and exc.get('side') == 'out':
@@ -2140,13 +2175,15 @@ def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
                 _pt = _t2m(_wday.rotate(ev, hp['to']), '00:00')
                 _shs = _t2m(ev['shift_start'], (ev['default_start_time'] or '08:00'))
                 _she = _t2m(ev['shift_end'], (ev['default_end_time'] or '16:00'))
-                _gl = int(float(sal.get('grace_late_minutes', 10) or 10))
-                _ge = int(float(sal.get('early_departure_grace_minutes',
-                                        sal.get('grace_early_minutes', 5)) or 5))
+                _gl = int(float(_sdd.get('grace_late_minutes', 10) or 10))
+                _ge = int(float(_sdd.get('early_departure_grace_minutes',
+                                         _sdd.get('grace_early_minutes', 5)) or 5))
+                _red = str(_sdd.get('hourly_perm_effect', 'cancel')) == 'reduce'
+                _hm = int(round(hp['hours'] * 60))
                 if _pf <= _shs + _gl:
-                    d_late = 0
+                    d_late = max(0, d_late - _hm) if _red else 0
                 if _pt >= _she - _ge:
-                    d_early = 0
+                    d_early = max(0, d_early - _hm) if _red else 0
             if nursing_on(emp, d):
                 d_late, d_early = nursing_waive(d_late, d_early)
 
@@ -2154,12 +2191,12 @@ def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
             status = 'not_hired'
         elif eos_dt and d > eos_dt:
             status = 'ended'
-        elif leave_hit:
-            status = 'leave_sick' if _is_sick_type(leave_hit[3]) else (
+        elif leave_hit and _leave_day:
+            status = 'leave_sick' if leave_hit[5] == 'sick' else (
                 'leave_paid' if leave_hit[2] else 'leave_unpaid')
-        elif (d.isoweekday() % 7) in _WOd.on(emp, d):
+        elif _is_rest:
             status = 'weekly_off'
-        elif ds in holidays:
+        elif _is_hol:
             status = 'holiday'
         elif exc and not recs:
             status = 'excused'
@@ -2228,6 +2265,8 @@ def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
                      'ot_mins': d_ot, 'ot_kind': d_ot_kind,
                      'holiday_name': holidays.get(ds),
                      'leave_type': leave_hit[3] if leave_hit else None,
+                     'leave_kind': leave_hit[5] if leave_hit else None,
+                     'in_leave': _in_leave,   # راحة/عطلة جوه فترة إجازة — مابتتحسبش منها (سياسة النوع)
                      'leave_reason': leave_hit[4] if leave_hit else None,
                      'excuse': exc,
                      'check_in': (real[0] if real else None) or '--',

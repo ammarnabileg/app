@@ -553,7 +553,7 @@ def api_request_leave():
         }), 400
 
     try:
-        days_count = calculate_actual_leave_days(conn, start_date, end_date, emp_id)
+        days_count = calculate_actual_leave_days(conn, start_date, end_date, emp_id, leave_type_id)
         if days_count <= 0:
             days_count = 1
         
