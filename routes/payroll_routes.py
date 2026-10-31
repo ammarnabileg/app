@@ -396,7 +396,7 @@ def api_monthly_payroll():
 @login_required
 @require_permission('salary.calculate')
 def api_monthly_payroll_save():
-    from utils.payroll_engine import save_monthly_payroll, HoursNotApprovedError, RunLockedError
+    from utils.payroll_engine import save_monthly_payroll, HoursNotApprovedError, RunLockedError, OvertimeCapError
     conn = get_db_connection()
     try:
         payload = request.get_json(silent=True) or {}
@@ -420,6 +420,14 @@ def api_monthly_payroll_save():
             pass
         return jsonify({'success': False, 'code': 'hours_not_approved',
                         'missing': e.missing}), 409
+    except OvertimeCapError as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({'success': False, 'code': 'overtime_cap',
+                        'message': 'إضافي فوق حد الشهر لموظفين (سياسة الشركة: يمنع الحفظ لحد المراجعة): '
+                                   + '، '.join(map(str, e.args[0]))}), 409
     except Exception as e:
         try:
             conn.rollback()
@@ -1414,6 +1422,58 @@ def policies_page():
     return render_template('payroll_policies.html', sections=PO.SECTIONS, items=items, preview=preview,
                            history=PO.history(conn), registry=PO.REGISTRY, groups=groups,
                            today=today.isoformat())
+
+
+@payroll_bp.route('/payroll/overtime-approvals', methods=['GET', 'POST'])
+@login_required
+@require_permission('salary.calculate')
+def overtime_approvals():
+    """موافقات الإضافي على اليوم (سياسة «الإضافي محتاج موافقة؟») — الإضافي اللي على البصمة، والمعتمد."""
+    from utils import policies as PO
+    from utils.payroll_engine import compute_employee_days, fetch_payroll_employees, resolve_period
+    conn = get_db_connection()
+    per = _sheet_period()
+    if not per:
+        return jsonify({'success': False, 'message': 'bad period'}), 400
+    month, year = per
+    if request.method == 'POST':
+        n = 0
+        for k, v in request.form.items():
+            if k.startswith('ot_') and v.strip() != '':
+                _, eid, day = k.split('_', 2)
+                PO.approve_overtime(conn, int(eid), day, float(v) * 60, _uid(), request.form.get('note', ''))
+                n += 1
+        conn.commit()
+        flash(f'اتسجلت {n} موافقة', 'success')
+        return redirect(url_for('payroll.overtime_approvals', month=month, year=year))
+    ps, pe_ = resolve_period(conn, month, year)
+    appr = PO.approved_overtime(conn, ps.isoformat(), pe_.isoformat())
+    rows = []
+    for e in fetch_payroll_employees(conn, period=(ps, pe_)):
+        for d in compute_employee_days(conn, e['id'], month, year, raw_ot=True)['days']:
+            if (d.get('ot_mins') or 0) > 0:
+                rows.append({'employee_id': e['id'], 'employee_number': e['employee_number'],
+                             'name': e['arabic_name'] or e['name'], 'date': d['date'], 'kind': d.get('ot_kind'),
+                             'ot_mins': d['ot_mins'], 'approved': appr.get((e['id'], d['date']))})
+    required = str(PO.load(conn).get('overtime_requires_approval', day=pe_)) == '1'
+    return render_template('payroll_overtime_approvals.html', rows=rows, month=month, year=year, required=required)
+
+
+@payroll_bp.route('/payroll/comp-rest')
+@login_required
+@require_permission('salary.calculate')
+def comp_rest():
+    """رصيد الراحة البديلة من الأشهر المعتمدة (utils/policies.comp_rest_balance)."""
+    from utils import policies as PO
+    conn = get_db_connection()
+    year = int(request.args.get('year') or datetime.now().year)
+    rows = PO.comp_rest_balance(conn, year)
+    emps = {r['id']: r for r in conn.execute('SELECT id, employee_number, COALESCE(arabic_name, name) AS name FROM employees')}
+    for r in rows:
+        e = emps.get(r['employee_id'])
+        r['employee_number'], r['name'] = (e['employee_number'], e['name']) if e else ('', '')
+    on = str(PO.load(conn).get('comp_rest_policy')) == 'track'
+    return render_template('payroll_comp_rest.html', rows=rows, year=year, on=on)
 
 
 @payroll_bp.route('/payroll/provisions/export')

@@ -173,14 +173,17 @@ def _charged_late_early(first_t, last_t, emp, sal):
         return int(actual)  # actual_time
 
     late = early = 0
+    # سياسة «بعد السماح بيتحسب من»: بداية الشفت (كل الوقت) أو نهاية السماح (الزيادة بس).
+    late_from = sh_start + (grace_late if str(sal.get('late_count_from', 'shift_start')) == 'grace_end' else 0)
+    early_to = sh_end - (grace_early if str(sal.get('early_count_from', 'shift_end')) == 'grace_end' else 0)
     if first_t:
         fin = _t2m(first_t, '00:00')
         if fin > sh_start + grace_late:
-            late = convert(fin - sh_start, pol_late)
+            late = convert(fin - late_from, pol_late)
     if last_t:
         lout = _t2m(last_t, '00:00')
         if lout < sh_end - grace_early:
-            early = convert(sh_end - lout, pol_early)
+            early = convert(early_to - lout, pol_early)
     return late, early
 
 
@@ -365,6 +368,18 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
     from utils.policies import load as _load_policies
     _P = _load_policies(conn, sal)          # سياسات بتاريخ سريان: لكل يوم قيمته (utils/policies)
     _WO = _WeeklyOff(conn, _P.get('default_weekly_off', day=p_end))
+    from utils.policies import approved_overtime as _ot_appr
+    _OTA = _ot_appr(conn, start_iso, end_iso)
+
+    def _ot_gate(mins, emp_id_, ds_, sd_):
+        """الإضافي بعد سياسات اليوم: أقل حد، والموافقة (لو مطلوبة: لحد المعتمد لليوم ده)."""
+        if mins <= 0:
+            return 0
+        if mins < float(sd_.get('overtime_min_minutes', 0) or 0):
+            return 0
+        if str(sd_.get('overtime_requires_approval', '0')) == '1':
+            return min(mins, _OTA.get((int(emp_id_), ds_), 0))
+        return mins
     # الراتب الساري في كل يوم (سياسة «الراتب المستخدم»): معامل اليوم = راتبه ÷ متوسط الدورة.
     from utils.pay_history import salary_history as _sh_load, salary_on as _sal_on, period_salary as _psal
     _SH = _sh_load(conn, [e['id'] for e in employees])
@@ -529,7 +544,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                 if _worked:
                     m['actual_days'] += 1
                     m['actual_hours'] += span
-                    _x = _ot_round(span * 60, _ot_step)
+                    _x = _ot_gate(_ot_round(span * 60, _ot_step), emp_id, ds, _sd)
                     m['ot_weekend_mins'] += _x
                     m['ot_weekend_w'] += _x / _hr
                     m['ot_weekend_ws'] += _x / _hr * _f
@@ -542,7 +557,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                 if _worked:
                     m['actual_days'] += 1
                     m['actual_hours'] += span
-                    _x = _ot_round(span * 60, _ot_step)
+                    _x = _ot_gate(_ot_round(span * 60, _ot_step), emp_id, ds, _sd)
                     m['ot_holiday_mins'] += _x
                     m['ot_holiday_w'] += _x / _hr
                     m['ot_holiday_ws'] += _x / _hr * _f
@@ -636,6 +651,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                         _d_ot = _ot_round(_ot_raw, _ot_step)
                 elif flex == 'fixed_hours' and span > hpd:
                     _d_ot = _ot_round((span - hpd) * 60, _ot_step)
+                _d_ot = _ot_gate(_d_ot, emp_id, ds, _sd)
                 if _d_ot > 0:
                     m['ot_weekday_mins'] += _d_ot
                     m['ot_weekday_w'] += _d_ot / _hr
@@ -646,10 +662,16 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     _ot_week_days[_wk] = _ot_week_days.get(_wk, 0) + 1
             if punched and flex == 'none':
                 lm, em = _charged_late_early(rec[1], rec[2], ev, _sd)
-                if exc_side == 'in' or hp_touch_start:
-                    lm = 0   # entry excuse / start-side permission waives lateness
-                if exc_side == 'out' or hp_touch_end:
-                    em = 0   # exit excuse / end-side permission waives early leave
+                _hp_reduce = str(_sd.get('hourly_perm_effect', 'cancel')) == 'reduce'
+                _hp_m = int(round(hp[0] * 60)) if hp else 0
+                if exc_side == 'in':
+                    lm = 0   # entry excuse waives lateness
+                elif hp_touch_start:
+                    lm = max(0, lm - _hp_m) if _hp_reduce else 0   # الاستئذان: يلغي أو يقلل بمدته (سياسة)
+                if exc_side == 'out':
+                    em = 0   # exit excuse waives early leave
+                elif hp_touch_end:
+                    em = max(0, em - _hp_m) if _hp_reduce else 0
                 if nursing_on(emp, d):
                     lm, em = nursing_waive(lm, em)
                 m['late_mins'] += lm
@@ -1532,6 +1554,10 @@ class RunLockedError(Exception):
         super().__init__('payroll run is locked')
 
 
+class OvertimeCapError(Exception):
+    """الإضافي عدّى حد الشهر وسياسة الشركة «يمنع الحفظ لحد المراجعة»."""
+
+
 class HoursNotApprovedError(Exception):
     """Raised when saving payroll with missing or stale hour attestations."""
     def __init__(self, missing):
@@ -1565,6 +1591,18 @@ def save_monthly_payroll(conn, month, year, user_id):
                for r in data_check['rows'] if r['hours_state'] != 'approved']
     if missing:
         raise HoursNotApprovedError(missing)
+    # سياسة «لو الإضافي عدّى حد الشهر» = يمنع الحفظ: الساعات مابتضيعش، بس الكشف مابيتحفظش لحد المراجعة.
+    try:
+        from utils.policies import load as _lpc
+        if str(_lpc(conn).get('overtime_cap_action', day=resolve_period(conn, month, year)[1])) == 'block':
+            over = [r['employee_number'] for r in data_check['rows']
+                    if any(w.get('code') == 'ot_month_cap' for w in r.get('law_warnings', []))]
+            if over:
+                raise OvertimeCapError(over)
+    except OvertimeCapError:
+        raise
+    except Exception:
+        pass
 
     if existing:
         cur.execute('DELETE FROM payroll_run_lines WHERE run_id = ?', (existing['id'],))
@@ -1986,7 +2024,7 @@ def fetch_employee_loans_detail(conn, employee_id):
     return loans
 
 
-def compute_employee_days(conn, employee_id, month, year):
+def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
     """
     Day-by-day breakdown for ONE employee across the payroll period.
     Single source used by the drill-down API and the print report.
@@ -2004,7 +2042,10 @@ def compute_employee_days(conn, employee_id, month, year):
     eos_dt = (_parse_d(emp['end_of_service_date'])
               if 'end_of_service_date' in emp.keys() else None)
     from utils.policies import load as _lp_d
-    _WOd = _WeeklyOff(conn, _lp_d(conn, sal).get('default_weekly_off', day=p_end))
+    _Pd = _lp_d(conn, sal)
+    _WOd = _WeeklyOff(conn, _Pd.get('default_weekly_off', day=p_end))
+    from utils.policies import approved_overtime as _ot_appr_d
+    _OTAd = _ot_appr_d(conn, start_iso, end_iso)
 
     # شفتُ كلّ يومٍ وبصماتُه من المصدر نفسِه الذي يقرؤه الحسابُ الشهريّ.
     from utils import workday as _wday
@@ -2159,6 +2200,12 @@ def compute_employee_days(conn, employee_id, month, year):
                     if span_h > _hpdx:
                         d_ot = _ot_round((span_h - _hpdx) * 60, _ot_step_d); d_ot_kind = 'weekday'
 
+        if d_ot:
+            # نفس بوابة الإضافي في حساب الشهر: أقل حد والموافقة (utils/policies).
+            if d_ot < float(_Pd.get('overtime_min_minutes', employee_id, d) or 0):
+                d_ot = 0
+            elif not raw_ot and str(_Pd.get('overtime_requires_approval', employee_id, d)) == '1':
+                d_ot = min(d_ot, _OTAd.get((int(employee_id), ds), 0))
         _hp_pres = False
         if hp and pres_on:
             _pf = _t2m(_wday.rotate(ev, hp['from']), '00:00')

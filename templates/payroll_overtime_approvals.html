@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}موافقات الإضافي{% endblock %}
+{% block content %}
+<div class="container-fluid">
+    <div class="pt-3 pb-2 mb-3 border-bottom d-flex justify-content-between flex-wrap">
+        <div>
+            <h1 class="h2"><i class="fas fa-user-clock me-2"></i>موافقات الإضافي — {{ month }}/{{ year }}</h1>
+            <div class="report-desc">الإضافي اللي على البصمة لكل يوم، والساعات المعتمدة.
+                {% if required %}<b>سياسة الشركة: الإضافي محتاج موافقة</b> — اليوم من غير موافقة مالوش إضافي، واللي فيه موافقة لحد المعتمد.
+                {% else %}سياسة الشركة حاليًا: الإضافي من البصمة من غير موافقة (الموافقات هنا بتتسجل ومابتأثرش لحد ما السياسة تتغيّر).{% endif %}</div>
+        </div>
+        <form class="d-flex gap-2" method="GET">
+            <input type="number" name="month" min="1" max="12" value="{{ month }}" class="form-control" style="width:80px">
+            <input type="number" name="year" value="{{ year }}" class="form-control" style="width:100px">
+            <button class="btn btn-outline-primary">عرض</button>
+        </form>
+    </div>
+    <form method="POST" class="card">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>الموظف</th><th>اليوم</th><th>النوع</th><th>على البصمة</th><th>المعتمد (ساعة)</th></tr></thead>
+                <tbody>
+                {% for r in rows %}
+                <tr><td>{{ r.employee_number }} — {{ r.name }}</td><td dir="ltr">{{ r.date }}</td>
+                    <td>{{ {'weekday': 'يوم عادي', 'weekend': 'راحة', 'holiday': 'عطلة'}.get(r.kind, r.kind) }}</td>
+                    <td dir="ltr">{{ '%d:%02d'|format(r.ot_mins // 60, r.ot_mins % 60) }}</td>
+                    <td><input type="number" step="0.25" min="0" name="ot_{{ r.employee_id }}_{{ r.date }}"
+                               value="{{ '%g'|format(r.approved / 60) if r.approved is not none else '' }}"
+                               placeholder="{{ '%g'|format(r.ot_mins / 60) }}" class="form-control form-control-sm" style="width:90px"></td></tr>
+                {% else %}
+                <tr><td colspan="5" class="text-muted">مفيش إضافي في الشهر ده</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if rows %}<div class="card-body d-flex gap-2">
+            <input name="note" class="form-control" placeholder="ملاحظة (اختياري)" style="max-width:300px">
+            <button class="btn btn-primary">حفظ الموافقات</button>
+            <span class="small text-muted align-self-center">الخانة الفاضية = من غير قرار. صفر = مرفوض.</span>
+        </div>{% endif %}
+    </form>
+</div>
+{% endblock %}

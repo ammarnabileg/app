@@ -968,6 +968,16 @@
                             </a>
                         </li>
                         {% endif %}
+                        {% if has_permission('salary.calculate') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'payroll.overtime_approvals' %}active{% endif %}"
+                                href="{{ url_for('payroll.overtime_approvals') }}"><i class="fas fa-user-clock"></i> موافقات الإضافي</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'payroll.comp_rest' %}active{% endif %}"
+                                href="{{ url_for('payroll.comp_rest') }}"><i class="fas fa-bed"></i> الراحة البديلة</a>
+                        </li>
+                        {% endif %}
                         {% if has_permission('payroll.policies') %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'payroll.policies_page' %}active{% endif %}"

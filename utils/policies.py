@@ -82,11 +82,25 @@ _R = [
     ('early_departure_policy', 'late', 'سياسة الانصراف بدري', 'choice',
      [('actual_time', 'بالدقيقة'), ('quarter_day', 'ربع يوم'), ('half_day', 'نص يوم'),
       ('full_day', 'يوم كامل'), ('warning', 'إنذار')], 'actual_time', False, True),
+    ('late_count_from', 'late', 'التأخير بعد السماح بيتحسب من', 'choice',
+     [('shift_start', 'بداية الشفت (كله)'), ('grace_end', 'نهاية السماح (الزيادة بس)')], 'shift_start', False, True),
+    ('early_count_from', 'late', 'الانصراف بدري بعد السماح بيتحسب من', 'choice',
+     [('shift_end', 'نهاية الشفت (كله)'), ('grace_end', 'نهاية السماح (الزيادة بس)')], 'shift_end', False, True),
+    ('hourly_perm_effect', 'late', 'الاستئذان عند بداية/نهاية الشفت', 'choice',
+     [('cancel', 'يلغي التأخير/الانصراف كله'), ('reduce', 'يقلله بمدة الاستئذان بس')], 'cancel', False, True),
     ('penalty_monthly_cap_days', 'late', 'سقف الجزاءات في الشهر (أيام أجر)', 'number', None, '5', True, False),
     # --- الإضافي
     ('overtime_net_of_late', 'overtime', 'الإضافي يتخصم منه التأخير؟', 'choice',
      [('0', 'لأ'), ('1', 'أيوه')], '0', False, True),
     ('overtime_round_to_minutes', 'overtime', 'تقريب الإضافي (دقيقة)', 'number', None, '0', False, True),
+    ('overtime_min_minutes', 'overtime', 'أقل إضافي في اليوم بيتحسب (دقيقة)', 'number', None, '0', False, True),
+    ('overtime_requires_approval', 'overtime', 'الإضافي محتاج موافقة؟', 'choice',
+     [('0', 'لأ — من البصمة'), ('1', 'أيوه — بحد الموافقة على اليوم')], '0', False, True),
+    ('overtime_cap_action', 'overtime', 'لو الإضافي عدّى حد الشهر', 'choice',
+     [('warn', 'تنبيه (الساعات بتتصرف)'), ('block', 'يمنع حفظ الكشف لحد المراجعة')], 'warn', False, False),
+    ('comp_rest_policy', 'overtime', 'الراحة البديلة', 'choice',
+     [('none', 'مش متابعة'), ('track', 'متابعة رصيد (يوم عن كل يوم راحة/عطلة اشتغله)')], 'none', True, False),
+    ('comp_rest_min_hours', 'overtime', 'أقل ساعات في يوم الراحة/العطلة تستحق راحة بديلة', 'number', None, '4', True, False),
     ('weekday_ot_multiplier', 'overtime', 'معامل الإضافي — يوم عادي', 'number', None, '1.25', True, False),
     ('weekend_ot_multiplier', 'overtime', 'معامل الإضافي — راحة', 'number', None, '1.5', True, False),
     ('holiday_ot_multiplier', 'overtime', 'معامل الإضافي — عطلة رسمية', 'number', None, '2.0', True, False),
@@ -124,6 +138,16 @@ def ensure_schema(conn):
         revoked_by INTEGER,
         revoked_at DATETIME,
         revoke_reason TEXT)''')
+    # موافقات الإضافي على اليوم (سياسة «الإضافي محتاج موافقة؟»).
+    conn.execute('''CREATE TABLE IF NOT EXISTS overtime_approvals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        work_date TEXT NOT NULL,
+        minutes INTEGER NOT NULL,
+        note TEXT,
+        approved_by INTEGER,
+        approved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(employee_id, work_date))''')
     conn.execute('CREATE INDEX IF NOT EXISTS ix_policies_key ON payroll_policies (key, scope, effective_from)')
 
 
@@ -329,3 +353,73 @@ def weekly_off_history(conn):
         out.setdefault(r['employee_id'], []).append(
             (r['effective_from'], {int(x) for x in str(r['days']).split(',') if x.strip().isdigit()}))
     return out
+
+
+# ------------------------------------------------------------ موافقات الإضافي
+
+def approve_overtime(conn, employee_id, work_date, minutes, user_id, note=''):
+    """موافقة على إضافي يوم (بالدقايق). صفر = مرفوض. موافقة تانية لنفس اليوم بتستبدل الأولى."""
+    ensure_schema(conn)
+    d = datetime.strptime(str(work_date)[:10], '%Y-%m-%d').date().isoformat()
+    mins = max(0, int(round(float(minutes or 0))))
+    conn.execute('DELETE FROM overtime_approvals WHERE employee_id = ? AND work_date = ?', (int(employee_id), d))
+    conn.execute('INSERT INTO overtime_approvals (employee_id, work_date, minutes, note, approved_by) VALUES (?, ?, ?, ?, ?)',
+                 (int(employee_id), d, mins, note or None, user_id))
+
+
+def approved_overtime(conn, start_iso, end_iso):
+    """{(موظف، يوم): دقايق} — من شاشة الموافقات، ومن طلبات الأوفرتايم المعتمدة لو موجودة."""
+    ensure_schema(conn)
+    out = {}
+    for r in conn.execute('SELECT employee_id, work_date, minutes FROM overtime_approvals WHERE work_date BETWEEN ? AND ?',
+                          (start_iso, end_iso)).fetchall():
+        out[(int(r['employee_id']), r['work_date'])] = int(r['minutes'])
+    try:
+        for r in conn.execute("SELECT employee_id, payload FROM hr_requests WHERE type = 'overtime' AND status = 'approved'"):
+            p = json.loads(r['payload'] or '{}')
+            d = str(p.get('work_date') or '')[:10]
+            if start_iso <= d <= end_iso and (int(r['employee_id']), d) not in out:
+                out[(int(r['employee_id']), d)] = int(round(float(p.get('hours') or 0) * 60))
+    except Exception:
+        pass
+    return out
+
+
+# ------------------------------------------------------------ الراحة البديلة
+
+def comp_rest_balance(conn, year=None, employee_id=None, min_hours=None):
+    """رصيد الراحة البديلة من الأشهر المعتمدة: يوم عن كل يوم راحة/عطلة اشتغل فيه ≥ الحد،
+    ناقص إجازات «راحة بديلة» المعتمدة. يُرجع [{employee_id, earned, taken, balance, days: [...]}]."""
+    if min_hours is None:
+        try:
+            min_hours = float(load(conn).get('comp_rest_min_hours') or 4)
+        except (TypeError, ValueError):
+            min_hours = 4.0
+    year = int(year or date.today().year)
+    q = '''SELECT d.employee_id, d.day, d.kind, d.actual_hours FROM payroll_run_days d
+             JOIN payroll_runs r ON r.id = d.run_id
+             WHERE r.status = 'approved' AND d.kind IN ('rest', 'holiday') AND d.actual_hours >= ?
+               AND substr(d.day, 1, 4) = ?'''
+    args = [min_hours, str(year)]
+    if employee_id:
+        q += ' AND d.employee_id = ?'
+        args.append(int(employee_id))
+    out = {}
+    for r in conn.execute(q, args).fetchall():
+        e = out.setdefault(r['employee_id'], {'employee_id': r['employee_id'], 'earned': 0, 'taken': 0.0, 'days': []})
+        e['earned'] += 1
+        e['days'].append({'day': r['day'], 'kind': r['kind'], 'hours': r['actual_hours']})
+    try:
+        for r in conn.execute('''SELECT lr.employee_id, COALESCE(SUM(lr.days_count), 0) AS n FROM leave_requests lr
+                                 JOIN leave_types lt ON lt.id = lr.leave_type_id
+                                 WHERE lr.status = 'approved' AND lt.law_kind = 'comp_rest'
+                                   AND substr(lr.start_date, 1, 4) = ? GROUP BY lr.employee_id''', (str(year),)):
+            if employee_id and int(r['employee_id']) != int(employee_id):
+                continue
+            e = out.setdefault(r['employee_id'], {'employee_id': r['employee_id'], 'earned': 0, 'taken': 0.0, 'days': []})
+            e['taken'] = float(r['n'] or 0)
+    except Exception:
+        pass
+    for e in out.values():
+        e['balance'] = e['earned'] - e['taken']
+    return sorted(out.values(), key=lambda x: x['employee_id'])

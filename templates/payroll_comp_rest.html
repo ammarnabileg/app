@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}الراحة البديلة{% endblock %}
+{% block content %}
+<div class="container-fluid">
+    <div class="pt-3 pb-2 mb-3 border-bottom d-flex justify-content-between flex-wrap">
+        <div>
+            <h1 class="h2"><i class="fas fa-bed me-2"></i>رصيد الراحة البديلة — {{ year }}</h1>
+            <div class="report-desc">يوم عن كل يوم راحة أو عطلة رسمية اشتغله الموظف (بالحد اللي في السياسات)، من الأشهر المعتمدة بس،
+                ناقص إجازات «راحة بديلة» المعتمدة.
+                {% if not on %}<b>المتابعة مقفولة في السياسات</b> — الأرقام للعلم.{% endif %}
+                <span class="badge bg-danger-subtle text-danger border">القاعدة نفسها تحتاج مراجعة مع المختص</span></div>
+        </div>
+        <form class="d-flex gap-2" method="GET">
+            <input type="number" name="year" value="{{ year }}" class="form-control" style="width:100px">
+            <button class="btn btn-outline-primary">عرض</button>
+        </form>
+    </div>
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead><tr><th>الموظف</th><th>استحق</th><th>أخد</th><th>الرصيد</th><th>الأيام</th></tr></thead>
+                <tbody>
+                {% for r in rows %}
+                <tr><td>{{ r.employee_number }} — {{ r.name }}</td><td>{{ r.earned }}</td><td>{{ '%g'|format(r.taken) }}</td>
+                    <td class="fw-bold {{ 'text-success' if r.balance > 0 }}">{{ '%g'|format(r.balance) }}</td>
+                    <td class="small">{% for d in r.days %}<span dir="ltr">{{ d.day }}</span>{{ ' (عطلة)' if d.kind == 'holiday' }}{{ '، ' if not loop.last }}{% endfor %}</td></tr>
+                {% else %}
+                <tr><td colspan="5" class="text-muted">مفيش أيام راحة/عطلة اتشغلت في أشهر معتمدة</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
