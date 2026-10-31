@@ -33,6 +33,9 @@ SICK_NAME_HINTS = ('مرض', 'sick')
 
 # مقاييسُ القانون: تُحسب مع الشهر ولا تدخل توقيعَ الاعتماد.
 LAW_METRIC_FIELDS = ('late_actual_mins', 'early_actual_mins',
+                     # الدقايق ÷ ساعات شفت اليوم نفسه: أجر الساعة لكل يوم بشفته (اتنقل من 8 لـ 6 في نص الشهر
+                     # ← دقيقة النص الأول بأجر ساعة على 8، والتاني على 6). الفلوس = المجموع ÷ 60 × الأجر اليومي.
+                     'late_w', 'early_w', 'ot_weekday_w', 'ot_weekend_w', 'ot_holiday_w',
                      'ot_days_over_2h', 'ot_weeks_over_3d', 'ot_days',
                      'ramadan_over_6h', 'paid_leave_days')
 
@@ -464,7 +467,9 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                 if _worked:
                     m['actual_days'] += 1
                     m['actual_hours'] += span
-                    m['ot_weekend_mins'] += _ot_round(span * 60, _ot_step)
+                    _x = _ot_round(span * 60, _ot_step)
+                    m['ot_weekend_mins'] += _x
+                    m['ot_weekend_w'] += _x / hpd
                 _day_log.append((_wk, 'rest', _worked))
                 continue
             if ds in holidays:
@@ -474,7 +479,9 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                 if _worked:
                     m['actual_days'] += 1
                     m['actual_hours'] += span
-                    m['ot_holiday_mins'] += _ot_round(span * 60, _ot_step)
+                    _x = _ot_round(span * 60, _ot_step)
+                    m['ot_holiday_mins'] += _x
+                    m['ot_holiday_w'] += _x / hpd
                 _day_log.append((_wk, 'rest', _worked))
                 continue
 
@@ -565,6 +572,7 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     _d_ot = _ot_round((span - hpd) * 60, _ot_step)
                 if _d_ot > 0:
                     m['ot_weekday_mins'] += _d_ot
+                    m['ot_weekday_w'] += _d_ot / hpd
                     m['ot_days'] += 1
                     if _d_ot > OT_DAY_MAX_MINS:
                         m['ot_days_over_2h'] += 1
@@ -579,6 +587,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
                     lm, em = nursing_waive(lm, em)
                 m['late_mins'] += lm
                 m['early_mins'] += em
+                m['late_w'] += lm / hpd
+                m['early_w'] += em / hpd
                 if lm:
                     m['late_actual_mins'] += min(lm, _actual_late(rec[1], ev))
                 if em:
@@ -812,6 +822,28 @@ def _prior_sick_map(conn, employees, p_start, basis='calendar'):
     return out
 
 
+def _unexec(item, cut, reason, original=None):
+    """بند اتحسب وجزء منه ماتنفّذش: الأصل، والمخصوم، والباقي، والسبب."""
+    orig = round(float(original if original is not None else item['amount']), 3)
+    cut = round(float(cut), 3)
+    return {'code': item.get('code'), 'name_ar': item.get('name_ar'), 'source': item.get('source'),
+            'tx_id': item.get('tx_id'), 'loan_id': item.get('loan_id'), 'reference': item.get('reference'),
+            'original': orig, 'deducted': round(orig - cut, 3), 'remaining': cut, 'reason': reason}
+
+
+def _day_units(mins, live, mins_key, w_key, hpd_now):
+    """الدقايق ← «أيام أجر» (×الأجر اليومي = المبلغ)، كل دقيقة على ساعات شفت يومها.
+
+    الحساب الحي بيجمع دقايق÷ساعات اليوم (`*_w`). الأرقام المعتمدة (اعتماد الساعات) هي نفسها الحية
+    لما الاعتماد سليم، فبنستخدم نفس الوزن؛ ولو مختلفة (اعتماد قديم) بنرجع لشفت الموظف الحالي."""
+    if not mins:
+        return 0.0
+    lm, lw = live.get(mins_key, 0) or 0, live.get(w_key, 0) or 0
+    if lm and lw and abs(lm - mins) < 1e-6:
+        return lw / 60.0
+    return mins / 60.0 / (hpd_now or 8.0)
+
+
 def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
     """
     Returns {month, year, rows, totals, hours_approval:{approved, stale, total}}.
@@ -892,7 +924,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
         fixed_map.setdefault(r['employee_id'], []).append(r)
 
     tx_rows = conn.execute('''
-        SELECT t.employee_id, t.amount, t.reason,
+        SELECT t.id AS tx_id, t.employee_id, t.amount, t.reason, t.reference,
                it.code, it.name_ar, it.name_en, it.kind, it.sort_order
         FROM payroll_transactions t
         JOIN payroll_item_types it ON it.id = t.item_type_id
@@ -988,6 +1020,9 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
         law_warnings = []
         ot_detail = None    # الإضافيُّ مفصّلًا بنوعه — لكشف الرواتب المطبوع
         penalties = []      # [(البند, الجزء الذي هو جزاءٌ لا أجرُ وقتٍ لم يُعمل)]
+        # اللي اتحسب وماتخصمش (سقف/صافي مايكفيش) — مايتمسحش في صمت: بيتحفظ مع السطر، وعند اعتماد
+        # الكشف بيتسجل رصيد للمراجعة (utils/deduction_balances).
+        unexecuted = []
         for it in fixed_map.get(emp_id, []):
             if it['calc_method'] == 'percent_of_basic':
                 amount = round(basic * float(it['percent_value'] or 0) / 100.0, 3)
@@ -1009,7 +1044,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
         for t in tx_map.get(emp_id, []):
             entry = {'code': t['code'], 'name_ar': t['name_ar'],
                      'name_en': t['name_en'],
-                     'amount': round(float(t['amount'] or 0), 3), 'source': 'tx'}
+                     'amount': round(float(t['amount'] or 0), 3), 'source': 'tx',
+                     'tx_id': t['tx_id'], 'reference': t['reference']}
             (allowances if t['kind'] == 'earning' else deductions).append(entry)
 
         # --- Attendance-based deductions (from the attested figures) ---
@@ -1052,25 +1088,25 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                                    'name_en': f"Unpaid Leave ({att['unpaid_days']} d)",
                                    'amount': round(att['unpaid_days'] * _day_wage, 3),
                                    'source': 'computed', 'days': att['unpaid_days']})
-            hourly_rate = round(daily_rate / float(emp['hours_per_day'] or 8), 4)
+            hpd_now = float(emp['hours_per_day'] or 8)
             if att['late_mins'] > 0:
+                _amt = daily_rate * _day_units(att['late_mins'], live, 'late_mins', 'late_w', hpd_now)
                 _e = {'code': 'lateness_deduction',
                       'name_ar': f"خصم تأخير ({att['late_mins']} د)",
                       'name_en': f"Lateness ({att['late_mins']} min)",
-                      'amount': round(att['late_mins'] / 60.0 * hourly_rate, 3),
-                      'source': 'computed'}
+                      'amount': round(_amt, 3), 'source': 'computed'}
                 deductions.append(_e)
                 _act = min(att['late_mins'], live.get('late_actual_mins', att['late_mins']))
-                penalties.append((_e, max(0.0, _e['amount'] - _act / 60.0 * hourly_rate)))
+                penalties.append((_e, max(0.0, _amt - _amt * _act / att['late_mins'])))
             if att['early_mins'] > 0:
+                _amt = daily_rate * _day_units(att['early_mins'], live, 'early_mins', 'early_w', hpd_now)
                 _e = {'code': 'early_leave_deduction',
                       'name_ar': f"خصم انصراف مبكر ({att['early_mins']} د)",
                       'name_en': f"Early Leave ({att['early_mins']} min)",
-                      'amount': round(att['early_mins'] / 60.0 * hourly_rate, 3),
-                      'source': 'computed'}
+                      'amount': round(_amt, 3), 'source': 'computed'}
                 deductions.append(_e)
                 _act = min(att['early_mins'], live.get('early_actual_mins', att['early_mins']))
-                penalties.append((_e, max(0.0, _e['amount'] - _act / 60.0 * hourly_rate)))
+                penalties.append((_e, max(0.0, _amt - _amt * _act / att['early_mins'])))
             if att['partial_days'] > 0:
                 mp = sal.get('missing_punch_policy', 'invalid')
                 n = int(att['partial_days'])
@@ -1127,6 +1163,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                     _cut = min(_excess, _p)
                     if _cut <= 0:
                         continue
+                    unexecuted.append(_unexec(_e, _cut, 'penalty_cap'))
                     _e['amount'] = round(_e['amount'] - _cut, 3)
                     _e['capped_by_law'] = round(_cut, 3)
                     _e['name_ar'] += ' — بعد سقف الجزاءات'
@@ -1168,14 +1205,15 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
             if live.get('ramadan_over_6h', 0):
                 law_warnings.append({'code': 'ramadan_6h', 'n': live['ramadan_over_6h']})
             if ot_total > MONEY_EPS and daily_rate > MONEY_EPS:
-                hourly_rate = daily_rate / hpd_of.get(emp_id, 8.0)
+                _hn = hpd_of.get(emp_id, 8.0)
                 m_wk = float(sal.get('weekday_ot_multiplier', 1.25) or 0)
                 m_we = float(sal.get('weekend_ot_multiplier', 1.5) or 0)
                 m_ho = float(sal.get('holiday_ot_multiplier', 2.0) or 0)
-                ot_amount = round((wk_h * m_wk + we_h * m_we + ho_h * m_ho)
-                                  * hourly_rate, 3)
-                _wk_amt = round(wk_h * m_wk * hourly_rate, 3)
-                _we_amt = round(we_h * m_we * hourly_rate, 3)
+                # كل ساعة إضافي بأجر ساعة يومها (شفت اليوم)، مش شفت آخر الشهر.
+                _wk_amt = round(daily_rate * m_wk * _day_units(_g('ot_weekday_mins'), live, 'ot_weekday_mins', 'ot_weekday_w', _hn), 3)
+                _we_amt = round(daily_rate * m_we * _day_units(_g('ot_weekend_mins'), live, 'ot_weekend_mins', 'ot_weekend_w', _hn), 3)
+                _ho_amt = daily_rate * m_ho * _day_units(_g('ot_holiday_mins'), live, 'ot_holiday_mins', 'ot_holiday_w', _hn)
+                ot_amount = round(_wk_amt + _we_amt + _ho_amt, 3)
                 ot_detail = {'weekday_hours': round(wk_h, 4), 'weekend_hours': round(we_h, 4),
                              'holiday_hours': round(ho_h, 4),
                              'weekday_amount': _wk_amt, 'weekend_amount': _we_amt,
@@ -1302,6 +1340,9 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                    'loan_id': ln['loan_id']} for ln in loans_map.get(emp_id, [])]
         _loan_wage = basic + sum(a['amount'] for a in allowances if a.get('source') == 'fixed')
         _deferred = cap_loan_installments(_loans, _loan_wage, sal)
+        for _ln in _loans:
+            if _ln.get('deferred', 0) > MONEY_EPS:
+                unexecuted.append(_unexec(_ln, _ln['deferred'], 'loan_cap', original=_ln['amount'] + _ln['deferred']))
         if _deferred > MONEY_EPS:
             law_warnings.append({'code': 'loan_capped', 'amount': _deferred,
                                  'n': sal.get('loan_deduction_cap_pct', 10)})
@@ -1320,6 +1361,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                 if _short <= MONEY_EPS:
                     break
                 _cut = min(_short, d_['amount'])
+                if _cut > MONEY_EPS:
+                    unexecuted.append(_unexec(d_, _cut, 'net_floor'))
                 d_['deferred'] = round(d_.get('deferred', 0) + _cut, 3)
                 d_['amount'] = round(d_['amount'] - _cut, 3)
                 _short -= _cut
@@ -1359,6 +1402,7 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                      'salary_parts': salary_parts,
                      'pay_type': (emp['pay_type'] if 'pay_type' in emp.keys() else None) or 'monthly',
                      'ot_detail': ot_detail,
+                     'unexecuted': unexecuted,
                      'law_warnings': law_warnings})
         totals['employer_pifss'] += employer_pifss
 
@@ -1473,6 +1517,7 @@ def save_monthly_payroll(conn, month, year, user_id):
                      row['total_allowances'], row['total_deductions'], row['net'],
                      json.dumps({'allowances': row['allowances'],
                                  'deductions': row['deductions'],
+                                 'unexecuted': row.get('unexecuted', []),
                                  'employer_pifss': row.get('employer_pifss', 0),
                                  'law_warnings': row.get('law_warnings', [])},
                                 ensure_ascii=False)))
@@ -1643,6 +1688,9 @@ def lock_run(conn, month, year, user_id):
     conn.execute("""UPDATE payroll_runs
                     SET status = 'approved', approved_by = ?, approved_at = CURRENT_TIMESTAMP
                     WHERE id = ?""", (user_id, run['id']))
+    # الخصومات اللي ماتنفّذتش بتتسجل أرصدة عند الاعتماد بس (utils/deduction_balances).
+    from utils.deduction_balances import record_for_run
+    record_for_run(conn, run['id'], user_id)
     return run['id']
 
 
@@ -1661,6 +1709,8 @@ def unlock_run(conn, month, year, user_id, reason):
                     SET status = 'saved', unlocked_by = ?, unlocked_at = CURRENT_TIMESTAMP,
                         unlock_reason = ?
                     WHERE id = ?""", (user_id, reason, run['id']))
+    from utils.deduction_balances import reverse_for_run
+    reverse_for_run(conn, run['id'], user_id, reason)
     return run['id']
 
 

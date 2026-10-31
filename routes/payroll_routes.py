@@ -1339,6 +1339,35 @@ def bank_export():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+@payroll_bp.route('/payroll/deduction-balances', methods=['GET', 'POST'])
+@login_required
+@require_permission('salary.calculate')
+def deduction_balances():
+    """الخصومات اللي ماتنفّذتش (utils/deduction_balances): المراجعة، والجدولة، والإسقاط."""
+    from utils import deduction_balances as DB_
+    conn = get_db_connection()
+    if request.method == 'POST':
+        try:
+            bid = int(request.form['balance_id'])
+            if request.form.get('action') == 'schedule':
+                DB_.schedule(conn, bid, request.form.get('month'), request.form.get('year'), _uid(),
+                             amount=request.form.get('amount'), note=request.form.get('note', ''))
+                flash('اتجدول', 'success')
+            elif request.form.get('action') == 'waive':
+                DB_.waive(conn, bid, _uid(), request.form.get('note', ''))
+                flash('اتسقط', 'success')
+            conn.commit()
+        except (ValueError, KeyError, TypeError) as e:
+            conn.rollback()
+            flash(str(e) or 'بيانات ناقصة', 'error')
+        return redirect(url_for('payroll.deduction_balances', status=request.args.get('status', 'open')))
+    status = request.args.get('status', 'open')
+    return render_template('payroll_deduction_balances.html', rows=DB_.listing(conn, status or None),
+                           status=status, S=DB_.STATUS_LABELS, R=DB_.REASON_LABELS,
+                           schedulable=DB_.SCHEDULABLE, open_states=DB_.OPEN + ('not_executed',),
+                           now=datetime.now())
+
+
 @payroll_bp.route('/payroll/provisions/export')
 @login_required
 @require_permission('salary.calculate')

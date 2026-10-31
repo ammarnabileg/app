@@ -968,6 +968,15 @@
                             </a>
                         </li>
                         {% endif %}
+                        {% if has_permission('salary.calculate') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'payroll.deduction_balances' %}active{% endif %}"
+                                href="{{ url_for('payroll.deduction_balances') }}">
+                                <i class="fas fa-balance-scale"></i>
+                                خصومات ماتنفّذتش
+                            </a>
+                        </li>
+                        {% endif %}
                         {% if has_permission('page.loans') %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'payroll.loans' %}active{% endif %}"
