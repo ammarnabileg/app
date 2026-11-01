@@ -41,6 +41,22 @@ POLICY = {
     'missing_punch_penalty': 'not_executed',
     'presence_penalty': 'not_executed',
 }
+_ATTENDANCE = ('lateness_deduction', 'early_leave_deduction', 'missing_punch_penalty', 'presence_penalty')
+
+
+def status_for(P, code, day=None):
+    """حالة الباقي من سياسات الشركة (utils/policies: unexecuted_*). السلفة دايمًا «في رصيد السلفة»."""
+    if code == 'loan_installment':
+        return 'in_loan_balance'
+    key = ('unexecuted_attendance' if code in _ATTENDANCE
+           else f'unexecuted_{code}' if f'unexecuted_{code}' in ('unexecuted_overpayment_recovery',
+                                                               'unexecuted_court_garnishment',
+                                                               'unexecuted_admin_penalty')
+           else 'unexecuted_other')
+    v = P.get(key, day=day)
+    return v or POLICY.get(code, 'pending_review')
+
+
 STATUS_LABELS = {
     'in_loan_balance': 'في رصيد السلفة',
     'pending_review': 'بانتظار المراجعة',
@@ -92,6 +108,10 @@ def record_for_run(conn, run_id, user_id=None):
     if conn.execute("SELECT 1 FROM payroll_deduction_balances WHERE run_id = ? AND status != 'reversed'",
                     (run_id,)).fetchone():
         return 0                                    # اتسجلت قبل كده للاعتماد ده
+    from utils.policies import load
+    P = load(conn)
+    pr = conn.execute('SELECT period_end FROM payroll_runs WHERE id = ?', (run_id,)).fetchone()
+    run_end = (pr['period_end'] if pr else None) or None
     n = 0
     for line in conn.execute('SELECT employee_id, details_json FROM payroll_run_lines WHERE run_id = ?',
                              (run_id,)).fetchall():
@@ -103,7 +123,7 @@ def record_for_run(conn, run_id, user_id=None):
             if float(u.get('remaining') or 0) <= 0.0005:
                 continue
             code = u.get('code') or ''
-            status = POLICY.get(code, 'pending_review')
+            status = status_for(P, code, run_end)
             conn.execute('''INSERT INTO payroll_deduction_balances (run_id, employee_id, month, year, code, name,
                             source, tx_id, loan_id, original, deducted, remaining, reason, status, created_by)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',

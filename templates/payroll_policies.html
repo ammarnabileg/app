@@ -67,7 +67,7 @@
                             {% endif %}
                             <input name="effective_from" type="date" value="{{ today }}" class="form-control form-control-sm" style="width:140px" required>
                             <select name="scope" class="form-select form-select-sm" style="width:110px">
-                                <option value="company">الشركة</option><option value="group">مجموعة</option><option value="employee">موظف (رقم داخلي)</option><option value="leave_kind">نوع إجازة</option>
+                                <option value="company">الشركة</option><option value="group">مجموعة</option><option value="employee">موظف (رقم داخلي)</option><option value="leave_kind">نوع إجازة</option><option value="item">بند</option>
                             </select>
                             <input name="scope_id" class="form-control form-control-sm" style="width:90px" placeholder="المجموعة/الموظف" list="polGroups">
                             <input name="note" class="form-control form-control-sm" style="width:150px" placeholder="سبب التغيير" required>
@@ -79,6 +79,66 @@
                 </tbody>
             </table>
         </div>
+        {% if sec == 'deductions' %}
+        <div class="card-body border-top">
+            <h6 class="mb-2">البدلات الثابتة بند بند <span class="small text-muted">(«تبع سياسة الحساب» = حسب «أساس …» في قسم الأجر؛ المميز بالخط العريض قرار خاص بالبند)</span></h6>
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered small mb-2">
+                    <thead><tr><th>البند</th><th>الغياب</th><th>التأخير</th><th>الإضافي</th><th>التأمينات</th><th>حد السلف</th></tr></thead>
+                    <tbody>
+                    {% for r in item_matrix %}
+                    <tr><td>{{ r.name }}</td>{% for c in r.cells %}<td class="{{ 'fw-bold' if c.own else 'text-muted' }}">{{ c.label }}</td>{% endfor %}</tr>
+                    {% else %}<tr><td colspan="6" class="text-muted">مفيش بدلات ثابتة</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if item_matrix %}
+            <form method="POST" class="d-flex flex-wrap gap-1">
+                <input type="hidden" name="scope" value="item">
+                <select name="scope_id" class="form-select form-select-sm" style="width:170px">
+                    {% for r in item_matrix %}<option value="{{ r.code }}">{{ r.name }}</option>{% endfor %}</select>
+                <select name="key" class="form-select form-select-sm" style="width:200px">
+                    {% for c in item_calcs %}<option value="item_in_{{ c }}">{{ registry['item_in_' ~ c].label }}</option>{% endfor %}</select>
+                <select name="value" class="form-select form-select-sm" style="width:160px">
+                    {% for c, l in item_choices %}<option value="{{ c }}">{{ l }}</option>{% endfor %}</select>
+                <input name="effective_from" type="date" value="{{ today }}" class="form-control form-control-sm" style="width:140px" required>
+                <input name="note" class="form-control form-control-sm" style="width:150px" placeholder="سبب التغيير" required>
+                <button class="btn btn-sm btn-outline-primary">تطبيق على البند</button>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if sec == 'insurance' %}
+        <div class="card-body border-top" id="insurance">
+            <h6 class="mb-1">صناديق التأمينات <span class="badge bg-danger-subtle text-danger border">النسب والسقوف تحتاج مطابقة مع كشف المؤسسة</span></h6>
+            <div class="small text-muted mb-2">لو فيه صناديق سارية، كل صندوق بيطلع سطر لوحده في الكشف بنسبته وسقفه، والنسبة الواحدة اللي فوق مابتتستخدمش.
+                من غير صناديق: النسبة الواحدة زي ما هي.</div>
+            <table class="table table-sm small mb-2">
+                <thead><tr><th>الصندوق</th><th>الموظف %</th><th>الشركة %</th><th>السقف</th><th>ساري من</th><th>لحد</th><th></th></tr></thead>
+                <tbody>
+                {% for fd in all_funds %}
+                <tr class="{{ '' if fd in funds else 'text-muted' }}"><td>{{ fd.name }}</td><td>{{ '%g'|format(fd.employee_pct) }}</td>
+                    <td>{{ '%g'|format(fd.employer_pct) }}</td><td>{{ '%g'|format(fd.salary_cap) if fd.salary_cap else '—' }}</td>
+                    <td dir="ltr">{{ fd.effective_from }}</td><td dir="ltr">{{ fd.effective_to or '—' }}</td>
+                    <td>{% if not fd.effective_to %}<form method="POST" class="d-flex gap-1">
+                        <input type="hidden" name="action" value="fund_end"><input type="hidden" name="fund_id" value="{{ fd.id }}">
+                        <input type="date" name="effective_to" value="{{ today }}" class="form-control form-control-sm" style="width:140px" required>
+                        <button class="btn btn-sm btn-outline-secondary">إيقاف من التاريخ</button></form>{% endif %}</td></tr>
+                {% else %}<tr><td colspan="7" class="text-muted">مفيش صناديق — النسبة الواحدة شغالة</td></tr>{% endfor %}
+                </tbody>
+            </table>
+            <form method="POST" class="d-flex flex-wrap gap-1">
+                <input type="hidden" name="action" value="fund_add">
+                <input name="name" class="form-control form-control-sm" style="width:170px" placeholder="اسم الصندوق" required>
+                <input name="employee_pct" type="number" step="any" min="0" max="100" class="form-control form-control-sm" style="width:90px" placeholder="الموظف %" required>
+                <input name="employer_pct" type="number" step="any" min="0" max="100" class="form-control form-control-sm" style="width:90px" placeholder="الشركة %" required>
+                <input name="salary_cap" type="number" step="any" min="0" class="form-control form-control-sm" style="width:100px" placeholder="السقف">
+                <input name="effective_from" type="date" value="{{ today }}" class="form-control form-control-sm" style="width:140px" required>
+                <input name="note" class="form-control form-control-sm" style="width:150px" placeholder="المرجع / ملاحظة">
+                <button class="btn btn-sm btn-outline-primary">إضافة صندوق</button>
+            </form>
+        </div>
+        {% endif %}
         {% if sec == 'leave' %}
         <div class="card-body border-top">
             <h6 class="mb-2">لكل نوع إجازة <span class="small text-muted">(الأنواع بتتصنف من «إعدادات الإجازات»؛ القيمة المميزة بالخط العريض خاصة بالنوع، والباقي الافتراضي اللي فوق)</span></h6>
@@ -127,7 +187,7 @@
                 <tr class="{{ 'text-muted text-decoration-line-through' if h.revoked_at }}">
                     <td>{{ h.id }}</td><td>{{ registry[h.key].label if h.key in registry else h.key }}</td>
                     <td dir="ltr">{{ h.value }}</td>
-                    <td>{{ {'company': 'الشركة', 'group': 'مجموعة', 'employee': 'موظف', 'leave_kind': 'نوع إجازة'}[h.scope] }} {{ h.scope_id or '' }}</td>
+                    <td>{{ {'company': 'الشركة', 'group': 'مجموعة', 'employee': 'موظف', 'leave_kind': 'نوع إجازة', 'item': 'بند'}[h.scope] }} {{ h.scope_id or '' }}</td>
                     <td dir="ltr">{{ h.effective_from }}</td><td class="small">{{ h.note or '' }}</td>
                     <td class="small">{{ h.created_by_name or '' }} <span dir="ltr">{{ (h.created_at or '')[:16] }}</span></td>
                     <td class="small">{% if h.revoked_at %}اتلغت: {{ h.revoke_reason }}{% else %}سارية{% endif %}</td>

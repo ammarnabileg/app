@@ -979,6 +979,8 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
     except (TypeError, ValueError):
         _custom_div = 26.0
     _WO2 = _WeeklyOff(conn, _P.get('default_weekly_off', day=p_end))
+    from utils.policies import pifss_funds as _pf_load
+    _pifss_funds_at = _pf_load(conn, p_end)
     if _basis not in ('30', '26', 'working', 'custom'):
         _basis = '30'
     _holidays_set = {str(r['date'])[:10] for r in conn.execute(
@@ -1199,16 +1201,21 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
         # `absence_deduction_base`. الأجرُ في القانون يشمل البدلات.
         _fixed_monthly = sum(a.get('full_amount', a['amount']) for a in allowances
                              if a.get('source') == 'fixed')
+        def _fx(calc, base, full=False):
+            """البدلات الثابتة الداخلة في حساب (سياسة البند، وإلا سياسة الحساب: wage = كلها)."""
+            return sum((a.get('full_amount', a['amount']) if full else a['amount']) for a in allowances
+                       if a.get('source') == 'fixed' and _P.item_included(calc, a['code'], base, emp_id, p_end))
         _day_wage = daily_rate
-        if (str(sal_e.get('absence_deduction_base', 'wage') or 'wage') == 'wage'
-                and basic > MONEY_EPS):
-            _day_wage = daily_rate * (basic + _fixed_monthly) / basic
+        if basic > MONEY_EPS:
+            _day_wage = daily_rate * (basic + _fx('absence', str(sal_e.get('absence_deduction_base', 'wage') or 'wage'),
+                                                  True)) / basic
         # سياسات الأجر (utils/policies): راتب اليوم نفسه أو متوسط الدورة، وأساس التأخير والإضافي.
         _day_mode = str(sal_e.get('salary_day_basis', 'period_average')) == 'day'
         _wk = '_ws' if _day_mode else '_w'
-        _wfac = ((basic + _fixed_monthly) / basic) if basic > MONEY_EPS else 1.0
-        _late_f = _wfac if str(sal_e.get('late_wage_base', 'basic')) == 'wage' else 1.0
-        _ot_f = _wfac if str(sal_e.get('overtime_wage_base', 'basic')) == 'wage' else 1.0
+        _late_f = ((basic + _fx('late', str(sal_e.get('late_wage_base', 'basic')), True)) / basic
+                   if basic > MONEY_EPS else 1.0)
+        _ot_f = ((basic + _fx('overtime', str(sal_e.get('overtime_wage_base', 'basic')), True)) / basic
+                 if basic > MONEY_EPS else 1.0)
 
         def _days_of(n, f_key):
             """أيام (غياب/بدون راتب) — براتب كل يوم لو السياسة كده والأرقام هي الحية."""
@@ -1463,25 +1470,39 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
                                  if d_['code'] not in _day_codes or d_['amount'] > MONEY_EPS]
 
         employer_pifss = 0.0
-        if _pifss_on_e and is_kuwaiti(emp['nationality'] if 'nationality' in emp.keys() else None):
-            # الأجرُ الخاضع: الأساسيّ والبدلاتُ الثابتة، مسقوفًا.
-            _wage = basic + (0.0 if str(sal_e.get('pifss_wage_base', 'wage')) == 'basic'
-                             else sum(a['amount'] for a in allowances if a.get('source') == 'fixed'))
-            _base, _emp_sh, employer_pifss = pifss_shares(_wage, sal_e)
-            if _emp_sh > MONEY_EPS:
-                deductions.append({'code': 'social_insurance_emp',
-                                   'name_ar': f'التأمينات الاجتماعية — حصة الموظف ({sal_e.get("pifss_employee_pct")}%)',
-                                   'name_en': f'Social insurance — employee ({sal_e.get("pifss_employee_pct")}%)',
-                                   'amount': _emp_sh, 'source': 'computed',
-                                   'base': _base})
+        _subject = (str(sal_e.get('pifss_subject', 'kuwaiti')) == 'all'
+                    or is_kuwaiti(emp['nationality'] if 'nationality' in emp.keys() else None))
+        if _pifss_on_e and _subject:
+            # الأجرُ الخاضع: الأساسي + البدلات الداخلة (سياسة الحساب أو البند)، مسقوفًا.
+            _wage = basic + _fx('pifss', str(sal_e.get('pifss_wage_base', 'wage')))
+            _funds = _pifss_funds_at
+            if _funds:
+                # صناديق سارية: كل صندوق سطر لوحده بنسبه وسقفه (utils/policies.pifss_funds).
+                for _fd in _funds:
+                    _b = min(_wage, float(_fd['salary_cap'])) if _fd['salary_cap'] else _wage
+                    _es = round(_b * float(_fd['employee_pct']) / 100.0, 3)
+                    employer_pifss += round(_b * float(_fd['employer_pct']) / 100.0, 3)
+                    if _es > MONEY_EPS:
+                        deductions.append({'code': 'social_insurance_emp',
+                                           'name_ar': f"التأمينات — {_fd['name']} ({_fd['employee_pct']:g}%)",
+                                           'name_en': f"Social insurance — {_fd['name']} ({_fd['employee_pct']:g}%)",
+                                           'amount': _es, 'source': 'computed', 'base': round(_b, 3),
+                                           'fund_id': _fd['id']})
+            else:
+                _base, _emp_sh, employer_pifss = pifss_shares(_wage, sal_e)
+                if _emp_sh > MONEY_EPS:
+                    deductions.append({'code': 'social_insurance_emp',
+                                       'name_ar': f'التأمينات الاجتماعية — حصة الموظف ({sal_e.get("pifss_employee_pct")}%)',
+                                       'name_en': f'Social insurance — employee ({sal_e.get("pifss_employee_pct")}%)',
+                                       'amount': _emp_sh, 'source': 'computed',
+                                       'base': _base})
 
         # أقساطُ السلف لا تتجاوز 10% من الأجر (المادة 60)؛ الباقي يُرحَّل.
         _loans = [{'code': 'loan_installment',
                    'name_ar': 'قسط سلفة', 'name_en': 'Loan Installment',
                    'amount': ln['amount'], 'source': 'loan',
                    'loan_id': ln['loan_id']} for ln in loans_map.get(emp_id, [])]
-        _loan_wage = basic + (0.0 if str(sal_e.get('loan_cap_wage_base', 'wage')) == 'basic'
-                              else sum(a['amount'] for a in allowances if a.get('source') == 'fixed'))
+        _loan_wage = basic + _fx('loan_cap', str(sal_e.get('loan_cap_wage_base', 'wage')))
         _deferred = cap_loan_installments(_loans, _loan_wage, sal_e)
         for _ln in _loans:
             if _ln.get('deferred', 0) > MONEY_EPS:
@@ -1496,10 +1517,15 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
         _net_raw = basic + sum(a['amount'] for a in allowances) - sum(d_['amount'] for d_ in deductions)
         if _net_raw < -MONEY_EPS:
             _short = -_net_raw
-            _rank = lambda d_: (0 if d_.get('source') == 'loan' else 1 if d_.get('source') == 'tx'
-                                else 2 if d_['code'] in ('lateness_deduction', 'early_leave_deduction',
-                                                         'missing_punch_penalty', 'presence_penalty')
-                                else 3)
+            # الترتيب من سياسة «أولوية الترحيل» (الافتراضي: السلف ← اليدوي ← الجزاءات ← الباقي).
+            _ord = {'loans_tx_penalties': ('loan', 'tx', 'pen'), 'penalties_tx_loans': ('pen', 'tx', 'loan'),
+                    'tx_loans_penalties': ('tx', 'loan', 'pen')}.get(str(sal_e.get('net_floor_order', 'loans_tx_penalties')),
+                                                                     ('loan', 'tx', 'pen'))
+            def _rank(d_):
+                g = ('loan' if d_.get('source') == 'loan' else 'tx' if d_.get('source') == 'tx'
+                     else 'pen' if d_['code'] in ('lateness_deduction', 'early_leave_deduction',
+                                                  'missing_punch_penalty', 'presence_penalty') else None)
+                return _ord.index(g) if g in _ord else 3
             for d_ in sorted(deductions, key=_rank):
                 if _short <= MONEY_EPS:
                     break

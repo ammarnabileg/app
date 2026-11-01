@@ -25,7 +25,7 @@ import json
 from datetime import date, datetime
 
 BASE_DATE = '0001-01-01'
-SCOPES = ('employee', 'group', 'leave_kind', 'company')
+SCOPES = ('employee', 'group', 'leave_kind', 'item', 'company')
 # أنواع الإجازة (leave_types.law_kind) — كل نوع ليه سياساته (نطاق leave_kind).
 LEAVE_KINDS = [('annual', 'سنوية'), ('sick', 'مرضية'), ('emergency', 'طارئة'), ('unpaid', 'غير مدفوعة'),
                ('hajj', 'حج'), ('maternity', 'وضع'), ('bereavement', 'وفاة'), ('iddah', 'عدّة'),
@@ -40,6 +40,11 @@ SECTIONS = [
     ('deductions', 'الخصومات والسلف'),
     ('insurance', 'التأمينات'),
 ]
+
+_UNEXEC = [('pending_review', 'بانتظار المراجعة (يتجدول بقرار)'), ('court_review', 'حجز قضائي — مراجعة'),
+           ('review_only', 'للمراجعة فقط (قرار مكتوب للتحصيل)'), ('not_executed', 'غير منفّذ (مش دين)')]
+_ITEM_IN = [('follow', 'تبع سياسة الحساب'), ('1', 'يدخل'), ('0', 'مايدخلش')]
+ITEM_CALCS = ('absence', 'late', 'overtime', 'pifss', 'loan_cap')
 
 # key: (القسم، الاسم، النوع، الاختيارات، الافتراضي في الكود، قانوني؟، يوم بيوم؟)
 # «يوم بيوم» = المحرك بيقراها لكل يوم (فتغييرها في نص الشهر بيتطبق من يومه).
@@ -122,9 +127,25 @@ _R = [
     ('sick_tier_year_basis', 'leave', 'سنة شرائح المرضية', 'choice',
      [('calendar', 'السنة الميلادية'), ('service', 'سنة الخدمة')], 'calendar', True, False),
     # --- الخصومات
+    ('net_floor_order', 'deductions', 'أولوية الترحيل لما الصافي مايكفيش', 'choice',
+     [('loans_tx_penalties', 'السلف ← البنود اليدوية ← الجزاءات'), ('penalties_tx_loans', 'الجزاءات ← البنود اليدوية ← السلف'),
+      ('tx_loans_penalties', 'البنود اليدوية ← السلف ← الجزاءات')], 'loans_tx_penalties', False, False),
+    ('unexecuted_overpayment_recovery', 'deductions', 'باقي «استرداد صرف زائد»', 'choice', _UNEXEC, 'pending_review', False, False),
+    ('unexecuted_court_garnishment', 'deductions', 'باقي «الحجز القضائي»', 'choice', _UNEXEC, 'court_review', True, False),
+    ('unexecuted_admin_penalty', 'deductions', 'باقي «الجزاء الإداري»', 'choice', _UNEXEC, 'review_only', False, False),
+    ('unexecuted_attendance', 'deductions', 'باقي جزاءات الحضور (تأخير/انصراف/بصمة/تواجد)', 'choice', _UNEXEC, 'not_executed', False, False),
+    ('unexecuted_other', 'deductions', 'باقي أي بند تاني', 'choice', _UNEXEC, 'pending_review', False, False),
+    # البدلات بند بند (نطاق «بند» = كود البند): تتبع سياسة الحساب، أو تدخل، أو ماتدخلش.
+    ('item_in_absence', 'deductions', 'البند في أجر يوم الغياب', 'choice', _ITEM_IN, 'follow', False, False),
+    ('item_in_late', 'deductions', 'البند في أجر التأخير', 'choice', _ITEM_IN, 'follow', False, False),
+    ('item_in_overtime', 'deductions', 'البند في أجر الإضافي', 'choice', _ITEM_IN, 'follow', False, False),
+    ('item_in_pifss', 'deductions', 'البند في الأجر الخاضع للتأمينات', 'choice', _ITEM_IN, 'follow', True, False),
+    ('item_in_loan_cap', 'deductions', 'البند في أجر حد السلف', 'choice', _ITEM_IN, 'follow', False, False),
     ('loan_deduction_cap_pct', 'deductions', 'حد أقساط السلف (% من الأجر)', 'number', None, '10', True, False),
     # --- التأمينات
     ('pifss_enabled', 'insurance', 'تفعيل التأمينات', 'choice', [('0', 'مقفول'), ('1', 'مفعّل')], '0', True, False),
+    ('pifss_subject', 'insurance', 'مين خاضع للتأمينات', 'choice',
+     [('kuwaiti', 'الكويتيين (من الجنسية)'), ('all', 'كل الموظفين')], 'kuwaiti', True, False),
     ('pifss_employee_pct', 'insurance', 'نسبة الموظف %', 'number', None, '10.5', True, False),
     ('pifss_employer_pct', 'insurance', 'نسبة الشركة %', 'number', None, '11.5', True, False),
     ('pifss_salary_cap', 'insurance', 'سقف الأجر الخاضع', 'number', None, '2750', True, False),
@@ -161,6 +182,18 @@ def ensure_schema(conn):
         approved_by INTEGER,
         approved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(employee_id, work_date))''')
+    # صناديق التأمينات (لو فيه صناديق سارية، كل صندوق سطر لوحده بنسبه وسقفه؛ من غيرها: النسبة الواحدة القديمة).
+    conn.execute('''CREATE TABLE IF NOT EXISTS pifss_funds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        employee_pct REAL NOT NULL DEFAULT 0,
+        employer_pct REAL NOT NULL DEFAULT 0,
+        salary_cap REAL,
+        effective_from TEXT NOT NULL,
+        effective_to TEXT,
+        note TEXT,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
     conn.execute('CREATE INDEX IF NOT EXISTS ix_policies_key ON payroll_policies (key, scope, effective_from)')
 
 
@@ -190,13 +223,13 @@ class Policies:
             return str(self.legacy[key]), 'legacy'
         return (REGISTRY[key]['default'] if key in REGISTRY else None), 'system'
 
-    def resolve(self, key, employee_id=None, day=None, group=None, leave_kind=None):
+    def resolve(self, key, employee_id=None, day=None, group=None, leave_kind=None, item=None):
         """(القيمة، المصدر، السطر أو None) السارية يوم `day` للموظف (ولنوع الإجازة لو اتبعت)."""
         day = (day.isoformat() if isinstance(day, (date, datetime)) else str(day or date.today().isoformat()))[:10]
         rows = self.rows.get(key)
         if rows:
             for scope, sid in (('employee', str(employee_id) if employee_id is not None else None),
-                               ('group', group), ('leave_kind', leave_kind), ('company', None)):
+                               ('group', group), ('leave_kind', leave_kind), ('item', item), ('company', None)):
                 if scope != 'company' and not sid:
                     continue
                 hit = None
@@ -209,8 +242,13 @@ class Policies:
         v, src = self.base(key)
         return v, src, None
 
-    def get(self, key, employee_id=None, day=None, group=None, leave_kind=None):
-        return self.resolve(key, employee_id, day, group, leave_kind)[0]
+    def get(self, key, employee_id=None, day=None, group=None, leave_kind=None, item=None):
+        return self.resolve(key, employee_id, day, group, leave_kind, item)[0]
+
+    def item_included(self, calc, code, base, employee_id=None, day=None):
+        """البند الثابت ده يدخل في الحساب ده؟ (سياسة البند، وإلا سياسة الحساب: wage = يدخل)."""
+        v = self.get('item_in_' + calc, employee_id, day, item=code) if 'item_in_' + calc in self.rows else 'follow'
+        return v == '1' or (v == 'follow' and base == 'wage')
 
     def leave_rules(self, kind, employee_id=None, day=None, group=None):
         """قواعد نوع الإجازة في اليوم ده: (تقويمي؟، تستثني الراحة؟، تستثني العطلات؟، البصمة تلغي الإجازة؟)."""
@@ -225,7 +263,7 @@ class Policies:
         out = None
         for k in self.rows:
             v, src, _ = self.resolve(k, employee_id, day, group)
-            if src in ('employee', 'group', 'leave_kind', 'company'):
+            if src in ('employee', 'group', 'company'):
                 if out is None:
                     out = dict(base_sal)
                 out[k] = v
@@ -442,3 +480,38 @@ def comp_rest_balance(conn, year=None, employee_id=None, min_hours=None):
     for e in out.values():
         e['balance'] = e['earned'] - e['taken']
     return sorted(out.values(), key=lambda x: x['employee_id'])
+
+
+# ------------------------------------------------------------ صناديق التأمينات
+
+def pifss_funds(conn, day=None):
+    """الصناديق السارية يوم `day` (كل صندوق: الاسم، نسبة الموظف والشركة، السقف). فاضية = النسبة القديمة."""
+    ensure_schema(conn)
+    d = (day.isoformat() if hasattr(day, 'isoformat') else str(day or date.today().isoformat()))[:10]
+    return [dict(r) for r in conn.execute(
+        '''SELECT * FROM pifss_funds WHERE effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?)
+           ORDER BY id''', (d, d)).fetchall()]
+
+
+def add_pifss_fund(conn, name, employee_pct, employer_pct, salary_cap, effective_from, user_id, note=''):
+    ensure_schema(conn)
+    if len((name or '').strip()) < 2:
+        raise ValueError('اسم الصندوق')
+    try:
+        e, r = float(employee_pct), float(employer_pct)
+        cap = float(salary_cap) if str(salary_cap or '').strip() else None
+        eff = datetime.strptime(str(effective_from)[:10], '%Y-%m-%d').date().isoformat()
+    except ValueError:
+        raise ValueError('النسب والسقف أرقام، والتاريخ صحيح')
+    if not (0 <= e <= 100 and 0 <= r <= 100):
+        raise ValueError('النسبة من 0 لـ 100')
+    cur = conn.execute('''INSERT INTO pifss_funds (name, employee_pct, employer_pct, salary_cap, effective_from, note,
+                          created_by) VALUES (?, ?, ?, ?, ?, ?, ?)''', (name.strip(), e, r, cap, eff, note or None, user_id))
+    return cur.lastrowid
+
+
+def end_pifss_fund(conn, fund_id, effective_to):
+    """الصندوق بيقف من تاريخ (اليوم ده آخر يوم) — السطر مابيتمسحش."""
+    ensure_schema(conn)
+    to = datetime.strptime(str(effective_to)[:10], '%Y-%m-%d').date().isoformat()
+    conn.execute('UPDATE pifss_funds SET effective_to = ? WHERE id = ?', (to, int(fund_id)))

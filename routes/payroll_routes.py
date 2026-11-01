@@ -1388,6 +1388,17 @@ def policies_page():
     if request.method == 'POST':
         f = request.form
         try:
+            if f.get('action') == 'fund_add':
+                PO.add_pifss_fund(conn, f.get('name'), f.get('employee_pct'), f.get('employer_pct'), f.get('salary_cap'),
+                                  f.get('effective_from'), _uid(), f.get('note', ''))
+                conn.commit()
+                flash('اتضاف الصندوق', 'success')
+                return redirect(url_for('payroll.policies_page') + '#insurance')
+            if f.get('action') == 'fund_end':
+                PO.end_pifss_fund(conn, f.get('fund_id'), f.get('effective_to'))
+                conn.commit()
+                flash('الصندوق اتقفل من التاريخ ده', 'success')
+                return redirect(url_for('payroll.policies_page') + '#insurance')
             if f.get('action') == 'revoke':
                 PO.revoke(conn, f.get('policy_id'), _uid(), f.get('reason', ''))
                 conn.commit()
@@ -1419,6 +1430,14 @@ def policies_page():
         items.append(dict(meta, value=v, value_label=label, source=src, row=row,
                           overrides=[r for r in P.rows.get(k, []) if r['scope'] != 'company']))
     groups = [r[0] for r in conn.execute("SELECT DISTINCT branch_location FROM employees WHERE COALESCE(branch_location, '') != '' ORDER BY 1")]
+    item_matrix = []
+    for it in conn.execute("SELECT code, name_ar FROM payroll_item_types WHERE kind = 'earning' AND species = 'fixed' "
+                           "AND COALESCE(is_active, 1) = 1 ORDER BY sort_order").fetchall():
+        cells = []
+        for calc in PO.ITEM_CALCS:
+            v, src, _ = P.resolve('item_in_' + calc, day=today, item=it['code'])
+            cells.append({'value': v, 'label': dict(PO._ITEM_IN).get(v, v), 'own': src == 'item'})
+        item_matrix.append({'code': it['code'], 'name': it['name_ar'], 'cells': cells})
     leave_keys = ('leave_day_basis', 'leave_excludes_rest', 'leave_excludes_holidays', 'leave_punch_policy')
     leave_matrix = []
     for kcode, klabel in PO.LEAVE_KINDS:
@@ -1430,6 +1449,9 @@ def policies_page():
     return render_template('payroll_policies.html', sections=PO.SECTIONS, items=items, preview=preview,
                            history=PO.history(conn), registry=PO.REGISTRY, groups=groups,
                            leave_matrix=leave_matrix, leave_keys=leave_keys, leave_kinds=PO.LEAVE_KINDS,
+                           item_matrix=item_matrix, item_calcs=PO.ITEM_CALCS, item_choices=PO._ITEM_IN,
+                           funds=PO.pifss_funds(conn, today), all_funds=[dict(r) for r in conn.execute(
+                               'SELECT * FROM pifss_funds ORDER BY id DESC').fetchall()],
                            today=today.isoformat())
 
 
