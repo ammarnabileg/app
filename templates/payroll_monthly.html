@@ -210,7 +210,8 @@
                 <span>${esc(itName(i))}${i.source === 'tx' ? ' <i class="fas fa-bolt text-warning" title="tx"></i>'
                     : (i.source === 'computed' ? ' <i class="fas fa-cogs text-secondary"></i>' : '')}</span>
                 <span class="fw-semibold">${money(i.amount)}</span>
-            </div>`).join('');
+            </div>${(i.explain || []).length ? '<details class="small text-muted mb-1"><summary>كيف اتحسبت؟</summary>'
+                + i.explain.map(e => '<div>• ' + esc(e) + '</div>').join('') + '</details>' : ''}`).join('');
     }
 
     function render() {

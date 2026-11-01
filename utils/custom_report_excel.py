@@ -300,6 +300,8 @@ def _details(wb, rows, L, company, start, end):
             r += 1
             st = cell.get('status')
             sym, bg, fg, name = STATUS.get(st, ('', 'FFFFFF', '111827', st or ''))
+            if cell.get('in_leave'):
+                name += ' (داخل فترة إجازة)'
             try:
                 dt = datetime.strptime(cell['date'], '%Y-%m-%d')
                 day = AR_DAYS[dt.weekday()]

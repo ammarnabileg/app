@@ -181,12 +181,17 @@
                 if (statusText === 'holiday') { cellContent = {{ _("symbol.holiday") | tojson }} + otCell; cellClass = 'bg-warning bg-opacity-25 text-warning fw-bold'; }
                 else if (statusText === 'leave') { cellContent = {{ _("symbol.leave") | tojson }}; cellClass = 'bg-info bg-opacity-25 text-info fw-bold'; }
                 else if (statusText === 'weekly_off') { cellContent = {{ _("symbol.weekend") | tojson }} + otCell; cellClass = 'bg-secondary bg-opacity-10 text-muted fw-bold'; }
-                else if (statusText === 'absent') { cellContent = {{ _("symbol.absent") | tojson }}; cellClass = 'bg-danger bg-opacity-25 text-danger fw-bold'; if (CAN_EDIT_ATT) { clickAction = `onclick="openActionModal('${r.id}', '${r.name}', '${c.date}', 'absent')"`; cellStyle = 'cursor:pointer;'; } }
-                else if (statusText === 'partial') { cellContent = {{ _("symbol.invalid") | tojson }}; cellClass = 'bg-danger text-white fw-bold'; tooltip += ' ({{ _("tooltip.missing_punch") }})'; if (CAN_EDIT_ATT) { clickAction = `onclick="openActionModal('${r.id}', '${r.name}', '${c.date}', 'invalid')"`; cellStyle = 'cursor:pointer;'; } }
+                else if (statusText === 'absent') { cellContent = {{ _("symbol.absent") | tojson }}; cellClass = 'bg-danger bg-opacity-25 text-danger fw-bold'; }
+                else if (statusText === 'partial') { cellContent = {{ _("symbol.invalid") | tojson }}; cellClass = 'bg-danger text-white fw-bold'; tooltip += ' ({{ _("tooltip.missing_punch") }})'; }
                 else if (statusText === 'terminated') { cellContent = '<i class="fas fa-ban"></i>'; cellClass = 'bg-dark bg-opacity-10 text-muted fw-bold'; tooltip = {{ _('x.termination_resignation')|tojson }}; }
                 else if (statusText === 'present') { cellContent = c.work_hours > 0 ? fmtHM(c.work_hours) : '<span class="text-success">&#10003;</span>'; }
                 else { cellContent = '<span class="text-muted opacity-25">-</span>'; }
 
+                if (c.in_leave) { tooltip += '\nداخل فترة إجازة — مابيتحسبش منها'; cellContent += '<div class="small text-info">ج</div>'; }
+                // «كيف اتحسبت؟» لأي يوم — والغياب/البصمة الناقصة فيهم زرار التعديل جوه الشباك.
+                const editKind = CAN_EDIT_ATT && (statusText === 'absent' || statusText === 'partial') ? (statusText === 'absent' ? 'absent' : 'invalid') : '';
+                clickAction = `onclick="explainDay(${r.id}, '${(r.name || '').replace(/'/g, '')}', '${c.date}', '${editKind}')"`;
+                cellStyle = 'cursor:pointer;';
                 daysHtml += `<td class="${cellClass}" title="${tooltip}" style="${cellStyle}" ${clickAction}>${cellContent}</td>`;
             });
 
@@ -218,12 +223,39 @@
                     <td class="text-danger">${r.stats.absent_days}</td>
                     <td class="text-info fw-bold">${r.salary}</td>
                     <td class="text-success">${r.financials.allowances || 0}</td>
-                    <td class="text-success fw-bold">${r.financials.overtime_reward}</td>
-                    <td class="text-danger fw-bold" title="${deductionTooltip}" data-bs-toggle="tooltip">${r.financials.total_deduction}</td>
+                    <td class="text-success fw-bold" style="cursor:pointer" onclick="explainMoney(${rows.indexOf(r)})">${r.financials.overtime_reward}</td>
+                    <td class="text-danger fw-bold" title="${deductionTooltip}" style="cursor:pointer" onclick="explainMoney(${rows.indexOf(r)})">${r.financials.total_deduction}</td>
                     <td class="text-primary fw-bold text-decoration-underline">${r.financials.net_salary}</td>
                 `;
             tbody.appendChild(tr);
         });
+    }
+
+    // «كيف اتحسبت؟» (utils/explain + شرح بنود كشف الرواتب)
+    function _esc(t) { return String(t == null ? '' : t).replace(/[&<>]/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[ch])); }
+    function showExplain(title, html, footer) {
+        document.getElementById('explainTitle').textContent = title;
+        document.getElementById('explainBody').innerHTML = html;
+        document.getElementById('explainFooter').innerHTML = footer || '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('explainModal')).show();
+    }
+    async function explainDay(empId, name, date, editKind) {
+        const r = await fetch(`/api/payroll/explain_day?employee_id=${empId}&date=${date}`).then(x => x.json()).catch(() => ({}));
+        const body = r.success ? '<table class="table table-sm small mb-0">' + r.lines.map(l =>
+            `<tr><th class="text-nowrap">${_esc(l[0])}</th><td>${_esc(l[1])}</td></tr>`).join('') + '</table>'
+            : `<div class="text-danger">${_esc(r.message || 'مفيش بيانات')}</div>`;
+        const foot = editKind ? `<button class="btn btn-sm btn-primary" onclick="bootstrap.Modal.getInstance(document.getElementById('explainModal')).hide(); openActionModal('${empId}', '${name}', '${date}', '${editKind}')">تعديل الحضور</button>` : '';
+        showExplain(`${name} — ${date}`, body, foot);
+    }
+    function explainMoney(i) {
+        const r = (window.reportData || [])[i]; if (!r) return;
+        const f = r.financials || {};
+        const block = (title, items) => items.length ? `<h6 class="mt-2">${title}</h6>` + items.map(it =>
+            `<div class="border rounded p-2 mb-2"><div class="d-flex justify-content-between"><b>${_esc(it.name)}</b><span dir="ltr">${(+it.amount).toFixed(3)}</span></div>`
+            + (it.explain || []).map(e => `<div class="small text-muted">• ${_esc(e)}</div>`).join('') + '</div>').join('') : '';
+        let html = block('الإضافات', f.allowances_detail || []) + block('الخصومات', f.deductions_detail || []);
+        if (f.partial_period) html += '<div class="alert alert-info small mt-2">فترة جزئية: الأساسي والبدلات الثابتة بنسبة أيام الفترة من الدورة.</div>';
+        showExplain(`${r.name} — كيف اتحسبت الفلوس؟`, html || '<div class="text-muted">مفيش بنود</div>');
     }
 
     // التصدير من السيرفر (utils/custom_report_excel): ملف منسّق بنفس بيانات الصفحة.
@@ -231,6 +263,13 @@
         window.location = {{ url_for('report.custom_employees_report_export')|tojson }} + window.location.search;
     });
 </script>
+
+<div class="modal fade" id="explainModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fas fa-question-circle me-2"></i><span id="explainTitle"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body" id="explainBody"></div>
+    <div class="modal-footer" id="explainFooter"></div>
+</div></div></div>
 
 <style>
     /* ØªØ­Ø³ÙŠÙ†Ø§Øª Ù„Ù„Ø¬Ø¯ÙˆÙ„ */

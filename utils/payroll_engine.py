@@ -554,6 +554,8 @@ def compute_month_metrics(conn, month, year, employees=None, day_sink=None, peri
             if leave_hit:
                 _cal, _x_rest, _x_hol, _punch_work = _P.leave_rules(leave_hit[5], emp_id, d, emp['branch_location'] if 'branch_location' in emp.keys() else None)
                 if (_is_rest and not _cal and _x_rest) or (_is_hol and not _cal and _x_hol):
+                    if _pend is not None:
+                        _pend[2] = 'in_leave:' + str(leave_hit[4] or '')
                     leave_hit = None                       # اليوم يفضل راحة/عطلة («داخل فترة إجازة»)
                 elif _punch_work and span is not None and span > 0:
                     leave_hit = None                       # بصمة في يوم الإجازة = يوم شغل (سياسة)؛ نوعه الطبيعي زي ما هو
@@ -942,6 +944,69 @@ def _unexec(item, cut, reason, original=None):
     return {'code': item.get('code'), 'name_ar': item.get('name_ar'), 'source': item.get('source'),
             'tx_id': item.get('tx_id'), 'loan_id': item.get('loan_id'), 'reference': item.get('reference'),
             'original': orig, 'deducted': round(orig - cut, 3), 'remaining': cut, 'reason': reason}
+
+
+_SRC_LABEL = {'employee': 'استثناء الموظف', 'group': 'سياسة المجموعة', 'company': 'سياسة الشركة',
+              'legacy': 'صفحة الإعدادات', 'system': 'افتراضي النظام', 'leave_kind': 'سياسة نوع الإجازة',
+              'item': 'سياسة البند'}
+
+
+def policy_source(P, key, emp, day):
+    """«القيمة — المصدر (من التاريخ)» للعرض في «كيف اتحسبت؟»."""
+    from utils.policies import REGISTRY
+    v, src, row = P.resolve(key, emp['id'], day, emp['branch_location'] if 'branch_location' in emp.keys() else None)
+    meta = REGISTRY.get(key, {})
+    shown = dict(meta.get('choices') or []).get(v, v)
+    return f"{meta.get('label', key)}: {shown} — {_SRC_LABEL.get(src, src)}" + (
+        f" من {row['effective_from']}" if row else '')
+
+
+def _explain_items(allowances, deductions, P, emp, day, basic, daily_rate, day_wage, att, ot_detail,
+                   late_f, ot_f, basis, custom_div, sal):
+    """«كيف اتحسبت؟» لكل بند محسوب: المعادلة بالأرقام، والسياسات اللي اتطبقت ومصدرها وتاريخها."""
+    div = {'26': '26', '30': '30', 'working': 'أيام الجدول', 'custom': f'{custom_div:g}'}.get(basis, basis)
+    rate = f"الأجر اليومي {daily_rate:.3f} = الأساسي {basic:.3f} ÷ {div}"
+    src = lambda k: policy_source(P, k, emp, day)
+    for d in deductions + allowances:
+        c, ex = d.get('code'), None
+        if c == 'absence_deduction':
+            ex = [f"{d.get('days', att.get('absent_days', 0))} يوم × أجر يوم {day_wage:.3f}", rate,
+                  src('absence_deduction_base'), src('daily_rate_basis'), src('salary_day_basis')]
+        elif c == 'unpaid_leave_deduction':
+            ex = [f"{d.get('days')} يوم × أجر يوم {day_wage:.3f}", rate, src('absence_deduction_base')]
+        elif c in ('lateness_deduction', 'early_leave_deduction'):
+            late = c == 'lateness_deduction'
+            ex = [f"{att.get('late_mins' if late else 'early_mins', 0)} دقيقة ÷ 60 × أجر ساعة كل يوم (الأجر اليومي ÷ ساعات شفت اليوم)"
+                  + (f" × {late_f:.4f} (البدلات الداخلة)" if abs(late_f - 1) > 1e-9 else ''), rate,
+                  src('grace_late_minutes' if late else 'early_departure_grace_minutes'),
+                  src('late_arrival_policy' if late else 'early_departure_policy'),
+                  src('late_count_from' if late else 'early_count_from'), src('hourly_rate_basis'), src('late_wage_base')]
+            if d.get('capped_by_law'):
+                ex.append(f"اتخفض {d['capped_by_law']:.3f} بسقف الجزاءات — " + src('penalty_monthly_cap_days'))
+        elif c == 'missing_punch_penalty':
+            ex = [f"{d.get('days')} يوم ناقص البصمة ← أيام خصم حسب السياسة × الأجر اليومي {daily_rate:.3f}",
+                  src('missing_punch_policy'), src('missing_punch_penalty_1'), src('missing_punch_penalty_2'),
+                  src('missing_punch_penalty_3')]
+        elif c == 'overtime' and ot_detail:
+            ex = [f"عادي {ot_detail['weekday_hours']:g} س = {ot_detail['weekday_amount']:.3f}، راحة {ot_detail['weekend_hours']:g} س = "
+                  f"{ot_detail['weekend_amount']:.3f}، عطلة {ot_detail['holiday_hours']:g} س = {ot_detail['holiday_amount']:.3f}",
+                  "كل ساعة × أجر ساعة يومها × المعامل" + (f" × {ot_f:.4f} (البدلات الداخلة)" if abs(ot_f - 1) > 1e-9 else ''),
+                  rate, src('weekday_ot_multiplier'), src('weekend_ot_multiplier'), src('holiday_ot_multiplier'),
+                  src('overtime_round_to_minutes'), src('overtime_min_minutes'), src('overtime_requires_approval'),
+                  src('overtime_wage_base')]
+        elif c == 'social_insurance_emp':
+            ex = [f"الأجر الخاضع {d.get('base', 0):.3f} × النسبة" + (' (صندوق)' if d.get('fund_id') else ''),
+                  src('pifss_subject'), src('pifss_wage_base')] + ([] if d.get('fund_id') else
+                                                                   [src('pifss_employee_pct'), src('pifss_salary_cap')])
+        elif c == 'loan_installment':
+            ex = ['قسط السلفة الشهري' + (f" — اتأجل منه {d['deferred']:.3f} بحد السلف" if d.get('deferred') else ''),
+                  src('loan_deduction_cap_pct'), src('loan_cap_wage_base')]
+        elif c in ('pre_hire_days', 'post_service_days'):
+            ex = [f"{d.get('days')} يوم × الأجر اليومي {daily_rate:.3f}", rate]
+        if ex:
+            if d.get('deferred') and c != 'loan_installment':
+                ex.append(f"اترحّل منه {d['deferred']:.3f} (الصافي مايكفيش) — " + src('net_floor_order'))
+            d['explain'] = ex
 
 
 def _day_units(mins, live, mins_key, w_key, hpd_now):
@@ -1538,6 +1603,9 @@ def compute_monthly_payroll(conn, month, year, day_sink=None, period=None):
             deductions[:] = [d_ for d_ in deductions if d_['amount'] > MONEY_EPS]
             law_warnings.append({'code': 'net_floor', 'amount': round(-_net_raw, 3)})
 
+        _explain_items(allowances, deductions, _P, emp, p_end, basic, daily_rate,
+                       locals().get('_day_wage', daily_rate), att if 'att' in locals() else {},
+                       ot_detail, locals().get('_late_f', 1.0), locals().get('_ot_f', 1.0), _basis, _custom_div, sal_e)
         for _it in allowances:
             _it['amount'] = _rnd(_it['amount'])
         if ot_detail:
@@ -2303,7 +2371,7 @@ def compute_employee_days(conn, employee_id, month, year, raw_ot=False):
                      # التأخيرُ الفعليّ بجوار المحتسَب: سياسةُ «ربع يوم» تجعل
                      # تأخيرَ 13 دقيقة «120 د» — والرقمان معًا يشرحان نفسيهما.
                      'late_actual': _actual_late(first_t, ev) if d_late else 0,
-                     'late_policy': sal.get('late_arrival_policy', 'actual_time') if d_late else None,
+                     'late_policy': _sdd.get('late_arrival_policy', 'actual_time') if d_late else None,
                      'has_manual': has_manual})
         d += timedelta(days=1)
 

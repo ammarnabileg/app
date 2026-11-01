@@ -848,6 +848,48 @@ def custom_employees_report_page():
                          selected_dept=selected_dept,
                          selected_pos=request.args.get('pos', ''))
 
+_KIND_STATUS = {'rest': 'weekly_off', 'holiday': 'holiday', 'leave_sick': 'leave', 'leave_paid': 'leave',
+                'leave_unpaid': 'leave', 'excused': 'leave', 'absent': 'absent'}
+
+
+def _hm(t):
+    return t.strftime('%H:%M') if hasattr(t, 'strftime') else (str(t)[11:16] if t else '--')
+
+
+def _cells_from_engine(row, days, hire_iso):
+    """خانات الأيام من حساب كشف الرواتب نفسه (day_sink) — الشفت الساري في اليوم، والليلي، وتاريخ أيام
+    الراحة، وسياسة الإجازة. نفس التصنيف اللي اتحسبت بيه الفلوس، بدل تصنيف تقرير البصمات القديم."""
+    if not days:
+        return
+    st = row['stats']
+    counts = {'present': 0, 'absent': 0, 'weekly_off': 0, 'holiday': 0, 'leave': 0}
+    for c in row['daily_cells']:
+        d = days.get(c['date'])
+        if not d:
+            continue
+        dl = d.get('delta') or {}
+        kind = d['kind']
+        if kind == 'outside':
+            status = 'not_hired' if hire_iso and c['date'] < hire_iso else 'terminated'
+        elif kind == 'work':
+            status = 'partial' if dl.get('partial_days') else 'present'
+        else:
+            status = _KIND_STATUS.get(kind, kind)
+        ot = int(dl.get('ot_weekday_mins', 0) + dl.get('ot_weekend_mins', 0) + dl.get('ot_holiday_mins', 0))
+        c.update(status=status, check_in=_hm(d.get('first')) if d.get('first') else '--',
+                 check_out=_hm(d.get('last')) if d.get('last') else '--',
+                 work_hours=round(float(d.get('span_hours') or 0), 4),
+                 late_minutes=int(dl.get('late_mins', 0)), early_leave_minutes=int(dl.get('early_mins', 0)),
+                 overtime_minutes=ot, is_leave=status == 'leave',
+                 in_leave=str(d.get('note') or '').startswith('in_leave'), source='payroll_engine')
+        key = 'present' if status in ('present', 'partial') else status
+        if key in counts:
+            counts[key] += 1
+    st.update(present_days=counts['present'], absent_days=counts['absent'], weekly_off_days=counts['weekly_off'],
+              holiday_days=counts['holiday'], leave_days=counts['leave'],
+              work_days=sum(counts.values()))
+
+
 def _apply_payroll_engine(conn, rows, start_d, end_d):
     """أرقام التقرير الشامل من محرك الرواتب (utils/payroll_engine) — مش حساب تاني.
 
@@ -872,13 +914,19 @@ def _apply_payroll_engine(conn, rows, start_d, end_d):
     emps = [e for e in pe.fetch_payroll_employees(conn, period=(start_d, end_d)) if e['id'] in ids]
     if not emps:
         return
-    metrics = pe.compute_month_metrics(conn, m, y, emps, period=period)
+    sink = []
+    metrics = pe.compute_month_metrics(conn, m, y, emps, period=period, day_sink=sink)
+    by_emp = {}
+    for d in sink:
+        by_emp.setdefault(d['employee_id'], {})[d['date']] = d
+    hires = {e['id']: str(e['hire_date'] or '')[:10] for e in emps}
     pay = {r['employee_id']: r for r in pe.compute_monthly_payroll(conn, m, y, period=period)['rows']}
     for row in rows:
         mt, pr = metrics.get(row['id']), pay.get(row['id'])
         if not mt or not pr:
             continue
         st, fi = row['stats'], row['financials']
+        _cells_from_engine(row, by_emp.get(row['id'], {}), hires.get(row['id'], ''))
         ot_m = mt['ot_weekday_mins'] + mt['ot_weekend_mins'] + mt['ot_holiday_mins']
         req, act = float(mt['required_hours']), float(mt['actual_hours'])
         # الفعلية = الإجمالي من غير الإضافي (بحد المطلوب)، فـ المطلوب − الفعلية = الناقص، والإجمالي = الفعلية + الإضافي + أي زيادة.
@@ -901,10 +949,27 @@ def _apply_payroll_engine(conn, rows, start_d, end_d):
         ded = min(ded, basic + allow + ot_val)
         fi.update(overtime_reward=round(ot_val, 3), allowances=round(allow, 3), total_deduction=round(ded, 3),
                   net_salary=round(basic + allow + ot_val - ded, 3),
-                  deductions_detail=[{'name': d.get('name_ar') or d.get('code'), 'amount': d['amount']}
-                                     for d in pr['deductions']],
+                  deductions_detail=[{'name': d.get('name_ar') or d.get('code'), 'amount': d['amount'],
+                                      'explain': d.get('explain') or []} for d in pr['deductions']],
+                  allowances_detail=[{'name': a.get('name_ar') or a.get('code'), 'amount': a['amount'],
+                                      'explain': a.get('explain') or []} for a in pr['allowances']],
                   source='payroll_engine', partial_period=not full)
         row['salary'] = round(basic, 3)
+
+
+@report_bp.route('/api/payroll/explain_day')
+@login_required
+@require_permission('report.view')
+def explain_day_api():
+    """«كيف اتحسبت؟» ليوم (utils/explain)."""
+    from utils.explain import explain_day
+    try:
+        r = explain_day(get_db_connection(), int(request.args['employee_id']), request.args['date'])
+    except (KeyError, ValueError):
+        return jsonify({'success': False, 'message': 'بيانات ناقصة'}), 400
+    if not r:
+        return jsonify({'success': False, 'message': 'مفيش بيانات لليوم ده'}), 404
+    return jsonify({'success': True, **r})
 
 
 @report_bp.route('/fingerprint/custom_employees_report/export')
