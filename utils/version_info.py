@@ -33,16 +33,19 @@
 
 VERSION_MAJOR = 2
 VERSION_MINOR = 45
-VERSION_PATCH = 2
+VERSION_PATCH = 90
 VERSION_BUILD = 0
 
 CURRENT_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}.{VERSION_BUILD}"
 
 # تاريخ البناء — يُحدَّث مع BUILD
-BUILD_DATE = "2026-10-31"
+BUILD_DATE = "2026-11-03"
 
 # اسم الإصدار الداخلي: يُذكر في الدعم الفني ليُعرف ما يحمله العميل
-RELEASE_NAME = "التقرير الشامل بأرقام كشف الرواتب"
+RELEASE_NAME = "تجريبي — سياسات الحضور والرواتب"
+
+# نسخة تجريبية (برانش payroll-policies): بتتبني exe للتجربة، والإصدار على GitHub بيتعلّم pre-release.
+PRERELEASE = True
 
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT_OWNER = "ONZ"
